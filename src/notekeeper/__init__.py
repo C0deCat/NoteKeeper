@@ -1,3 +1,3 @@
-"""NoteKeeper application package."""
+"""NoteKeeper package."""
 
-__all__ = ["domain"]
+__all__ = ["application", "domain"]
