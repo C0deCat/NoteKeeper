@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Protocol
 
-from notekeeper.application.results import TranscriptChunk
+from notekeeper.application.results import CampaignFolderSnapshot, TranscriptChunk
 from notekeeper.domain import (
     ArtifactRef,
     AudioMetadata,
@@ -13,6 +13,9 @@ from notekeeper.domain import (
     AudioTrackId,
     Campaign,
     CampaignId,
+    Participant,
+    ParticipantId,
+    VoiceSampleId,
     ProcessingJob,
     ProcessingJobId,
     Recap,
@@ -28,31 +31,93 @@ from notekeeper.domain import (
 class CampaignRepository(Protocol):
     def get(self, campaign_id: CampaignId) -> Campaign | None: ...
 
+    def list(self) -> tuple[Campaign, ...]: ...
+
     def save(self, campaign: Campaign) -> None: ...
+
+    def delete(self, campaign_id: CampaignId) -> None: ...
+
+
+class ParticipantRepository(Protocol):
+    def get(self, participant_id: ParticipantId) -> Participant | None: ...
+
+    def list_for_campaign(self, campaign_id: CampaignId) -> tuple[Participant, ...]: ...
+
+    def save(self, participant: Participant) -> None: ...
+
+    def delete(self, participant_id: ParticipantId) -> None: ...
+
+
+class VoiceSampleRepository(Protocol):
+    def get(self, voice_sample_id: VoiceSampleId) -> VoiceSample | None: ...
+
+    def get_by_artifact_uri(
+        self,
+        campaign_id: CampaignId,
+        artifact_uri: str,
+    ) -> VoiceSample | None: ...
+
+    def list_for_campaign(self, campaign_id: CampaignId) -> tuple[VoiceSample, ...]: ...
+
+    def list_for_participant(
+        self,
+        participant_id: ParticipantId,
+    ) -> tuple[VoiceSample, ...]: ...
+
+    def save(self, voice_sample: VoiceSample) -> None: ...
+
+    def delete(self, voice_sample_id: VoiceSampleId) -> None: ...
 
 
 class AudioTrackRepository(Protocol):
     def get(self, audio_track_id: AudioTrackId) -> AudioTrack | None: ...
 
+    def get_by_artifact_uri(
+        self,
+        campaign_id: CampaignId,
+        artifact_uri: str,
+    ) -> AudioTrack | None: ...
+
+    def list_for_campaign(self, campaign_id: CampaignId) -> tuple[AudioTrack, ...]: ...
+
     def save(self, audio_track: AudioTrack) -> None: ...
+
+    def delete(self, audio_track_id: AudioTrackId) -> None: ...
 
 
 class TranscriptRepository(Protocol):
     def get(self, transcript_id: TranscriptId) -> Transcript | None: ...
 
+    def list_for_audio_track(self, audio_track_id: AudioTrackId) -> tuple[Transcript, ...]: ...
+
     def save(self, transcript: Transcript) -> None: ...
+
+    def delete(self, transcript_id: TranscriptId) -> None: ...
 
 
 class RecapRepository(Protocol):
     def get(self, recap_id: RecapId) -> Recap | None: ...
 
+    def list_for_transcript(self, transcript_id: TranscriptId) -> tuple[Recap, ...]: ...
+
     def save(self, recap: Recap) -> None: ...
+
+    def delete(self, recap_id: RecapId) -> None: ...
 
 
 class JobRepository(Protocol):
     def get(self, job_id: ProcessingJobId) -> ProcessingJob | None: ...
 
+    def list_for_campaign(self, campaign_id: CampaignId) -> tuple[ProcessingJob, ...]: ...
+
+    def list_for_audio_track(
+        self,
+        audio_track_id: AudioTrackId,
+    ) -> tuple[ProcessingJob, ...]: ...
+
     def save(self, job: ProcessingJob) -> None: ...
+
+    def delete(self, job_id: ProcessingJobId) -> None: ...
 
 
 class AudioMetadataReader(Protocol):
@@ -111,6 +176,24 @@ class ArtifactStorage(Protocol):
     ) -> ArtifactRef: ...
 
 
+class CampaignArtifactStorage(Protocol):
+    def ensure_campaign_layout(self, campaign_id: CampaignId) -> None: ...
+
+    def save_campaign_text(
+        self,
+        *,
+        campaign_id: CampaignId,
+        folder: str,
+        suggested_name: str,
+        content: str,
+        media_type: str,
+    ) -> ArtifactRef: ...
+
+
+class CampaignFolderScanner(Protocol):
+    def scan(self, campaign_id: CampaignId) -> CampaignFolderSnapshot: ...
+
+
 class Clock(Protocol):
     def now(self) -> datetime: ...
 
@@ -136,14 +219,18 @@ __all__ = [
     "AudioMetadataReader",
     "AudioProcessor",
     "AudioTrackRepository",
+    "CampaignArtifactStorage",
+    "CampaignFolderScanner",
     "CampaignRepository",
     "Clock",
     "IdGenerator",
     "JobRepository",
+    "ParticipantRepository",
     "RecapGenerator",
     "RecapRepository",
     "SpeakerIdentifier",
     "Tokenizer",
     "Transcriber",
     "TranscriptRepository",
+    "VoiceSampleRepository",
 ]

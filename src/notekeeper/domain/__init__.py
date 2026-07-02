@@ -37,11 +37,18 @@ from .models import (
 )
 from .services import (
     SpeakerMappingApplicationResult,
+    add_audio_track,
     add_participant,
     add_voice_sample,
     apply_speaker_mappings,
     ensure_campaign_ready_for_processing,
     find_speaker_mapping_issues,
+    remove_audio_track,
+    remove_participant,
+    remove_voice_sample,
+    update_audio_track,
+    update_participant,
+    update_voice_sample,
     validate_transcript,
 )
 from .value_objects import (
@@ -88,10 +95,17 @@ __all__ = [
     "ValidationError",
     "VoiceSample",
     "VoiceSampleId",
+    "add_audio_track",
     "add_participant",
     "add_voice_sample",
     "apply_speaker_mappings",
     "ensure_campaign_ready_for_processing",
     "find_speaker_mapping_issues",
+    "remove_audio_track",
+    "remove_participant",
+    "remove_voice_sample",
+    "update_audio_track",
+    "update_participant",
+    "update_voice_sample",
     "validate_transcript",
 ]

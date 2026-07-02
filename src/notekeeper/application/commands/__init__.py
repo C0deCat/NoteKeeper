@@ -12,9 +12,48 @@ class CreateCampaignCommand:
 
 
 @dataclass(frozen=True, slots=True)
+class GetCampaignCommand:
+    campaign_id: str
+
+
+@dataclass(frozen=True, slots=True)
+class ListCampaignsCommand:
+    pass
+
+
+@dataclass(frozen=True, slots=True)
+class UpdateCampaignCommand:
+    campaign_id: str
+    name: str
+
+
+@dataclass(frozen=True, slots=True)
+class DeleteCampaignCommand:
+    campaign_id: str
+
+
+@dataclass(frozen=True, slots=True)
 class AddParticipantToCampaignCommand:
     campaign_id: str
     display_name: str
+
+
+@dataclass(frozen=True, slots=True)
+class ListParticipantsCommand:
+    campaign_id: str
+
+
+@dataclass(frozen=True, slots=True)
+class UpdateParticipantCommand:
+    campaign_id: str
+    participant_id: str
+    display_name: str
+
+
+@dataclass(frozen=True, slots=True)
+class DeleteParticipantCommand:
+    campaign_id: str
+    participant_id: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -24,6 +63,55 @@ class AddVoiceSampleCommand:
     artifact_uri: str
     artifact_kind: str = "file"
     recorded_at: datetime | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ListVoiceSamplesCommand:
+    campaign_id: str
+    participant_id: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class UpdateVoiceSampleCommand:
+    campaign_id: str
+    voice_sample_id: str
+    artifact_uri: str
+    artifact_kind: str = "file"
+    recorded_at: datetime | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class DeleteVoiceSampleCommand:
+    campaign_id: str
+    voice_sample_id: str
+
+
+@dataclass(frozen=True, slots=True)
+class RegisterAudioTrackCommand:
+    campaign_id: str
+    artifact_uri: str
+    artifact_kind: str = "file"
+    title: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ListAudioTracksCommand:
+    campaign_id: str
+
+
+@dataclass(frozen=True, slots=True)
+class UpdateAudioTrackCommand:
+    campaign_id: str
+    audio_track_id: str
+    artifact_uri: str
+    artifact_kind: str = "file"
+    title: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class DeleteAudioTrackCommand:
+    campaign_id: str
+    audio_track_id: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -75,16 +163,36 @@ class GetJobStatusCommand:
     job_id: str
 
 
+@dataclass(frozen=True, slots=True)
+class SyncCampaignFolderCommand:
+    campaign_id: str
+
+
 __all__ = [
     "AddParticipantToCampaignCommand",
     "AddVoiceSampleCommand",
     "CreateCampaignCommand",
+    "DeleteAudioTrackCommand",
+    "DeleteCampaignCommand",
+    "DeleteParticipantCommand",
+    "DeleteVoiceSampleCommand",
     "ExportRecapMarkdownCommand",
     "ExportTranscriptMarkdownCommand",
     "GenerateRecapCommand",
+    "GetCampaignCommand",
     "GetJobStatusCommand",
+    "ListAudioTracksCommand",
+    "ListCampaignsCommand",
+    "ListParticipantsCommand",
+    "ListVoiceSamplesCommand",
     "ManualSpeakerMappingCommand",
+    "RegisterAudioTrackCommand",
     "ReviewSpeakerMappingsCommand",
     "RunProcessingJobCommand",
     "SubmitRecordingForProcessingCommand",
+    "SyncCampaignFolderCommand",
+    "UpdateAudioTrackCommand",
+    "UpdateCampaignCommand",
+    "UpdateParticipantCommand",
+    "UpdateVoiceSampleCommand",
 ]

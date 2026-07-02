@@ -1,6 +1,25 @@
 """Application use cases."""
 
-from .campaigns import AddParticipantToCampaign, AddVoiceSample, CreateCampaign
+from .campaigns import (
+    AddParticipantToCampaign,
+    AddVoiceSample,
+    CreateCampaign,
+    DeleteAudioTrack,
+    DeleteCampaign,
+    DeleteParticipant,
+    DeleteVoiceSample,
+    GetCampaign,
+    ListAudioTracks,
+    ListCampaigns,
+    ListParticipants,
+    ListVoiceSamples,
+    RegisterAudioTrack,
+    SyncCampaignFolder,
+    UpdateAudioTrack,
+    UpdateCampaign,
+    UpdateParticipant,
+    UpdateVoiceSample,
+)
 from .export import ExportRecapMarkdown, ExportTranscriptMarkdown
 from .processing import (
     GenerateRecap,
@@ -14,11 +33,26 @@ __all__ = [
     "AddParticipantToCampaign",
     "AddVoiceSample",
     "CreateCampaign",
+    "DeleteAudioTrack",
+    "DeleteCampaign",
+    "DeleteParticipant",
+    "DeleteVoiceSample",
     "ExportRecapMarkdown",
     "ExportTranscriptMarkdown",
     "GenerateRecap",
+    "GetCampaign",
     "GetJobStatus",
+    "ListAudioTracks",
+    "ListCampaigns",
+    "ListParticipants",
+    "ListVoiceSamples",
+    "RegisterAudioTrack",
     "ReviewSpeakerMappings",
     "RunProcessingJob",
     "SubmitRecordingForProcessing",
+    "SyncCampaignFolder",
+    "UpdateAudioTrack",
+    "UpdateCampaign",
+    "UpdateParticipant",
+    "UpdateVoiceSample",
 ]

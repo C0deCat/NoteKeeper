@@ -9,6 +9,7 @@ from notekeeper.application import (
     AddParticipantToCampaignCommand,
     AddVoiceSample,
     AddVoiceSampleCommand,
+    CampaignFolderSnapshot,
     CreateCampaign,
     CreateCampaignCommand,
     ExportRecapMarkdown,
@@ -24,8 +25,12 @@ from notekeeper.application import (
     ReviewSpeakerMappingsCommand,
     RunProcessingJob,
     RunProcessingJobCommand,
+    ScannedAudioTrackArtifact,
+    ScannedVoiceSampleArtifact,
     SubmitRecordingForProcessing,
     SubmitRecordingForProcessingCommand,
+    SyncCampaignFolder,
+    SyncCampaignFolderCommand,
     TranscriptChunk,
 )
 from notekeeper.domain import (
@@ -39,6 +44,8 @@ from notekeeper.domain import (
     Participant,
     ParticipantId,
     PipelineWarningKind,
+    ProcessingJob,
+    ProcessingJobId,
     Recap,
     RecapChunk,
     SpeakerLabel,
@@ -51,6 +58,7 @@ from notekeeper.domain import (
     TranscriptId,
     VoiceSample,
     VoiceSampleId,
+    add_audio_track,
     add_participant,
     add_voice_sample,
 )
@@ -63,8 +71,41 @@ class InMemoryRepository:
     def get(self, item_id):
         return self.items.get(item_id)
 
+    def list(self):
+        return tuple(self.items.values())
+
     def save(self, item) -> None:
         self.items[item.id] = item
+
+    def delete(self, item_id) -> None:
+        self.items.pop(item_id, None)
+
+    def get_by_artifact_uri(self, campaign_id, artifact_uri):
+        for item in self.items.values():
+            if item.campaign_id == campaign_id and item.artifact.uri == artifact_uri:
+                return item
+        return None
+
+    def list_for_campaign(self, campaign_id):
+        return tuple(
+            item
+            for item in self.items.values()
+            if getattr(item, "campaign_id", None) == campaign_id
+        )
+
+    def list_for_participant(self, participant_id):
+        return tuple(
+            item
+            for item in self.items.values()
+            if getattr(item, "participant_id", None) == participant_id
+        )
+
+    def list_for_audio_track(self, audio_track_id):
+        return tuple(
+            item
+            for item in self.items.values()
+            if getattr(item, "audio_track_id", None) == audio_track_id
+        )
 
 
 class FakeIdGenerator:
@@ -231,6 +272,14 @@ class FakeArtifactStorage:
         return artifact
 
 
+class FakeCampaignFolderScanner:
+    def __init__(self) -> None:
+        self.snapshot = CampaignFolderSnapshot(campaign_id="campaign-1")
+
+    def scan(self, campaign_id) -> CampaignFolderSnapshot:
+        return self.snapshot
+
+
 class Harness:
     def __init__(self) -> None:
         self.campaigns = InMemoryRepository()
@@ -245,6 +294,7 @@ class Harness:
         self.tokenizer = FakeTokenizer()
         self.recap_generator = FakeRecapGenerator()
         self.artifact_storage = FakeArtifactStorage()
+        self.folder_scanner = FakeCampaignFolderScanner()
         self.clock = FakeClock()
         self.ids = FakeIdGenerator()
 
@@ -304,6 +354,15 @@ class Harness:
             self.tokenizer,
             self.recap_generator,
             self.clock,
+            self.ids,
+        )
+
+    def sync_use_case(self) -> SyncCampaignFolder:
+        return SyncCampaignFolder(
+            self.campaigns,
+            self.jobs,
+            self.folder_scanner,
+            self.metadata_reader,
             self.ids,
         )
 
@@ -526,6 +585,85 @@ def test_get_job_status_returns_saved_job() -> None:
     )
 
     assert result.job == submitted.job
+
+
+def test_sync_campaign_folder_adds_players_samples_and_records() -> None:
+    harness = Harness()
+    harness.campaigns.save(Campaign(id=CampaignId("campaign-1"), name="Synced"))
+    harness.folder_scanner.snapshot = CampaignFolderSnapshot(
+        campaign_id="campaign-1",
+        voice_samples=(
+            ScannedVoiceSampleArtifact(
+                player_name="Alice",
+                artifact=ArtifactRef(uri="campaign-1/players/Alice/sample.wav"),
+            ),
+        ),
+        audio_tracks=(
+            ScannedAudioTrackArtifact(
+                artifact=ArtifactRef(uri="campaign-1/records/session-1.wav"),
+                title="session-1",
+            ),
+        ),
+    )
+
+    result = harness.sync_use_case().execute(
+        SyncCampaignFolderCommand(campaign_id="campaign-1"),
+    )
+
+    assert result.participants_created == 1
+    assert result.voice_samples_added == 1
+    assert result.audio_tracks_added == 1
+    assert result.campaign.participants[0].display_name == "Alice"
+    assert result.campaign.voice_samples[0].participant_id == ParticipantId(
+        "participant-1",
+    )
+    assert result.campaign.audio_tracks[0].title == "session-1"
+
+
+def test_sync_campaign_folder_removes_missing_files_and_only_pending_jobs() -> None:
+    harness = Harness()
+    campaign = harness.ready_campaign("Alice")
+    audio_track = AudioTrack(
+        id="audio-track-old",
+        campaign_id=campaign.id,
+        artifact=ArtifactRef(uri="campaign-1/records/old.wav"),
+        metadata=AudioMetadata(duration_seconds=12),
+        title="old",
+    )
+    campaign = add_audio_track(campaign, audio_track)
+    harness.campaigns.save(campaign)
+    pending = ProcessingJob(
+        id=ProcessingJobId("job-pending"),
+        campaign_id=campaign.id,
+        audio_track_id=audio_track.id,
+        status=JobStatus.PENDING,
+        created_at=harness.clock.now(),
+        updated_at=harness.clock.now(),
+    )
+    completed = ProcessingJob(
+        id=ProcessingJobId("job-completed"),
+        campaign_id=campaign.id,
+        audio_track_id=audio_track.id,
+        status=JobStatus.COMPLETED,
+        created_at=harness.clock.now(),
+        updated_at=harness.clock.now(),
+    )
+    harness.jobs.save(pending)
+    harness.jobs.save(completed)
+    harness.folder_scanner.snapshot = CampaignFolderSnapshot(campaign_id="campaign-1")
+
+    result = harness.sync_use_case().execute(
+        SyncCampaignFolderCommand(campaign_id="campaign-1"),
+    )
+
+    assert result.voice_samples_deleted == 1
+    assert result.audio_tracks_deleted == 1
+    assert result.pending_jobs_deleted == 1
+    assert result.campaign.participants[0].display_name == "Alice"
+    assert result.campaign.voice_samples == ()
+    assert result.campaign.audio_tracks == ()
+    assert harness.jobs.get(pending.id) is None
+    assert harness.jobs.get(completed.id) == completed
 
 
 def segment(
