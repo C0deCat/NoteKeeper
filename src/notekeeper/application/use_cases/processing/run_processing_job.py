@@ -85,9 +85,10 @@ class RunProcessingJob:
         prepared_audio = self._audio_processor.prepare_session_audio(
             audio_track,
             campaign.voice_samples,
+            job_id=job.id,
         )
         raw_transcript = self._transcriber.transcribe(
-            prepared_audio,
+            prepared_audio.audio_artifact,
             transcript_id=TranscriptId(self._id_generator.transcript_id()),
             campaign_id=campaign.id,
             audio_track_id=audio_track.id,

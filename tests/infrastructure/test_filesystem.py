@@ -1,16 +1,18 @@
 from __future__ import annotations
 
+import json
 import wave
 from pathlib import Path
 
 import pytest
 
-from notekeeper.domain import ArtifactRef, CampaignId
+from notekeeper.domain import ArtifactRef, CampaignId, ProcessingJobId
 from notekeeper.infrastructure import InfrastructureError
 from notekeeper.infrastructure.filesystem import (
     LocalAudioMetadataReader,
     LocalCampaignArtifactStorage,
     LocalCampaignFolderScanner,
+    LocalPreparedAudioManifestStore,
 )
 
 
@@ -43,6 +45,48 @@ def test_storage_rejects_unsafe_relative_uri(tmp_path: Path) -> None:
 
     with pytest.raises(InfrastructureError):
         storage.path_for_uri("campaign-1\\records\\session.wav")
+
+
+def test_prepared_audio_manifest_store_saves_and_reads_json(tmp_path: Path) -> None:
+    storage = LocalCampaignArtifactStorage(tmp_path)
+    store = LocalPreparedAudioManifestStore(storage)
+    payload = {
+        "schema_version": 1,
+        "prepared_artifact": {
+            "uri": "campaign-1/records/prepared/job-1/prepared.wav",
+            "kind": "file",
+        },
+        "source_session_artifact": {
+            "uri": "campaign-1/records/session.wav",
+            "kind": "file",
+        },
+    }
+
+    artifact = store.save(
+        campaign_id=CampaignId("campaign-1"),
+        job_id=ProcessingJobId("job-1"),
+        payload=payload,
+    )
+
+    assert artifact.uri == "campaign-1/records/prepared/job-1/manifest.json"
+    assert store.read(artifact) == payload
+    raw_payload = json.loads((tmp_path / artifact.uri).read_text(encoding="utf-8"))
+    assert raw_payload["prepared_artifact"]["uri"].startswith("campaign-1/")
+    assert "://" not in raw_payload["prepared_artifact"]["uri"]
+
+
+def test_prepared_audio_manifest_store_rejects_unsafe_job_path(
+    tmp_path: Path,
+) -> None:
+    storage = LocalCampaignArtifactStorage(tmp_path)
+    store = LocalPreparedAudioManifestStore(storage)
+
+    with pytest.raises(InfrastructureError):
+        store.save(
+            campaign_id=CampaignId("campaign-1"),
+            job_id=ProcessingJobId("../job-1"),
+            payload={},
+        )
 
 
 def test_scanner_finds_player_samples_and_records_only(tmp_path: Path) -> None:

@@ -2,8 +2,10 @@
 
 from uuid import uuid4
 
+from notekeeper.application.ports import IdGenerator
 
-class UuidGenerator:
+
+class UuidGenerator(IdGenerator):
     def campaign_id(self) -> str:
         return f"campaign-{uuid4()}"
 

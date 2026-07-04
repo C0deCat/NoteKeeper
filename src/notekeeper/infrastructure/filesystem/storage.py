@@ -7,6 +7,7 @@ import shutil
 from pathlib import Path
 from typing import Any
 
+from notekeeper.application.ports import CampaignArtifactStorage
 from notekeeper.domain import ArtifactRef, CampaignId
 
 from ..errors import InfrastructureError
@@ -22,7 +23,7 @@ from .utils import (
 CAMPAIGN_FOLDERS = ("players", "records", "transcripts", "recaps")
 
 
-class LocalCampaignArtifactStorage:
+class LocalCampaignArtifactStorage(CampaignArtifactStorage):
     def __init__(self, storage_root: str | Path) -> None:
         self._storage_root = Path(storage_root)
 

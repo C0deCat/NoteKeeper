@@ -1,12 +1,13 @@
 """SQLite audio track repository."""
 
+from notekeeper.application.ports import AudioTrackRepository
 from notekeeper.domain import AudioTrack, AudioTrackId, CampaignId
 
 from .database import SQLiteDatabase
 from .utils import audio_track_from_row, list_audio_tracks, save_audio_track
 
 
-class SQLiteAudioTrackRepository:
+class SQLiteAudioTrackRepository(AudioTrackRepository):
     def __init__(self, database: SQLiteDatabase) -> None:
         self._database = database
 

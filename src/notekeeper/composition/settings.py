@@ -17,4 +17,10 @@ class NoteKeeperSettings(BaseSettings):
     storage_root: Path = Field(default=Path("data") / "artifacts")
     sqlite_path: Path = Field(default=Path("data") / "notekeeper.sqlite3")
     audio_extensions: tuple[str, ...] = DEFAULT_AUDIO_EXTENSIONS
+    ffmpeg_path: str = "ffmpeg"
     ffprobe_path: str = "ffprobe"
+    processing_work_root: Path = Field(default=Path("data") / "processing-work")
+    prepared_audio_sample_rate_hz: int = 16000
+    prepared_audio_channels: int = 1
+    prepared_audio_codec: str = "pcm_s16le"
+    prepared_audio_container: str = "wav"

@@ -2,6 +2,7 @@
 
 from typing import Any
 
+from notekeeper.application.ports import RecapRepository
 from notekeeper.domain import CampaignId, Recap, RecapId, TranscriptId
 
 from ..errors import InfrastructureError
@@ -10,7 +11,7 @@ from .utils import PayloadStorage
 from .utils.serialization import recap_from_payload, recap_to_payload
 
 
-class SQLiteRecapRepository:
+class SQLiteRecapRepository(RecapRepository):
     def __init__(self, database: SQLiteDatabase, payload_storage: Any) -> None:
         self._database = database
         self._payload_storage = PayloadStorage(payload_storage)

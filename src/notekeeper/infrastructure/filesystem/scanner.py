@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from notekeeper.application.ports import CampaignFolderScanner
 from notekeeper.application.results import (
     CampaignFolderSnapshot,
     ScannedAudioTrackArtifact,
@@ -26,7 +27,7 @@ DEFAULT_AUDIO_EXTENSIONS = (
 )
 
 
-class LocalCampaignFolderScanner:
+class LocalCampaignFolderScanner(CampaignFolderScanner):
     def __init__(
         self,
         storage: LocalCampaignArtifactStorage,

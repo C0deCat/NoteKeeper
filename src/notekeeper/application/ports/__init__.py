@@ -3,9 +3,13 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Protocol
+from typing import Any, Protocol
 
-from notekeeper.application.results import CampaignFolderSnapshot, TranscriptChunk
+from notekeeper.application.results import (
+    CampaignFolderSnapshot,
+    PreparedAudioResult,
+    TranscriptChunk,
+)
 from notekeeper.domain import (
     ArtifactRef,
     AudioMetadata,
@@ -129,7 +133,9 @@ class AudioProcessor(Protocol):
         self,
         audio_track: AudioTrack,
         voice_samples: tuple[VoiceSample, ...],
-    ) -> ArtifactRef: ...
+        *,
+        job_id: ProcessingJobId,
+    ) -> PreparedAudioResult: ...
 
 
 class Transcriber(Protocol):
@@ -176,7 +182,7 @@ class ArtifactStorage(Protocol):
     ) -> ArtifactRef: ...
 
 
-class CampaignArtifactStorage(Protocol):
+class CampaignArtifactStorage(ArtifactStorage, Protocol):
     def ensure_campaign_layout(self, campaign_id: CampaignId) -> None: ...
 
     def save_campaign_text(
@@ -188,6 +194,32 @@ class CampaignArtifactStorage(Protocol):
         content: str,
         media_type: str,
     ) -> ArtifactRef: ...
+
+
+class PreparedAudioManifestStore(Protocol):
+    def manifest_uri_for_job(
+        self,
+        *,
+        campaign_id: CampaignId,
+        job_id: ProcessingJobId,
+    ) -> str: ...
+
+    def save(
+        self,
+        *,
+        campaign_id: CampaignId,
+        job_id: ProcessingJobId,
+        payload: dict[str, Any],
+    ) -> ArtifactRef: ...
+
+    def read(self, artifact: ArtifactRef) -> dict[str, Any]: ...
+
+    def read_for_job(
+        self,
+        *,
+        campaign_id: CampaignId,
+        job_id: ProcessingJobId,
+    ) -> dict[str, Any]: ...
 
 
 class CampaignFolderScanner(Protocol):
@@ -226,6 +258,7 @@ __all__ = [
     "IdGenerator",
     "JobRepository",
     "ParticipantRepository",
+    "PreparedAudioManifestStore",
     "RecapGenerator",
     "RecapRepository",
     "SpeakerIdentifier",

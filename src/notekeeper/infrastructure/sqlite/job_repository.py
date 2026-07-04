@@ -2,6 +2,7 @@
 
 import json
 
+from notekeeper.application.ports import JobRepository
 from notekeeper.domain import (
     AudioTrackId,
     CampaignId,
@@ -14,7 +15,7 @@ from .utils import job_from_row
 from .utils.serialization import datetime_to_text, warning_to_dict
 
 
-class SQLiteJobRepository:
+class SQLiteJobRepository(JobRepository):
     def __init__(self, database: SQLiteDatabase) -> None:
         self._database = database
 

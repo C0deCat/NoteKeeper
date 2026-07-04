@@ -2,6 +2,7 @@
 
 from typing import Any
 
+from notekeeper.application.ports import TranscriptRepository
 from notekeeper.domain import AudioTrackId, CampaignId, Transcript, TranscriptId
 
 from .database import SQLiteDatabase
@@ -9,7 +10,7 @@ from .utils import PayloadStorage
 from .utils.serialization import transcript_from_payload, transcript_to_payload
 
 
-class SQLiteTranscriptRepository:
+class SQLiteTranscriptRepository(TranscriptRepository):
     def __init__(self, database: SQLiteDatabase, payload_storage: Any) -> None:
         self._database = database
         self._payload_storage = PayloadStorage(payload_storage)

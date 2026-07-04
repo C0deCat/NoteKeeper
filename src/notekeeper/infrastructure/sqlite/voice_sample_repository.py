@@ -1,12 +1,13 @@
 """SQLite voice sample repository."""
 
+from notekeeper.application.ports import VoiceSampleRepository
 from notekeeper.domain import CampaignId, ParticipantId, VoiceSample, VoiceSampleId
 
 from .database import SQLiteDatabase
 from .utils import list_voice_samples, save_voice_sample, voice_sample_from_row
 
 
-class SQLiteVoiceSampleRepository:
+class SQLiteVoiceSampleRepository(VoiceSampleRepository):
     def __init__(self, database: SQLiteDatabase) -> None:
         self._database = database
 

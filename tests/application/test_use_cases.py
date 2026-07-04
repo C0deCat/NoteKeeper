@@ -21,6 +21,7 @@ from notekeeper.application import (
     GetJobStatus,
     GetJobStatusCommand,
     ManualSpeakerMappingCommand,
+    PreparedAudioResult,
     ReviewSpeakerMappings,
     ReviewSpeakerMappingsCommand,
     RunProcessingJob,
@@ -165,15 +166,25 @@ class FakeMetadataReader:
 
 class FakeAudioProcessor:
     def __init__(self) -> None:
-        self.calls: list[tuple[AudioTrack, tuple[VoiceSample, ...]]] = []
+        self.calls: list[tuple[AudioTrack, tuple[VoiceSample, ...], ProcessingJobId]] = []
 
     def prepare_session_audio(
         self,
         audio_track: AudioTrack,
         voice_samples: tuple[VoiceSample, ...],
-    ) -> ArtifactRef:
-        self.calls.append((audio_track, voice_samples))
-        return ArtifactRef(uri=f"prepared:{audio_track.artifact.uri}")
+        *,
+        job_id: ProcessingJobId,
+    ) -> PreparedAudioResult:
+        self.calls.append((audio_track, voice_samples, job_id))
+        return PreparedAudioResult(
+            audio_artifact=ArtifactRef(uri=f"prepared/{job_id}.wav"),
+            manifest_artifact=ArtifactRef(uri=f"prepared/{job_id}.json"),
+            source_audio_artifact=audio_track.artifact,
+            session_time_range=TimeRange(
+                start_seconds=0,
+                end_seconds=audio_track.metadata.duration_seconds,
+            ),
+        )
 
 
 class FakeTranscriber:
@@ -448,6 +459,8 @@ def test_run_processing_job_completes_clean_mapping_flow() -> None:
     assert result.recap.id in harness.recaps.items
     assert result.job.recap_id == result.recap.id
     assert harness.audio_processor.calls[0][1] == campaign.voice_samples
+    assert harness.audio_processor.calls[0][2] == submitted.job.id
+    assert harness.transcriber.audio == ArtifactRef(uri=f"prepared/{submitted.job.id}.wav")
 
 
 def test_run_processing_job_waits_for_review_when_mapping_warnings_exist() -> None:

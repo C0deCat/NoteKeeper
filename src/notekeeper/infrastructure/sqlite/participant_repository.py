@@ -1,12 +1,13 @@
 """SQLite participant repository."""
 
+from notekeeper.application.ports import ParticipantRepository
 from notekeeper.domain import CampaignId, Participant, ParticipantId
 
 from .database import SQLiteDatabase
 from .utils import list_participants, participant_from_row, save_participant
 
 
-class SQLiteParticipantRepository:
+class SQLiteParticipantRepository(ParticipantRepository):
     def __init__(self, database: SQLiteDatabase) -> None:
         self._database = database
 

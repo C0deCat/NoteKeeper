@@ -1,5 +1,6 @@
 """Local audio metadata reader."""
 
+from notekeeper.application.ports import AudioMetadataReader
 from notekeeper.domain import ArtifactRef, AudioMetadata
 
 from ..errors import InfrastructureError
@@ -7,7 +8,7 @@ from .storage import LocalCampaignArtifactStorage
 from .utils import read_ffprobe, read_wave, sha256
 
 
-class LocalAudioMetadataReader:
+class LocalAudioMetadataReader(AudioMetadataReader):
     def __init__(
         self,
         storage: LocalCampaignArtifactStorage,

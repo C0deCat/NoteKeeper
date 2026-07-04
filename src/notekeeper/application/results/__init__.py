@@ -9,6 +9,7 @@ from notekeeper.domain import (
     AudioTrack,
     Campaign,
     Participant,
+    ParticipantId,
     PipelineWarning,
     ProcessingJob,
     Recap,
@@ -17,6 +18,7 @@ from notekeeper.domain import (
     Transcript,
     TranscriptSegment,
     VoiceSample,
+    VoiceSampleId,
 )
 
 
@@ -33,6 +35,30 @@ class TranscriptChunk:
             self,
             "source_segment_indexes",
             tuple(self.source_segment_indexes),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class PreparedVoiceSampleRange:
+    source_artifact: ArtifactRef
+    voice_sample_id: VoiceSampleId
+    participant_id: ParticipantId
+    time_range: TimeRange
+
+
+@dataclass(frozen=True, slots=True)
+class PreparedAudioResult:
+    audio_artifact: ArtifactRef
+    manifest_artifact: ArtifactRef
+    source_audio_artifact: ArtifactRef
+    session_time_range: TimeRange
+    voice_sample_ranges: tuple[PreparedVoiceSampleRange, ...] = ()
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "voice_sample_ranges",
+            tuple(self.voice_sample_ranges),
         )
 
 
@@ -241,6 +267,8 @@ __all__ = [
     "ListCampaignsResult",
     "ListParticipantsResult",
     "ListVoiceSamplesResult",
+    "PreparedAudioResult",
+    "PreparedVoiceSampleRange",
     "RegisterAudioTrackResult",
     "ReviewSpeakerMappingsResult",
     "RunProcessingJobResult",

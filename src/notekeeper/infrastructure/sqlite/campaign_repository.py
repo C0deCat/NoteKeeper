@@ -1,5 +1,6 @@
 """SQLite campaign repository."""
 
+from notekeeper.application.ports import CampaignRepository
 from notekeeper.domain import Campaign, CampaignId
 
 from .database import SQLiteDatabase
@@ -13,7 +14,7 @@ from .utils import (
 )
 
 
-class SQLiteCampaignRepository:
+class SQLiteCampaignRepository(CampaignRepository):
     def __init__(self, database: SQLiteDatabase) -> None:
         self._database = database
 
