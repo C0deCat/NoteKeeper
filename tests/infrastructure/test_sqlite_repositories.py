@@ -19,6 +19,9 @@ from notekeeper.domain import (
     RecapChunk,
     RecapId,
     SpeakerLabel,
+    SpeakerMapping,
+    SpeakerMappingSource,
+    SpeakerMappingStatus,
     TimeRange,
     Transcript,
     TranscriptId,
@@ -26,6 +29,7 @@ from notekeeper.domain import (
     VoiceSample,
     VoiceSampleId,
 )
+from notekeeper.application import SpeakerMappingRecord
 from notekeeper.infrastructure.filesystem import LocalCampaignArtifactStorage
 from notekeeper.infrastructure.sqlite import (
     SQLiteAudioTrackRepository,
@@ -33,6 +37,7 @@ from notekeeper.infrastructure.sqlite import (
     SQLiteDatabase,
     SQLiteJobRepository,
     SQLiteRecapRepository,
+    SQLiteSpeakerMappingRepository,
     SQLiteTranscriptRepository,
     SQLiteVoiceSampleRepository,
 )
@@ -141,6 +146,35 @@ def test_sqlite_job_repository_lists_and_deletes_by_audio_track(tmp_path: Path) 
     jobs.delete(job.id)
 
     assert jobs.get(job.id) is None
+
+
+def test_sqlite_speaker_mapping_repository_round_trips_records(
+    tmp_path: Path,
+) -> None:
+    database = _database(tmp_path)
+    mappings = SQLiteSpeakerMappingRepository(database)
+    record = SpeakerMappingRecord(
+        job_id=ProcessingJobId("job-1"),
+        transcript_id=TranscriptId("transcript-1"),
+        mapping=SpeakerMapping(
+            anonymous_label=SpeakerLabel.anonymous("SPEAKER_00"),
+            named_label=SpeakerLabel.named("Alice"),
+            participant_id=ParticipantId("participant-1"),
+            confidence=0.875,
+            source=SpeakerMappingSource.SAMPLE_BASED,
+            status=SpeakerMappingStatus.CONFIRMED,
+        ),
+        diagnostics={
+            "prepared_audio_artifact_uri": "campaign-1/records/prepared/job-1.wav",
+            "label_overlap_seconds": {"SPEAKER_00": 3.5},
+        },
+    )
+
+    mappings.save_many((record,))
+
+    assert mappings.list_for_job(ProcessingJobId("job-1")) == (record,)
+    assert mappings.list_for_transcript(TranscriptId("transcript-1")) == (record,)
+    assert mappings.list_for_job(ProcessingJobId("missing")) == ()
 
 
 def _database(tmp_path: Path) -> SQLiteDatabase:

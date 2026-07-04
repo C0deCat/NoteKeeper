@@ -39,3 +39,5 @@ class NoteKeeperSettings(BaseSettings):
     whisperx_hf_token: str | None = Field(default=None, repr=False)
     whisperx_speaker_assignment_fill_nearest: bool = False
     whisperx_unknown_speaker_label: str = "SPEAKER_UNKNOWN"
+    speaker_mapping_min_overlap_seconds: float = 0.25
+    speaker_mapping_min_dominance_ratio: float = 0.8

@@ -28,6 +28,7 @@ from notekeeper.application import (
     RunProcessingJobCommand,
     ScannedAudioTrackArtifact,
     ScannedVoiceSampleArtifact,
+    SpeakerMappingRecord,
     SubmitRecordingForProcessing,
     SubmitRecordingForProcessingCommand,
     SyncCampaignFolder,
@@ -212,15 +213,35 @@ class FakeTranscriber:
 class FakeSpeakerIdentifier:
     def __init__(self) -> None:
         self.mappings: tuple[SpeakerMapping, ...] = ()
-        self.calls: list[tuple[Campaign, Transcript]] = []
+        self.calls: list[tuple[Campaign, Transcript, PreparedAudioResult]] = []
 
     def identify(
         self,
         campaign: Campaign,
         transcript: Transcript,
+        *,
+        prepared_audio: PreparedAudioResult,
     ) -> tuple[SpeakerMapping, ...]:
-        self.calls.append((campaign, transcript))
+        self.calls.append((campaign, transcript, prepared_audio))
         return self.mappings
+
+
+class FakeSpeakerMappingRepository:
+    def __init__(self) -> None:
+        self.records: list[SpeakerMappingRecord] = []
+
+    def save_many(self, records: tuple[SpeakerMappingRecord, ...]) -> None:
+        self.records.extend(records)
+
+    def list_for_job(self, job_id) -> tuple[SpeakerMappingRecord, ...]:
+        return tuple(record for record in self.records if record.job_id == job_id)
+
+    def list_for_transcript(self, transcript_id) -> tuple[SpeakerMappingRecord, ...]:
+        return tuple(
+            record
+            for record in self.records
+            if record.transcript_id == transcript_id
+        )
 
 
 class FakeTokenizer:
@@ -302,6 +323,7 @@ class Harness:
         self.audio_processor = FakeAudioProcessor()
         self.transcriber = FakeTranscriber()
         self.speaker_identifier = FakeSpeakerIdentifier()
+        self.speaker_mappings = FakeSpeakerMappingRepository()
         self.tokenizer = FakeTokenizer()
         self.recap_generator = FakeRecapGenerator()
         self.artifact_storage = FakeArtifactStorage()
@@ -350,6 +372,7 @@ class Harness:
             self.audio_processor,
             self.transcriber,
             self.speaker_identifier,
+            self.speaker_mappings,
             self.tokenizer,
             self.recap_generator,
             self.clock,
@@ -362,6 +385,7 @@ class Harness:
             self.transcripts,
             self.recaps,
             self.jobs,
+            self.speaker_mappings,
             self.tokenizer,
             self.recap_generator,
             self.clock,
@@ -460,7 +484,16 @@ def test_run_processing_job_completes_clean_mapping_flow() -> None:
     assert result.job.recap_id == result.recap.id
     assert harness.audio_processor.calls[0][1] == campaign.voice_samples
     assert harness.audio_processor.calls[0][2] == submitted.job.id
-    assert harness.transcriber.audio == ArtifactRef(uri=f"prepared/{submitted.job.id}.wav")
+    assert harness.transcriber.audio == ArtifactRef(
+        uri=f"prepared/{submitted.job.id}.wav",
+    )
+    assert harness.speaker_identifier.calls[0][2].audio_artifact == (
+        harness.transcriber.audio
+    )
+    assert harness.speaker_mappings.records[0].job_id == submitted.job.id
+    assert harness.speaker_mappings.records[0].mapping.source is (
+        SpeakerMappingSource.AUTOMATIC
+    )
 
 
 def test_run_processing_job_waits_for_review_when_mapping_warnings_exist() -> None:
@@ -496,6 +529,10 @@ def test_run_processing_job_waits_for_review_when_mapping_warnings_exist() -> No
         "Alice",
         "SPEAKER_01",
     ]
+    assert harness.speaker_mappings.records[0].transcript_id == result.transcript.id
+    assert harness.speaker_mappings.records[0].diagnostics[
+        "prepared_audio_artifact_uri"
+    ] == f"prepared/{submitted.job.id}.wav"
 
 
 def test_review_speaker_mappings_completes_job_after_manual_fix() -> None:
@@ -540,6 +577,11 @@ def test_review_speaker_mappings_completes_job_after_manual_fix() -> None:
         "Bob",
     ]
     assert result.applied_mappings[0].source is SpeakerMappingSource.MANUAL
+    assert len(harness.speaker_mappings.records) == 2
+    assert harness.speaker_mappings.records[-1].mapping.source is (
+        SpeakerMappingSource.MANUAL
+    )
+    assert harness.speaker_mappings.records[-1].diagnostics == {"warning_count": 0}
 
 
 def test_generate_recap_and_export_markdown_use_artifact_storage() -> None:

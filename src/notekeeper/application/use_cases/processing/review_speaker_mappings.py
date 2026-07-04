@@ -14,10 +14,14 @@ from notekeeper.application.ports import (
     JobRepository,
     RecapGenerator,
     RecapRepository,
+    SpeakerMappingRepository,
     Tokenizer,
     TranscriptRepository,
 )
-from notekeeper.application.results import ReviewSpeakerMappingsResult
+from notekeeper.application.results import (
+    ReviewSpeakerMappingsResult,
+    SpeakerMappingRecord,
+)
 from notekeeper.application.use_cases._recaps import generate_recap_for_transcript
 from notekeeper.application.use_cases.utils import (
     _require_campaign,
@@ -34,6 +38,7 @@ from notekeeper.domain import (
     SpeakerMapping,
     SpeakerMappingSource,
     SpeakerMappingStatus,
+    TranscriptId,
     apply_speaker_mappings,
 )
 
@@ -45,6 +50,7 @@ class ReviewSpeakerMappings:
         transcript_repository: TranscriptRepository,
         recap_repository: RecapRepository,
         job_repository: JobRepository,
+        speaker_mapping_repository: SpeakerMappingRepository,
         tokenizer: Tokenizer,
         recap_generator: RecapGenerator,
         clock: Clock,
@@ -54,6 +60,7 @@ class ReviewSpeakerMappings:
         self._transcript_repository = transcript_repository
         self._recap_repository = recap_repository
         self._job_repository = job_repository
+        self._speaker_mapping_repository = speaker_mapping_repository
         self._tokenizer = tokenizer
         self._recap_generator = recap_generator
         self._clock = clock
@@ -77,6 +84,14 @@ class ReviewSpeakerMappings:
         mappings = _build_manual_mappings(campaign, command.mappings)
         mapped = apply_speaker_mappings(campaign, transcript, mappings)
         self._transcript_repository.save(mapped.transcript)
+        self._speaker_mapping_repository.save_many(
+            _mapping_records(
+                job_id=job.id,
+                transcript_id=mapped.transcript.id,
+                mappings=mappings,
+                warning_count=len(mapped.warnings),
+            ),
+        )
 
         if mapped.warnings:
             waiting_job = replace(
@@ -146,4 +161,22 @@ def _manual_mapping(
         confidence=command.confidence,
         source=SpeakerMappingSource.MANUAL,
         status=SpeakerMappingStatus.CONFIRMED,
+    )
+
+
+def _mapping_records(
+    *,
+    job_id: ProcessingJobId,
+    transcript_id: TranscriptId,
+    mappings: tuple[SpeakerMapping, ...],
+    warning_count: int,
+) -> tuple[SpeakerMappingRecord, ...]:
+    return tuple(
+        SpeakerMappingRecord(
+            job_id=job_id,
+            transcript_id=transcript_id,
+            mapping=mapping,
+            diagnostics={"warning_count": warning_count},
+        )
+        for mapping in mappings
     )

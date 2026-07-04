@@ -17,6 +17,8 @@ from notekeeper.application.ports import (
     ParticipantRepository,
     PreparedAudioManifestStore,
     RecapRepository,
+    SpeakerIdentifier,
+    SpeakerMappingRepository,
     Transcriber,
     TranscriptRepository,
     VoiceSampleRepository,
@@ -29,6 +31,7 @@ from notekeeper.infrastructure.filesystem import (
     LocalPreparedAudioManifestStore,
 )
 from notekeeper.infrastructure.runtime import SystemClock, UuidGenerator
+from notekeeper.infrastructure.speaker_mapping import SampleBasedSpeakerIdentifier
 from notekeeper.infrastructure.sqlite import (
     SQLiteAudioTrackRepository,
     SQLiteCampaignRepository,
@@ -36,6 +39,7 @@ from notekeeper.infrastructure.sqlite import (
     SQLiteJobRepository,
     SQLiteParticipantRepository,
     SQLiteRecapRepository,
+    SQLiteSpeakerMappingRepository,
     SQLiteTranscriptRepository,
     SQLiteVoiceSampleRepository,
 )
@@ -56,6 +60,7 @@ class InfrastructureBundle:
     prepared_audio_manifest_store: PreparedAudioManifestStore
     audio_processor: AudioProcessor
     transcriber: Transcriber
+    speaker_identifier: SpeakerIdentifier
     campaign_repository: CampaignRepository
     participant_repository: ParticipantRepository
     voice_sample_repository: VoiceSampleRepository
@@ -63,6 +68,7 @@ class InfrastructureBundle:
     transcript_repository: TranscriptRepository
     recap_repository: RecapRepository
     job_repository: JobRepository
+    speaker_mapping_repository: SpeakerMappingRepository
     clock: Clock
     id_generator: IdGenerator
 
@@ -119,6 +125,10 @@ def build_infrastructure(
         unknown_speaker_label=resolved_settings.whisperx_unknown_speaker_label,
         now=clock.now,
     )
+    speaker_identifier = SampleBasedSpeakerIdentifier(
+        min_overlap_seconds=resolved_settings.speaker_mapping_min_overlap_seconds,
+        min_dominance_ratio=resolved_settings.speaker_mapping_min_dominance_ratio,
+    )
 
     return InfrastructureBundle(
         settings=resolved_settings,
@@ -128,6 +138,7 @@ def build_infrastructure(
         prepared_audio_manifest_store=prepared_audio_manifest_store,
         audio_processor=audio_processor,
         transcriber=transcriber,
+        speaker_identifier=speaker_identifier,
         campaign_repository=SQLiteCampaignRepository(database),
         participant_repository=SQLiteParticipantRepository(database),
         voice_sample_repository=SQLiteVoiceSampleRepository(database),
@@ -135,6 +146,7 @@ def build_infrastructure(
         transcript_repository=SQLiteTranscriptRepository(database, artifact_storage),
         recap_repository=SQLiteRecapRepository(database, artifact_storage),
         job_repository=SQLiteJobRepository(database),
+        speaker_mapping_repository=SQLiteSpeakerMappingRepository(database),
         clock=clock,
         id_generator=id_generator,
     )

@@ -14,11 +14,16 @@ from notekeeper.application.ports import (
     RecapGenerator,
     RecapRepository,
     SpeakerIdentifier,
+    SpeakerMappingRepository,
     Tokenizer,
     Transcriber,
     TranscriptRepository,
 )
-from notekeeper.application.results import RunProcessingJobResult
+from notekeeper.application.results import (
+    PreparedAudioResult,
+    RunProcessingJobResult,
+    SpeakerMappingRecord,
+)
 from notekeeper.application.use_cases._recaps import generate_recap_for_transcript
 from notekeeper.application.use_cases.utils import (
     _require_audio_track,
@@ -28,6 +33,7 @@ from notekeeper.application.use_cases.utils import (
 from notekeeper.domain import (
     JobStatus,
     ProcessingJobId,
+    SpeakerMapping,
     TranscriptId,
     apply_speaker_mappings,
 )
@@ -44,6 +50,7 @@ class RunProcessingJob:
         audio_processor: AudioProcessor,
         transcriber: Transcriber,
         speaker_identifier: SpeakerIdentifier,
+        speaker_mapping_repository: SpeakerMappingRepository,
         tokenizer: Tokenizer,
         recap_generator: RecapGenerator,
         clock: Clock,
@@ -57,6 +64,7 @@ class RunProcessingJob:
         self._audio_processor = audio_processor
         self._transcriber = transcriber
         self._speaker_identifier = speaker_identifier
+        self._speaker_mapping_repository = speaker_mapping_repository
         self._tokenizer = tokenizer
         self._recap_generator = recap_generator
         self._clock = clock
@@ -93,9 +101,21 @@ class RunProcessingJob:
             campaign_id=campaign.id,
             audio_track_id=audio_track.id,
         )
-        mappings = self._speaker_identifier.identify(campaign, raw_transcript)
+        mappings = self._speaker_identifier.identify(
+            campaign,
+            raw_transcript,
+            prepared_audio=prepared_audio,
+        )
         mapped = apply_speaker_mappings(campaign, raw_transcript, mappings)
         self._transcript_repository.save(mapped.transcript)
+        self._speaker_mapping_repository.save_many(
+            _mapping_records(
+                job_id=job.id,
+                transcript_id=mapped.transcript.id,
+                mappings=mappings,
+                prepared_audio=prepared_audio,
+            ),
+        )
 
         if mapped.warnings:
             waiting_job = replace(
@@ -135,3 +155,26 @@ class RunProcessingJob:
             recap=recap,
             warnings=(),
         )
+
+
+def _mapping_records(
+    *,
+    job_id: ProcessingJobId,
+    transcript_id: TranscriptId,
+    mappings: tuple[SpeakerMapping, ...],
+    prepared_audio: PreparedAudioResult,
+) -> tuple[SpeakerMappingRecord, ...]:
+    diagnostics = {
+        "prepared_audio_artifact_uri": prepared_audio.audio_artifact.uri,
+        "prepared_audio_manifest_uri": prepared_audio.manifest_artifact.uri,
+        "voice_sample_range_count": len(prepared_audio.voice_sample_ranges),
+    }
+    return tuple(
+        SpeakerMappingRecord(
+            job_id=job_id,
+            transcript_id=transcript_id,
+            mapping=mapping,
+            diagnostics=diagnostics,
+        )
+        for mapping in mappings
+    )

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
 from notekeeper.domain import (
     ArtifactRef,
@@ -12,11 +13,13 @@ from notekeeper.domain import (
     ParticipantId,
     PipelineWarning,
     ProcessingJob,
+    ProcessingJobId,
     Recap,
     SpeakerMapping,
     TimeRange,
     Transcript,
     TranscriptSegment,
+    TranscriptId,
     VoiceSample,
     VoiceSampleId,
 )
@@ -60,6 +63,17 @@ class PreparedAudioResult:
             "voice_sample_ranges",
             tuple(self.voice_sample_ranges),
         )
+
+
+@dataclass(frozen=True, slots=True)
+class SpeakerMappingRecord:
+    job_id: ProcessingJobId
+    transcript_id: TranscriptId
+    mapping: SpeakerMapping
+    diagnostics: dict[str, Any]
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "diagnostics", dict(self.diagnostics))
 
 
 @dataclass(frozen=True, slots=True)
@@ -274,6 +288,7 @@ __all__ = [
     "RunProcessingJobResult",
     "ScannedAudioTrackArtifact",
     "ScannedVoiceSampleArtifact",
+    "SpeakerMappingRecord",
     "SubmitRecordingForProcessingResult",
     "SyncCampaignFolderResult",
     "TranscriptChunk",

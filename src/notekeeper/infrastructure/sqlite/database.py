@@ -90,6 +90,25 @@ CREATE INDEX IF NOT EXISTS idx_jobs_campaign
 
 CREATE INDEX IF NOT EXISTS idx_jobs_audio_track
     ON jobs (audio_track_id);
+
+CREATE TABLE IF NOT EXISTS speaker_mappings (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    job_id TEXT NOT NULL,
+    transcript_id TEXT NOT NULL,
+    anonymous_label TEXT NOT NULL,
+    participant_id TEXT,
+    named_label TEXT,
+    confidence REAL,
+    source TEXT NOT NULL,
+    status TEXT NOT NULL,
+    diagnostics_json TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_speaker_mappings_job
+    ON speaker_mappings (job_id);
+
+CREATE INDEX IF NOT EXISTS idx_speaker_mappings_transcript
+    ON speaker_mappings (transcript_id);
 """
 
 

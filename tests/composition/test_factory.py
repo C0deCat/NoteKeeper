@@ -16,6 +16,8 @@ from notekeeper.application.ports import (
     ParticipantRepository,
     PreparedAudioManifestStore,
     RecapRepository,
+    SpeakerIdentifier,
+    SpeakerMappingRepository,
     Transcriber,
     TranscriptRepository,
     VoiceSampleRepository,
@@ -29,12 +31,14 @@ from notekeeper.infrastructure.filesystem import (
     LocalPreparedAudioManifestStore,
 )
 from notekeeper.infrastructure.runtime import SystemClock, UuidGenerator
+from notekeeper.infrastructure.speaker_mapping import SampleBasedSpeakerIdentifier
 from notekeeper.infrastructure.sqlite import (
     SQLiteAudioTrackRepository,
     SQLiteCampaignRepository,
     SQLiteJobRepository,
     SQLiteParticipantRepository,
     SQLiteRecapRepository,
+    SQLiteSpeakerMappingRepository,
     SQLiteTranscriptRepository,
     SQLiteVoiceSampleRepository,
 )
@@ -53,6 +57,7 @@ def test_infrastructure_bundle_uses_port_types_only() -> None:
         "prepared_audio_manifest_store": PreparedAudioManifestStore,
         "audio_processor": AudioProcessor,
         "transcriber": Transcriber,
+        "speaker_identifier": SpeakerIdentifier,
         "campaign_repository": CampaignRepository,
         "participant_repository": ParticipantRepository,
         "voice_sample_repository": VoiceSampleRepository,
@@ -60,6 +65,7 @@ def test_infrastructure_bundle_uses_port_types_only() -> None:
         "transcript_repository": TranscriptRepository,
         "recap_repository": RecapRepository,
         "job_repository": JobRepository,
+        "speaker_mapping_repository": SpeakerMappingRepository,
         "clock": Clock,
         "id_generator": IdGenerator,
     }
@@ -70,12 +76,14 @@ def test_infrastructure_bundle_uses_port_types_only() -> None:
         LocalCampaignArtifactStorage,
         LocalCampaignFolderScanner,
         LocalPreparedAudioManifestStore,
+        SampleBasedSpeakerIdentifier,
         WhisperXTranscriber,
         SQLiteAudioTrackRepository,
         SQLiteCampaignRepository,
         SQLiteJobRepository,
         SQLiteParticipantRepository,
         SQLiteRecapRepository,
+        SQLiteSpeakerMappingRepository,
         SQLiteTranscriptRepository,
         SQLiteVoiceSampleRepository,
         SystemClock,
@@ -92,6 +100,7 @@ def test_infrastructure_implementations_inherit_ports() -> None:
         LocalPreparedAudioManifestStore: PreparedAudioManifestStore,
         FfmpegAudioProcessor: AudioProcessor,
         WhisperXTranscriber: Transcriber,
+        SampleBasedSpeakerIdentifier: SpeakerIdentifier,
         SQLiteCampaignRepository: CampaignRepository,
         SQLiteParticipantRepository: ParticipantRepository,
         SQLiteVoiceSampleRepository: VoiceSampleRepository,
@@ -99,6 +108,7 @@ def test_infrastructure_implementations_inherit_ports() -> None:
         SQLiteTranscriptRepository: TranscriptRepository,
         SQLiteRecapRepository: RecapRepository,
         SQLiteJobRepository: JobRepository,
+        SQLiteSpeakerMappingRepository: SpeakerMappingRepository,
         SystemClock: Clock,
         UuidGenerator: IdGenerator,
     }

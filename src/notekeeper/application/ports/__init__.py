@@ -8,6 +8,7 @@ from typing import Any, Protocol
 from notekeeper.application.results import (
     CampaignFolderSnapshot,
     PreparedAudioResult,
+    SpeakerMappingRecord,
     TranscriptChunk,
 )
 from notekeeper.domain import (
@@ -154,7 +155,23 @@ class SpeakerIdentifier(Protocol):
         self,
         campaign: Campaign,
         transcript: Transcript,
+        *,
+        prepared_audio: PreparedAudioResult,
     ) -> tuple[SpeakerMapping, ...]: ...
+
+
+class SpeakerMappingRepository(Protocol):
+    def save_many(self, records: tuple[SpeakerMappingRecord, ...]) -> None: ...
+
+    def list_for_job(
+        self,
+        job_id: ProcessingJobId,
+    ) -> tuple[SpeakerMappingRecord, ...]: ...
+
+    def list_for_transcript(
+        self,
+        transcript_id: TranscriptId,
+    ) -> tuple[SpeakerMappingRecord, ...]: ...
 
 
 class Tokenizer(Protocol):
@@ -262,6 +279,7 @@ __all__ = [
     "RecapGenerator",
     "RecapRepository",
     "SpeakerIdentifier",
+    "SpeakerMappingRepository",
     "Tokenizer",
     "Transcriber",
     "TranscriptRepository",

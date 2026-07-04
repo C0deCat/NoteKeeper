@@ -6,6 +6,7 @@ from .database import SQLiteDatabase
 from .job_repository import SQLiteJobRepository
 from .participant_repository import SQLiteParticipantRepository
 from .recap_repository import SQLiteRecapRepository
+from .speaker_mapping_repository import SQLiteSpeakerMappingRepository
 from .transcript_repository import SQLiteTranscriptRepository
 from .voice_sample_repository import SQLiteVoiceSampleRepository
 
@@ -16,6 +17,7 @@ __all__ = [
     "SQLiteJobRepository",
     "SQLiteParticipantRepository",
     "SQLiteRecapRepository",
+    "SQLiteSpeakerMappingRepository",
     "SQLiteTranscriptRepository",
     "SQLiteVoiceSampleRepository",
 ]
