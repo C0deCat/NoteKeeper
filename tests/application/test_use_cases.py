@@ -22,6 +22,7 @@ from notekeeper.application import (
     GetJobStatusCommand,
     ManualSpeakerMappingCommand,
     PreparedAudioResult,
+    RecapGenerationContext,
     ReviewSpeakerMappings,
     ReviewSpeakerMappingsCommand,
     RunProcessingJob,
@@ -276,14 +277,28 @@ class FakeTokenizer:
 class FakeRecapGenerator:
     def __init__(self) -> None:
         self.generated_chunks: list[TranscriptChunk] = []
+        self.generated_contexts: list[RecapGenerationContext] = []
         self.combined_chunks: tuple[RecapChunk, ...] = ()
+        self.combined_contexts: list[RecapGenerationContext] = []
 
-    def generate_chunk(self, chunk: TranscriptChunk) -> str:
+    def generate_chunk(
+        self,
+        chunk: TranscriptChunk,
+        *,
+        context: RecapGenerationContext,
+    ) -> str:
         self.generated_chunks.append(chunk)
+        self.generated_contexts.append(context)
         return f"Chunk recap: {chunk.text or 'empty transcript'}"
 
-    def combine_chunks(self, chunks: tuple[RecapChunk, ...]) -> str:
+    def combine_chunks(
+        self,
+        chunks: tuple[RecapChunk, ...],
+        *,
+        context: RecapGenerationContext,
+    ) -> str:
         self.combined_chunks = chunks
+        self.combined_contexts.append(context)
         chunk_text = "\n\n".join(chunk.markdown for chunk in chunks)
         return f"{chunk_text}\n\n## Summary\nDone"
 
@@ -494,6 +509,13 @@ def test_run_processing_job_completes_clean_mapping_flow() -> None:
     assert harness.speaker_mappings.records[0].mapping.source is (
         SpeakerMappingSource.AUTOMATIC
     )
+    chunk_context = harness.recap_generator.generated_contexts[0]
+    assert chunk_context.campaign_id == CampaignId("campaign-1")
+    assert chunk_context.transcript_id == result.transcript.id
+    assert chunk_context.recap_id == result.recap.id
+    assert chunk_context.job_id == submitted.job.id
+    assert chunk_context.chunk_index == 0
+    assert harness.recap_generator.combined_contexts[0].chunk_index is None
 
 
 def test_run_processing_job_waits_for_review_when_mapping_warnings_exist() -> None:
@@ -619,6 +641,11 @@ def test_generate_recap_and_export_markdown_use_artifact_storage() -> None:
 
     assert transcript_export.artifact.uri == "memory://transcript-transcript-1.md"
     assert recap_export.artifact.uri == "memory://recap-recap-1.md"
+    assert (
+        harness.recap_generator.generated_contexts[0].recap_id
+        == recap_result.recap.id
+    )
+    assert harness.recap_generator.generated_contexts[0].job_id is None
     transcript_content = harness.artifact_storage.saved["transcript-transcript-1.md"][0]
     recap_content = harness.artifact_storage.saved["recap-recap-1.md"][0]
     assert "[00:00:00 - 00:00:05] **Alice:** We enter the crypt." in transcript_content

@@ -9,12 +9,14 @@ from notekeeper.domain import (
     ArtifactRef,
     AudioTrack,
     Campaign,
+    CampaignId,
     Participant,
     ParticipantId,
     PipelineWarning,
     ProcessingJob,
     ProcessingJobId,
     Recap,
+    RecapId,
     SpeakerMapping,
     TimeRange,
     Transcript,
@@ -39,6 +41,15 @@ class TranscriptChunk:
             "source_segment_indexes",
             tuple(self.source_segment_indexes),
         )
+
+
+@dataclass(frozen=True, slots=True)
+class RecapGenerationContext:
+    campaign_id: CampaignId
+    transcript_id: TranscriptId
+    recap_id: RecapId
+    job_id: ProcessingJobId | None = None
+    chunk_index: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -283,6 +294,7 @@ __all__ = [
     "ListVoiceSamplesResult",
     "PreparedAudioResult",
     "PreparedVoiceSampleRange",
+    "RecapGenerationContext",
     "RegisterAudioTrackResult",
     "ReviewSpeakerMappingsResult",
     "RunProcessingJobResult",

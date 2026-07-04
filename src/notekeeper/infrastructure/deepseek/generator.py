@@ -6,11 +6,17 @@ import time
 from collections.abc import Callable
 
 from notekeeper.application.ports import RecapGenerator
-from notekeeper.application.results import TranscriptChunk
+from notekeeper.application.results import RecapGenerationContext, TranscriptChunk
 from notekeeper.domain import RecapChunk, TimeRange
 from notekeeper.infrastructure.errors import InfrastructureError
 
-from .interfaces import ChatMessage, DeepSeekChatClient
+from .interfaces import (
+    ChatMessage,
+    DeepSeekChatClient,
+    DeepSeekChatCompletion,
+    DeepSeekRequestLogger,
+)
+from .noop_request_logger import NoOpDeepSeekRequestLogger
 from .openai_client import OpenAIDeepSeekChatClient
 
 
@@ -28,6 +34,7 @@ class DeepSeekRecapGenerator(RecapGenerator):
         retry_count: int = 2,
         retry_backoff_seconds: float = 1.0,
         client: DeepSeekChatClient | None = None,
+        request_logger: DeepSeekRequestLogger | None = None,
         sleep: Callable[[float], None] | None = None,
     ) -> None:
         self._chunk_recap_prompt = self._require_text(
@@ -59,51 +66,159 @@ class DeepSeekRecapGenerator(RecapGenerator):
             api_key=api_key,
             base_url=base_url,
         )
+        self._request_logger = request_logger or NoOpDeepSeekRequestLogger()
         self._sleep = sleep or time.sleep
 
-    def generate_chunk(self, chunk: TranscriptChunk) -> str:
+    def generate_chunk(
+        self,
+        chunk: TranscriptChunk,
+        *,
+        context: RecapGenerationContext,
+    ) -> str:
         return self._complete(
             (
                 {"role": "system", "content": self._chunk_recap_prompt},
                 {"role": "user", "content": self._chunk_user_message(chunk)},
             ),
+            context=context,
+            operation="chunk_recap",
         )
 
-    def combine_chunks(self, chunks: tuple[RecapChunk, ...]) -> str:
+    def combine_chunks(
+        self,
+        chunks: tuple[RecapChunk, ...],
+        *,
+        context: RecapGenerationContext,
+    ) -> str:
         return self._complete(
             (
                 {"role": "system", "content": self._combine_chunks_prompt},
                 {"role": "user", "content": self._combined_user_message(chunks)},
             ),
+            context=context,
+            operation="combine_chunks",
         )
 
-    def _complete(self, messages: tuple[ChatMessage, ...]) -> str:
+    def _complete(
+        self,
+        messages: tuple[ChatMessage, ...],
+        *,
+        context: RecapGenerationContext,
+        operation: str,
+    ) -> str:
         last_error: BaseException | None = None
         attempts = self._retry_count + 1
 
-        for attempt in range(attempts):
+        for attempt_number in range(1, attempts + 1):
+            completion: DeepSeekChatCompletion | None = None
+            started_at = time.perf_counter()
             try:
-                response = self._client.complete(
+                completion = self._client.complete(
                     model=self._model_name,
                     messages=messages,
                     temperature=self._temperature,
                     timeout_seconds=self._timeout_seconds,
                 )
-                return self._require_text(response, "DeepSeek response")
+                text = self._require_text(completion.text, "DeepSeek response")
             except InfrastructureError as exc:
+                self._log_attempt(
+                    context=context,
+                    operation=operation,
+                    attempt_number=attempt_number,
+                    max_attempts=attempts,
+                    messages=messages,
+                    completion=completion,
+                    duration_seconds=time.perf_counter() - started_at,
+                    status="failure",
+                    error_message=str(exc),
+                )
                 if "API key" in str(exc):
                     raise
                 last_error = exc
             except Exception as exc:
+                self._log_attempt(
+                    context=context,
+                    operation=operation,
+                    attempt_number=attempt_number,
+                    max_attempts=attempts,
+                    messages=messages,
+                    completion=completion,
+                    duration_seconds=time.perf_counter() - started_at,
+                    status="failure",
+                    error_message=str(exc),
+                )
                 last_error = exc
+            else:
+                self._log_attempt(
+                    context=context,
+                    operation=operation,
+                    attempt_number=attempt_number,
+                    max_attempts=attempts,
+                    messages=messages,
+                    completion=completion,
+                    duration_seconds=time.perf_counter() - started_at,
+                    status="success",
+                    response_text=text,
+                )
+                return text
 
-            if attempt < self._retry_count:
-                self._sleep(self._retry_backoff_seconds * (2**attempt))
+            if attempt_number < attempts:
+                self._sleep(self._retry_backoff_seconds * (2 ** (attempt_number - 1)))
 
         assert last_error is not None
         raise InfrastructureError(
             f"DeepSeek request failed after {attempts} attempts: {last_error}",
         ) from last_error
+
+    def _log_attempt(
+        self,
+        *,
+        context: RecapGenerationContext,
+        operation: str,
+        attempt_number: int,
+        max_attempts: int,
+        messages: tuple[ChatMessage, ...],
+        completion: DeepSeekChatCompletion | None,
+        duration_seconds: float,
+        status: str,
+        error_message: str | None = None,
+        response_text: str | None = None,
+    ) -> None:
+        self._request_logger.log_attempt(
+            context=context,
+            operation=operation,
+            attempt_number=attempt_number,
+            max_attempts=max_attempts,
+            model=self._model_name,
+            temperature=self._temperature,
+            timeout_seconds=self._timeout_seconds,
+            token_estimate=self._estimate_tokens(messages),
+            duration_seconds=duration_seconds,
+            status=status,
+            request_id=completion.request_id if completion is not None else None,
+            response_metadata=self._response_metadata(completion),
+            error_message=error_message,
+            messages=messages,
+            response_text=response_text,
+        )
+
+    def _response_metadata(
+        self,
+        completion: DeepSeekChatCompletion | None,
+    ) -> dict[str, object]:
+        if completion is None:
+            return {}
+
+        metadata: dict[str, object] = {}
+        if completion.usage is not None:
+            metadata["usage"] = completion.usage
+        if completion.finish_reason is not None:
+            metadata["finish_reason"] = completion.finish_reason
+        return metadata
+
+    def _estimate_tokens(self, messages: tuple[ChatMessage, ...]) -> int:
+        character_count = sum(len(message["content"]) for message in messages)
+        return (character_count + 3) // 4
 
     def _chunk_user_message(self, chunk: TranscriptChunk) -> str:
         parts = ["Transcript chunk metadata:", self._chunk_metadata(chunk), ""]

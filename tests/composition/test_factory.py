@@ -35,7 +35,11 @@ from notekeeper.composition import (
     build_infrastructure,
 )
 from notekeeper.infrastructure import InfrastructureError
-from notekeeper.infrastructure.deepseek import DeepSeekRecapGenerator
+from notekeeper.infrastructure.deepseek import (
+    DeepSeekRecapGenerator,
+    LocalDeepSeekRequestLogger,
+    NoOpDeepSeekRequestLogger,
+)
 from notekeeper.infrastructure.ffmpeg import FfmpegAudioProcessor
 from notekeeper.infrastructure.filesystem import (
     LocalAudioMetadataReader,
@@ -148,10 +152,10 @@ def test_build_infrastructure_loads_recap_prompts(
         def __init__(self, **kwargs) -> None:
             captured.update(kwargs)
 
-        def generate_chunk(self, chunk):
+        def generate_chunk(self, chunk, *, context):
             return "chunk"
 
-        def combine_chunks(self, chunks):
+        def combine_chunks(self, chunks, *, context):
             return "combined"
 
     monkeypatch.setattr(
@@ -174,6 +178,43 @@ def test_build_infrastructure_loads_recap_prompts(
     assert captured["chunk_recap_prompt"] == "chunk prompt"
     assert captured["combine_chunks_prompt"] == "combine prompt"
     assert captured["api_key"] == "secret-key"
+    assert isinstance(captured["request_logger"], NoOpDeepSeekRequestLogger)
+
+
+def test_build_infrastructure_can_enable_deepseek_request_logging(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    prompts_file = _prompt_file(tmp_path, "chunk prompt", "combine prompt")
+    captured: dict[str, object] = {}
+
+    class CapturingRecapGenerator(RecapGenerator):
+        def __init__(self, **kwargs) -> None:
+            captured.update(kwargs)
+
+        def generate_chunk(self, chunk, *, context):
+            return "chunk"
+
+        def combine_chunks(self, chunks, *, context):
+            return "combined"
+
+    monkeypatch.setattr(
+        factory_module,
+        "DeepSeekRecapGenerator",
+        CapturingRecapGenerator,
+    )
+
+    build_infrastructure(
+        NoteKeeperSettings(
+            storage_root=tmp_path / "artifacts",
+            sqlite_path=tmp_path / "notekeeper.sqlite3",
+            recap_prompts_file=prompts_file,
+            deepseek_request_logging_enabled=True,
+            deepseek_log_full_payloads=True,
+        ),
+    )
+
+    assert isinstance(captured["request_logger"], LocalDeepSeekRequestLogger)
 
 
 def test_build_infrastructure_rejects_missing_recap_prompts_file(

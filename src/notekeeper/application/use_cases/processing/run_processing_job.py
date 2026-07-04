@@ -139,6 +139,7 @@ class RunProcessingJob:
             tokenizer=self._tokenizer,
             recap_generator=self._recap_generator,
             recap_repository=self._recap_repository,
+            job_id=job.id,
         )
         completed_job = replace(
             running_job,

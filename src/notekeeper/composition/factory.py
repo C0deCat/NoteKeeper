@@ -28,7 +28,11 @@ from notekeeper.application.ports import (
     TranscriptRepository,
     VoiceSampleRepository,
 )
-from notekeeper.infrastructure.deepseek import DeepSeekRecapGenerator
+from notekeeper.infrastructure.deepseek import (
+    DeepSeekRecapGenerator,
+    LocalDeepSeekRequestLogger,
+    NoOpDeepSeekRequestLogger,
+)
 from notekeeper.infrastructure.errors import InfrastructureError
 from notekeeper.infrastructure.ffmpeg import FfmpegAudioProcessor
 from notekeeper.infrastructure.filesystem import (
@@ -147,6 +151,15 @@ def build_infrastructure(
         encoding_name=resolved_settings.tokenizer_encoding_name,
         max_token_count=resolved_settings.tokenizer_max_token_count,
     )
+    deepseek_request_logger = (
+        LocalDeepSeekRequestLogger(
+            artifact_storage,
+            include_payloads=resolved_settings.deepseek_log_full_payloads,
+            now=clock.now,
+        )
+        if resolved_settings.deepseek_request_logging_enabled
+        else NoOpDeepSeekRequestLogger()
+    )
     recap_generator = DeepSeekRecapGenerator(
         chunk_recap_prompt=recap_prompts[CHUNK_RECAP_PROMPT_KEY],
         combine_chunks_prompt=recap_prompts[COMBINE_CHUNKS_PROMPT_KEY],
@@ -157,6 +170,7 @@ def build_infrastructure(
         timeout_seconds=resolved_settings.deepseek_timeout_seconds,
         retry_count=resolved_settings.deepseek_retry_count,
         retry_backoff_seconds=resolved_settings.deepseek_retry_backoff_seconds,
+        request_logger=deepseek_request_logger,
     )
 
     return InfrastructureBundle(

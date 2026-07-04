@@ -8,6 +8,7 @@ from typing import Any, Protocol
 from notekeeper.application.results import (
     CampaignFolderSnapshot,
     PreparedAudioResult,
+    RecapGenerationContext,
     SpeakerMappingRecord,
     TranscriptChunk,
 )
@@ -184,9 +185,19 @@ class Tokenizer(Protocol):
 
 
 class RecapGenerator(Protocol):
-    def generate_chunk(self, chunk: TranscriptChunk) -> str: ...
+    def generate_chunk(
+        self,
+        chunk: TranscriptChunk,
+        *,
+        context: RecapGenerationContext,
+    ) -> str: ...
 
-    def combine_chunks(self, chunks: tuple[RecapChunk, ...]) -> str: ...
+    def combine_chunks(
+        self,
+        chunks: tuple[RecapChunk, ...],
+        *,
+        context: RecapGenerationContext,
+    ) -> str: ...
 
 
 class ArtifactStorage(Protocol):
