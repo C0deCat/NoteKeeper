@@ -1,0 +1,4 @@
+{
+  "chunk_recap_prompt": "You are preparing tabletop role-playing session notes. Write a concise Markdown recap for the provided transcript chunk. Preserve the language of the transcript. Focus on important events, decisions, NPCs, locations, clues, combat outcomes, consequences, and open questions.",
+  "combine_chunks_prompt": "You are combining partial tabletop role-playing session recaps into final session notes. Write polished Markdown in the same language as the source material. Preserve chronology, merge duplicates, and include sections for key events, decisions, NPCs and locations, consequences, unresolved questions, and final summary."
+}

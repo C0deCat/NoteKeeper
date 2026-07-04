@@ -41,3 +41,13 @@ class NoteKeeperSettings(BaseSettings):
     whisperx_unknown_speaker_label: str = "SPEAKER_UNKNOWN"
     speaker_mapping_min_overlap_seconds: float = 0.25
     speaker_mapping_min_dominance_ratio: float = 0.8
+    tokenizer_encoding_name: str = "cl100k_base"
+    tokenizer_max_token_count: int = 35_000
+    deepseek_api_key: str | None = Field(default=None, repr=False)
+    deepseek_base_url: str = "https://api.deepseek.com"
+    deepseek_model_name: str = "deepseek-v4-pro"
+    deepseek_temperature: float = 0.2
+    deepseek_timeout_seconds: float = 120.0
+    deepseek_retry_count: int = 2
+    deepseek_retry_backoff_seconds: float = 1.0
+    recap_prompts_file: Path = Field(default=Path("data") / "recap_prompts.json")

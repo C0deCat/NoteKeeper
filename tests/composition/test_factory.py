@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+import json
 from dataclasses import fields
+from pathlib import Path
 from typing import get_type_hints
+
+import pytest
 
 from notekeeper.application.ports import (
     AudioMetadataReader,
@@ -15,14 +19,23 @@ from notekeeper.application.ports import (
     JobRepository,
     ParticipantRepository,
     PreparedAudioManifestStore,
+    RecapGenerator,
     RecapRepository,
     SpeakerIdentifier,
     SpeakerMappingRepository,
+    Tokenizer,
     Transcriber,
     TranscriptRepository,
     VoiceSampleRepository,
 )
-from notekeeper.composition import InfrastructureBundle, NoteKeeperSettings
+import notekeeper.composition.factory as factory_module
+from notekeeper.composition import (
+    InfrastructureBundle,
+    NoteKeeperSettings,
+    build_infrastructure,
+)
+from notekeeper.infrastructure import InfrastructureError
+from notekeeper.infrastructure.deepseek import DeepSeekRecapGenerator
 from notekeeper.infrastructure.ffmpeg import FfmpegAudioProcessor
 from notekeeper.infrastructure.filesystem import (
     LocalAudioMetadataReader,
@@ -42,6 +55,7 @@ from notekeeper.infrastructure.sqlite import (
     SQLiteTranscriptRepository,
     SQLiteVoiceSampleRepository,
 )
+from notekeeper.infrastructure.tokenization import TiktokenTranscriptTokenizer
 from notekeeper.infrastructure.whisperx import WhisperXTranscriber
 
 
@@ -58,6 +72,8 @@ def test_infrastructure_bundle_uses_port_types_only() -> None:
         "audio_processor": AudioProcessor,
         "transcriber": Transcriber,
         "speaker_identifier": SpeakerIdentifier,
+        "tokenizer": Tokenizer,
+        "recap_generator": RecapGenerator,
         "campaign_repository": CampaignRepository,
         "participant_repository": ParticipantRepository,
         "voice_sample_repository": VoiceSampleRepository,
@@ -77,6 +93,8 @@ def test_infrastructure_bundle_uses_port_types_only() -> None:
         LocalCampaignFolderScanner,
         LocalPreparedAudioManifestStore,
         SampleBasedSpeakerIdentifier,
+        TiktokenTranscriptTokenizer,
+        DeepSeekRecapGenerator,
         WhisperXTranscriber,
         SQLiteAudioTrackRepository,
         SQLiteCampaignRepository,
@@ -101,6 +119,8 @@ def test_infrastructure_implementations_inherit_ports() -> None:
         FfmpegAudioProcessor: AudioProcessor,
         WhisperXTranscriber: Transcriber,
         SampleBasedSpeakerIdentifier: SpeakerIdentifier,
+        TiktokenTranscriptTokenizer: Tokenizer,
+        DeepSeekRecapGenerator: RecapGenerator,
         SQLiteCampaignRepository: CampaignRepository,
         SQLiteParticipantRepository: ParticipantRepository,
         SQLiteVoiceSampleRepository: VoiceSampleRepository,
@@ -115,3 +135,85 @@ def test_infrastructure_implementations_inherit_ports() -> None:
 
     for implementation, port in expected_ports.items():
         assert port in implementation.__mro__
+
+
+def test_build_infrastructure_loads_recap_prompts(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    prompts_file = _prompt_file(tmp_path, "chunk prompt", "combine prompt")
+    captured: dict[str, object] = {}
+
+    class CapturingRecapGenerator(RecapGenerator):
+        def __init__(self, **kwargs) -> None:
+            captured.update(kwargs)
+
+        def generate_chunk(self, chunk):
+            return "chunk"
+
+        def combine_chunks(self, chunks):
+            return "combined"
+
+    monkeypatch.setattr(
+        factory_module,
+        "DeepSeekRecapGenerator",
+        CapturingRecapGenerator,
+    )
+
+    bundle = build_infrastructure(
+        NoteKeeperSettings(
+            storage_root=tmp_path / "artifacts",
+            sqlite_path=tmp_path / "notekeeper.sqlite3",
+            recap_prompts_file=prompts_file,
+            deepseek_api_key="secret-key",
+        ),
+    )
+
+    assert isinstance(bundle.tokenizer, TiktokenTranscriptTokenizer)
+    assert isinstance(bundle.recap_generator, CapturingRecapGenerator)
+    assert captured["chunk_recap_prompt"] == "chunk prompt"
+    assert captured["combine_chunks_prompt"] == "combine prompt"
+    assert captured["api_key"] == "secret-key"
+
+
+def test_build_infrastructure_rejects_missing_recap_prompts_file(
+    tmp_path: Path,
+) -> None:
+    with pytest.raises(InfrastructureError, match="recap prompts file does not exist"):
+        build_infrastructure(
+            NoteKeeperSettings(
+                storage_root=tmp_path / "artifacts",
+                sqlite_path=tmp_path / "notekeeper.sqlite3",
+                recap_prompts_file=tmp_path / "missing.json",
+            ),
+        )
+
+
+def test_build_infrastructure_rejects_malformed_recap_prompts_file(
+    tmp_path: Path,
+) -> None:
+    prompts_file = tmp_path / "recap_prompts.json"
+    prompts_file.write_text("[]", encoding="utf-8")
+
+    with pytest.raises(InfrastructureError, match="must contain a JSON object"):
+        build_infrastructure(
+            NoteKeeperSettings(
+                storage_root=tmp_path / "artifacts",
+                sqlite_path=tmp_path / "notekeeper.sqlite3",
+                recap_prompts_file=prompts_file,
+            ),
+        )
+
+
+def _prompt_file(tmp_path: Path, chunk_prompt: str, combine_prompt: str) -> Path:
+    prompts_file = tmp_path / "recap_prompts.json"
+    prompts_file.write_text(
+        json.dumps(
+            {
+                "chunk_recap_prompt": chunk_prompt,
+                "combine_chunks_prompt": combine_prompt,
+            },
+        ),
+        encoding="utf-8",
+    )
+    return prompts_file
