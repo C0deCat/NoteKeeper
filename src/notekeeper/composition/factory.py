@@ -17,6 +17,7 @@ from notekeeper.application.ports import (
     ParticipantRepository,
     PreparedAudioManifestStore,
     RecapRepository,
+    Transcriber,
     TranscriptRepository,
     VoiceSampleRepository,
 )
@@ -38,6 +39,10 @@ from notekeeper.infrastructure.sqlite import (
     SQLiteTranscriptRepository,
     SQLiteVoiceSampleRepository,
 )
+from notekeeper.infrastructure.whisperx import (
+    LocalWhisperXPayloadStore,
+    WhisperXTranscriber,
+)
 
 from .settings import NoteKeeperSettings
 
@@ -50,6 +55,7 @@ class InfrastructureBundle:
     metadata_reader: AudioMetadataReader
     prepared_audio_manifest_store: PreparedAudioManifestStore
     audio_processor: AudioProcessor
+    transcriber: Transcriber
     campaign_repository: CampaignRepository
     participant_repository: ParticipantRepository
     voice_sample_repository: VoiceSampleRepository
@@ -91,6 +97,28 @@ def build_infrastructure(
         container=resolved_settings.prepared_audio_container,
         now=clock.now,
     )
+    transcriber = WhisperXTranscriber(
+        artifact_storage,
+        LocalWhisperXPayloadStore(artifact_storage),
+        model_name=resolved_settings.whisperx_model_name,
+        device=resolved_settings.whisperx_device,
+        compute_type=resolved_settings.whisperx_compute_type,
+        batch_size=resolved_settings.whisperx_batch_size,
+        language=resolved_settings.whisperx_language,
+        alignment_enabled=resolved_settings.whisperx_alignment_enabled,
+        alignment_model_name=resolved_settings.whisperx_alignment_model_name,
+        alignment_model_dir=resolved_settings.whisperx_alignment_model_dir,
+        alignment_model_cache_only=(
+            resolved_settings.whisperx_alignment_model_cache_only
+        ),
+        diarization_enabled=resolved_settings.whisperx_diarization_enabled,
+        diarization_model_name=resolved_settings.whisperx_diarization_model_name,
+        diarization_cache_dir=resolved_settings.whisperx_diarization_cache_dir,
+        hf_token=resolved_settings.whisperx_hf_token,
+        fill_nearest=resolved_settings.whisperx_speaker_assignment_fill_nearest,
+        unknown_speaker_label=resolved_settings.whisperx_unknown_speaker_label,
+        now=clock.now,
+    )
 
     return InfrastructureBundle(
         settings=resolved_settings,
@@ -99,6 +127,7 @@ def build_infrastructure(
         metadata_reader=metadata_reader,
         prepared_audio_manifest_store=prepared_audio_manifest_store,
         audio_processor=audio_processor,
+        transcriber=transcriber,
         campaign_repository=SQLiteCampaignRepository(database),
         participant_repository=SQLiteParticipantRepository(database),
         voice_sample_repository=SQLiteVoiceSampleRepository(database),

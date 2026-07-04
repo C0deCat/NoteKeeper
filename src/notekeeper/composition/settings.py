@@ -24,3 +24,18 @@ class NoteKeeperSettings(BaseSettings):
     prepared_audio_channels: int = 1
     prepared_audio_codec: str = "pcm_s16le"
     prepared_audio_container: str = "wav"
+    whisperx_model_name: str = "small"
+    whisperx_device: str = "cpu"
+    whisperx_compute_type: str = "int8"
+    whisperx_batch_size: int = 16
+    whisperx_language: str | None = None
+    whisperx_alignment_enabled: bool = True
+    whisperx_alignment_model_name: str | None = None
+    whisperx_alignment_model_dir: Path | None = None
+    whisperx_alignment_model_cache_only: bool = False
+    whisperx_diarization_enabled: bool = True
+    whisperx_diarization_model_name: str | None = None
+    whisperx_diarization_cache_dir: Path | None = None
+    whisperx_hf_token: str | None = Field(default=None, repr=False)
+    whisperx_speaker_assignment_fill_nearest: bool = False
+    whisperx_unknown_speaker_label: str = "SPEAKER_UNKNOWN"

@@ -16,6 +16,7 @@ from notekeeper.application.ports import (
     ParticipantRepository,
     PreparedAudioManifestStore,
     RecapRepository,
+    Transcriber,
     TranscriptRepository,
     VoiceSampleRepository,
 )
@@ -37,6 +38,7 @@ from notekeeper.infrastructure.sqlite import (
     SQLiteTranscriptRepository,
     SQLiteVoiceSampleRepository,
 )
+from notekeeper.infrastructure.whisperx import WhisperXTranscriber
 
 
 def test_infrastructure_bundle_uses_port_types_only() -> None:
@@ -50,6 +52,7 @@ def test_infrastructure_bundle_uses_port_types_only() -> None:
         "metadata_reader": AudioMetadataReader,
         "prepared_audio_manifest_store": PreparedAudioManifestStore,
         "audio_processor": AudioProcessor,
+        "transcriber": Transcriber,
         "campaign_repository": CampaignRepository,
         "participant_repository": ParticipantRepository,
         "voice_sample_repository": VoiceSampleRepository,
@@ -67,6 +70,7 @@ def test_infrastructure_bundle_uses_port_types_only() -> None:
         LocalCampaignArtifactStorage,
         LocalCampaignFolderScanner,
         LocalPreparedAudioManifestStore,
+        WhisperXTranscriber,
         SQLiteAudioTrackRepository,
         SQLiteCampaignRepository,
         SQLiteJobRepository,
@@ -87,6 +91,7 @@ def test_infrastructure_implementations_inherit_ports() -> None:
         LocalAudioMetadataReader: AudioMetadataReader,
         LocalPreparedAudioManifestStore: PreparedAudioManifestStore,
         FfmpegAudioProcessor: AudioProcessor,
+        WhisperXTranscriber: Transcriber,
         SQLiteCampaignRepository: CampaignRepository,
         SQLiteParticipantRepository: ParticipantRepository,
         SQLiteVoiceSampleRepository: VoiceSampleRepository,
