@@ -21,6 +21,7 @@ from notekeeper.application import (
     GetJobStatus,
     GetJobStatusCommand,
     ManualSpeakerMappingCommand,
+    PortExecutionError,
     PreparedAudioResult,
     RecapGenerationContext,
     ReviewSpeakerMappings,
@@ -169,6 +170,7 @@ class FakeMetadataReader:
 class FakeAudioProcessor:
     def __init__(self) -> None:
         self.calls: list[tuple[AudioTrack, tuple[VoiceSample, ...], ProcessingJobId]] = []
+        self.error: PortExecutionError | None = None
 
     def prepare_session_audio(
         self,
@@ -178,6 +180,9 @@ class FakeAudioProcessor:
         job_id: ProcessingJobId,
     ) -> PreparedAudioResult:
         self.calls.append((audio_track, voice_samples, job_id))
+        if self.error is not None:
+            raise self.error
+
         return PreparedAudioResult(
             audio_artifact=ArtifactRef(uri=f"prepared/{job_id}.wav"),
             manifest_artifact=ArtifactRef(uri=f"prepared/{job_id}.json"),
@@ -280,6 +285,8 @@ class FakeRecapGenerator:
         self.generated_contexts: list[RecapGenerationContext] = []
         self.combined_chunks: tuple[RecapChunk, ...] = ()
         self.combined_contexts: list[RecapGenerationContext] = []
+        self.generate_error: PortExecutionError | None = None
+        self.combine_error: PortExecutionError | None = None
 
     def generate_chunk(
         self,
@@ -289,6 +296,9 @@ class FakeRecapGenerator:
     ) -> str:
         self.generated_chunks.append(chunk)
         self.generated_contexts.append(context)
+        if self.generate_error is not None:
+            raise self.generate_error
+
         return f"Chunk recap: {chunk.text or 'empty transcript'}"
 
     def combine_chunks(
@@ -299,6 +309,9 @@ class FakeRecapGenerator:
     ) -> str:
         self.combined_chunks = chunks
         self.combined_contexts.append(context)
+        if self.combine_error is not None:
+            raise self.combine_error
+
         chunk_text = "\n\n".join(chunk.markdown for chunk in chunks)
         return f"{chunk_text}\n\n## Summary\nDone"
 
@@ -555,6 +568,66 @@ def test_run_processing_job_waits_for_review_when_mapping_warnings_exist() -> No
     assert harness.speaker_mappings.records[0].diagnostics[
         "prepared_audio_artifact_uri"
     ] == f"prepared/{submitted.job.id}.wav"
+
+
+def test_run_processing_job_marks_failed_when_early_adapter_fails() -> None:
+    harness = Harness()
+    harness.ready_campaign("Alice")
+    harness.audio_processor.error = PortExecutionError("ffmpeg failed")
+
+    submitted = harness.submit_use_case().execute(
+        SubmitRecordingForProcessingCommand(
+            campaign_id="campaign-1",
+            artifact_uri="sessions/session-1.wav",
+        ),
+    )
+    result = harness.run_use_case().execute(
+        RunProcessingJobCommand(job_id=submitted.job.id),
+    )
+
+    assert result.job.status is JobStatus.FAILED
+    assert result.job.error_message == "ffmpeg failed"
+    assert result.job.updated_at > submitted.job.updated_at
+    assert result.job.transcript_id is None
+    assert result.transcript is None
+    assert result.recap is None
+    assert result.warnings == ()
+    assert harness.transcripts.items == {}
+    assert harness.recaps.items == {}
+    assert harness.jobs.get(submitted.job.id) == result.job
+
+
+def test_run_processing_job_failed_recap_preserves_persisted_transcript() -> None:
+    harness = Harness()
+    harness.ready_campaign("Alice")
+    harness.transcriber.segments = (
+        segment(0, 0, 1, "SPEAKER_00", "Hello there"),
+    )
+    harness.speaker_identifier.mappings = (
+        confirmed_mapping("SPEAKER_00", "Alice", "participant-1"),
+    )
+    harness.recap_generator.generate_error = PortExecutionError("DeepSeek failed")
+
+    submitted = harness.submit_use_case().execute(
+        SubmitRecordingForProcessingCommand(
+            campaign_id="campaign-1",
+            artifact_uri="sessions/session-1.wav",
+        ),
+    )
+    result = harness.run_use_case().execute(
+        RunProcessingJobCommand(job_id=submitted.job.id),
+    )
+
+    assert result.job.status is JobStatus.FAILED
+    assert result.job.error_message == "DeepSeek failed"
+    assert result.job.transcript_id == result.transcript.id
+    assert result.job.recap_id is None
+    assert result.transcript.id in harness.transcripts.items
+    assert result.transcript.segments[0].speaker_label == SpeakerLabel.named("Alice")
+    assert result.recap is None
+    assert harness.recaps.items == {}
+    assert harness.speaker_mappings.records[0].job_id == submitted.job.id
+    assert harness.jobs.get(submitted.job.id) == result.job
 
 
 def test_review_speaker_mappings_completes_job_after_manual_fix() -> None:

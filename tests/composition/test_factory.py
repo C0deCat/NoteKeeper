@@ -28,6 +28,7 @@ from notekeeper.application.ports import (
     TranscriptRepository,
     VoiceSampleRepository,
 )
+from notekeeper.application import PortExecutionError
 import notekeeper.composition.factory as factory_module
 from notekeeper.composition import (
     InfrastructureBundle,
@@ -139,6 +140,10 @@ def test_infrastructure_implementations_inherit_ports() -> None:
 
     for implementation, port in expected_ports.items():
         assert port in implementation.__mro__
+
+
+def test_infrastructure_error_is_port_execution_error() -> None:
+    assert issubclass(InfrastructureError, PortExecutionError)
 
 
 def test_build_infrastructure_loads_recap_prompts(

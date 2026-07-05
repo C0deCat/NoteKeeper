@@ -3,7 +3,7 @@
 from dataclasses import replace
 
 from notekeeper.application.commands import RunProcessingJobCommand
-from notekeeper.application.errors import InvalidOperationError
+from notekeeper.application.errors import InvalidOperationError, PortExecutionError
 from notekeeper.application.ports import (
     AudioProcessor,
     AudioTrackRepository,
@@ -90,72 +90,102 @@ class RunProcessingJob:
         )
         self._job_repository.save(running_job)
 
-        prepared_audio = self._audio_processor.prepare_session_audio(
-            audio_track,
-            campaign.voice_samples,
-            job_id=job.id,
-        )
-        raw_transcript = self._transcriber.transcribe(
-            prepared_audio.audio_artifact,
-            transcript_id=TranscriptId(self._id_generator.transcript_id()),
-            campaign_id=campaign.id,
-            audio_track_id=audio_track.id,
-        )
-        mappings = self._speaker_identifier.identify(
-            campaign,
-            raw_transcript,
-            prepared_audio=prepared_audio,
-        )
-        mapped = apply_speaker_mappings(campaign, raw_transcript, mappings)
-        self._transcript_repository.save(mapped.transcript)
-        self._speaker_mapping_repository.save_many(
-            _mapping_records(
+        persisted_transcript = None
+        known_warnings = ()
+        try:
+            prepared_audio = self._audio_processor.prepare_session_audio(
+                audio_track,
+                campaign.voice_samples,
                 job_id=job.id,
-                transcript_id=mapped.transcript.id,
-                mappings=mappings,
+            )
+            raw_transcript = self._transcriber.transcribe(
+                prepared_audio.audio_artifact,
+                transcript_id=TranscriptId(self._id_generator.transcript_id()),
+                campaign_id=campaign.id,
+                audio_track_id=audio_track.id,
+            )
+            mappings = self._speaker_identifier.identify(
+                campaign,
+                raw_transcript,
                 prepared_audio=prepared_audio,
-            ),
-        )
+            )
+            mapped = apply_speaker_mappings(campaign, raw_transcript, mappings)
+            known_warnings = mapped.warnings
+            self._transcript_repository.save(mapped.transcript)
+            persisted_transcript = mapped.transcript
+            self._speaker_mapping_repository.save_many(
+                _mapping_records(
+                    job_id=job.id,
+                    transcript_id=mapped.transcript.id,
+                    mappings=mappings,
+                    prepared_audio=prepared_audio,
+                ),
+            )
 
-        if mapped.warnings:
-            waiting_job = replace(
+            if mapped.warnings:
+                waiting_job = replace(
+                    running_job,
+                    status=JobStatus.WAITING_FOR_REVIEW,
+                    updated_at=self._clock.now(),
+                    transcript_id=mapped.transcript.id,
+                    warnings=mapped.warnings,
+                )
+                self._job_repository.save(waiting_job)
+                return RunProcessingJobResult(
+                    job=waiting_job,
+                    transcript=mapped.transcript,
+                    recap=None,
+                    warnings=mapped.warnings,
+                )
+
+            recap = generate_recap_for_transcript(
+                mapped.transcript,
+                id_generator=self._id_generator,
+                tokenizer=self._tokenizer,
+                recap_generator=self._recap_generator,
+                recap_repository=self._recap_repository,
+                job_id=job.id,
+            )
+            completed_job = replace(
                 running_job,
-                status=JobStatus.WAITING_FOR_REVIEW,
+                status=JobStatus.COMPLETED,
                 updated_at=self._clock.now(),
                 transcript_id=mapped.transcript.id,
-                warnings=mapped.warnings,
+                recap_id=recap.id,
+                warnings=(),
             )
-            self._job_repository.save(waiting_job)
+            self._job_repository.save(completed_job)
             return RunProcessingJobResult(
-                job=waiting_job,
+                job=completed_job,
                 transcript=mapped.transcript,
+                recap=recap,
+                warnings=(),
+            )
+        except PortExecutionError as exc:
+            failed_job = replace(
+                running_job,
+                status=JobStatus.FAILED,
+                updated_at=self._clock.now(),
+                transcript_id=(
+                    persisted_transcript.id
+                    if persisted_transcript is not None
+                    else None
+                ),
+                warnings=known_warnings,
+                error_message=_port_error_message(exc),
+            )
+            self._job_repository.save(failed_job)
+            return RunProcessingJobResult(
+                job=failed_job,
+                transcript=persisted_transcript,
                 recap=None,
-                warnings=mapped.warnings,
+                warnings=known_warnings,
             )
 
-        recap = generate_recap_for_transcript(
-            mapped.transcript,
-            id_generator=self._id_generator,
-            tokenizer=self._tokenizer,
-            recap_generator=self._recap_generator,
-            recap_repository=self._recap_repository,
-            job_id=job.id,
-        )
-        completed_job = replace(
-            running_job,
-            status=JobStatus.COMPLETED,
-            updated_at=self._clock.now(),
-            transcript_id=mapped.transcript.id,
-            recap_id=recap.id,
-            warnings=(),
-        )
-        self._job_repository.save(completed_job)
-        return RunProcessingJobResult(
-            job=completed_job,
-            transcript=mapped.transcript,
-            recap=recap,
-            warnings=(),
-        )
+
+def _port_error_message(error: PortExecutionError) -> str:
+    message = str(error).strip()
+    return message if message else type(error).__name__
 
 
 def _mapping_records(

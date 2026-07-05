@@ -148,6 +148,28 @@ def test_sqlite_job_repository_lists_and_deletes_by_audio_track(tmp_path: Path) 
     assert jobs.get(job.id) is None
 
 
+def test_sqlite_job_repository_round_trips_failed_job_error(
+    tmp_path: Path,
+) -> None:
+    database = _database(tmp_path)
+    jobs = SQLiteJobRepository(database)
+    job = ProcessingJob(
+        id=ProcessingJobId("job-failed"),
+        campaign_id=CampaignId("campaign-1"),
+        audio_track_id=AudioTrackId("audio-track-1"),
+        status=JobStatus.FAILED,
+        created_at=datetime(2026, 1, 1, 12, 0, 0),
+        updated_at=datetime(2026, 1, 1, 12, 0, 5),
+        transcript_id=TranscriptId("transcript-1"),
+        error_message="DeepSeek failed",
+    )
+
+    jobs.save(job)
+
+    assert jobs.get(job.id) == job
+    assert jobs.get(job.id).error_message == "DeepSeek failed"
+
+
 def test_sqlite_speaker_mapping_repository_round_trips_records(
     tmp_path: Path,
 ) -> None:

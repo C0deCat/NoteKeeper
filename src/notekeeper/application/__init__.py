@@ -28,7 +28,12 @@ from .commands import (
     UpdateParticipantCommand,
     UpdateVoiceSampleCommand,
 )
-from .errors import ApplicationError, InvalidOperationError, NotFoundError
+from .errors import (
+    ApplicationError,
+    InvalidOperationError,
+    NotFoundError,
+    PortExecutionError,
+)
 from .results import (
     AddParticipantToCampaignResult,
     AddVoiceSampleResult,
@@ -144,6 +149,7 @@ __all__ = [
     "ListVoiceSamplesResult",
     "ManualSpeakerMappingCommand",
     "NotFoundError",
+    "PortExecutionError",
     "PreparedAudioResult",
     "PreparedVoiceSampleRange",
     "RecapGenerationContext",
