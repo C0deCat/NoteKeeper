@@ -12,6 +12,8 @@ from notekeeper.application import (
     CampaignFolderSnapshot,
     CreateCampaign,
     CreateCampaignCommand,
+    CreateProcessingJobForAudioTrack,
+    CreateProcessingJobForAudioTrackCommand,
     ExportRecapMarkdown,
     ExportRecapMarkdownCommand,
     ExportTranscriptMarkdown,
@@ -20,7 +22,15 @@ from notekeeper.application import (
     GenerateRecapCommand,
     GetJobStatus,
     GetJobStatusCommand,
+    InspectAudioMetadata,
+    InspectAudioMetadataCommand,
+    ListJobsForCampaign,
+    ListJobsForCampaignCommand,
     ManualSpeakerMappingCommand,
+    PreviewRecapMarkdown,
+    PreviewRecapMarkdownCommand,
+    PreviewTranscriptMarkdown,
+    PreviewTranscriptMarkdownCommand,
     PortExecutionError,
     PreparedAudioResult,
     RecapGenerationContext,
@@ -390,6 +400,15 @@ class Harness:
             self.ids,
         )
 
+    def create_job_for_audio_track_use_case(self) -> CreateProcessingJobForAudioTrack:
+        return CreateProcessingJobForAudioTrack(
+            self.campaigns,
+            self.audio_tracks,
+            self.jobs,
+            self.clock,
+            self.ids,
+        )
+
     def run_use_case(self) -> RunProcessingJob:
         return RunProcessingJob(
             self.campaigns,
@@ -480,6 +499,67 @@ def test_submit_recording_rejects_campaign_without_voice_samples() -> None:
 
     assert not harness.jobs.items
     assert not harness.audio_tracks.items
+
+
+def test_create_processing_job_for_existing_audio_track() -> None:
+    harness = Harness()
+    campaign = harness.ready_campaign("Alice")
+    audio_track = AudioTrack(
+        id="audio-track-1",
+        campaign_id=campaign.id,
+        artifact=ArtifactRef(uri="sessions/session-1.wav"),
+        metadata=AudioMetadata(duration_seconds=12),
+        title="Session 1",
+    )
+    campaign = add_audio_track(campaign, audio_track)
+    harness.campaigns.save(campaign)
+    harness.audio_tracks.save(audio_track)
+
+    result = harness.create_job_for_audio_track_use_case().execute(
+        CreateProcessingJobForAudioTrackCommand(audio_track_id="audio-track-1"),
+    )
+
+    assert result.campaign == campaign
+    assert result.audio_track == audio_track
+    assert result.job.id == ProcessingJobId("job-1")
+    assert result.job.campaign_id == CampaignId("campaign-1")
+    assert result.job.audio_track_id == audio_track.id
+    assert result.job.status is JobStatus.PENDING
+    assert harness.jobs.get(result.job.id) == result.job
+    assert harness.audio_tracks.items == {audio_track.id: audio_track}
+    assert harness.metadata_reader.read_artifacts == []
+
+
+def test_create_processing_job_rejects_unready_campaign() -> None:
+    harness = Harness()
+    participant = Participant(
+        id=ParticipantId("participant-1"),
+        campaign_id=CampaignId("campaign-1"),
+        display_name="Alice",
+    )
+    audio_track = AudioTrack(
+        id="audio-track-1",
+        campaign_id=CampaignId("campaign-1"),
+        artifact=ArtifactRef(uri="sessions/session-1.wav"),
+        metadata=AudioMetadata(duration_seconds=12),
+    )
+    harness.campaigns.save(
+        Campaign(
+            id=CampaignId("campaign-1"),
+            name="Unready",
+            participants=(participant,),
+            audio_tracks=(audio_track,),
+        ),
+    )
+    harness.audio_tracks.save(audio_track)
+
+    with pytest.raises(CampaignValidationError, match="has no voice sample"):
+        harness.create_job_for_audio_track_use_case().execute(
+            CreateProcessingJobForAudioTrackCommand(audio_track_id="audio-track-1"),
+        )
+
+    assert not harness.jobs.items
+    assert harness.metadata_reader.read_artifacts == []
 
 
 def test_run_processing_job_completes_clean_mapping_flow() -> None:
@@ -740,6 +820,58 @@ def test_get_job_status_returns_saved_job() -> None:
     )
 
     assert result.job == submitted.job
+
+
+def test_query_use_cases_list_jobs_inspect_metadata_and_preview_markdown() -> None:
+    harness = Harness()
+    harness.ready_campaign("Alice")
+    submitted = harness.submit_use_case().execute(
+        SubmitRecordingForProcessingCommand(
+            campaign_id="campaign-1",
+            artifact_uri="sessions/session-1.wav",
+        ),
+    )
+    transcript = Transcript(
+        id=TranscriptId("transcript-1"),
+        campaign_id=CampaignId("campaign-1"),
+        audio_track_id=submitted.audio_track.id,
+        segments=(
+            TranscriptSegment(
+                index=0,
+                time_range=TimeRange(0, 5),
+                speaker_label=SpeakerLabel.named("Alice"),
+                text="We enter the crypt.",
+            ),
+        ),
+    )
+    recap = Recap(
+        id="recap-1",
+        transcript_id=transcript.id,
+        markdown="# Recap\n\nDone.",
+    )
+    harness.transcripts.save(transcript)
+    harness.recaps.save(recap)
+
+    jobs = ListJobsForCampaign(
+        harness.campaigns,
+        harness.jobs,
+    ).execute(
+        ListJobsForCampaignCommand(campaign_id="campaign-1"),
+    )
+    metadata = InspectAudioMetadata(harness.metadata_reader).execute(
+        InspectAudioMetadataCommand(artifact_uri="sessions/session-2.wav"),
+    )
+    transcript_preview = PreviewTranscriptMarkdown(harness.transcripts).execute(
+        PreviewTranscriptMarkdownCommand(transcript_id=transcript.id),
+    )
+    recap_preview = PreviewRecapMarkdown(harness.recaps).execute(
+        PreviewRecapMarkdownCommand(recap_id=recap.id),
+    )
+
+    assert jobs.jobs == (submitted.job,)
+    assert metadata.metadata.checksum == "checksum:sessions/session-2.wav"
+    assert "**Alice:** We enter the crypt." in transcript_preview.markdown
+    assert recap_preview.markdown == "# Recap\n\nDone."
 
 
 def test_sync_campaign_folder_adds_players_samples_and_records() -> None:

@@ -8,6 +8,7 @@ from typing import Any
 from notekeeper.domain import (
     ArtifactRef,
     AudioTrack,
+    AudioMetadata,
     Campaign,
     CampaignId,
     Participant,
@@ -182,6 +183,14 @@ class ListAudioTracksResult:
 
 
 @dataclass(frozen=True, slots=True)
+class ListJobsForCampaignResult:
+    jobs: tuple[ProcessingJob, ...]
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "jobs", tuple(self.jobs))
+
+
+@dataclass(frozen=True, slots=True)
 class UpdateAudioTrackResult:
     campaign: Campaign
     audio_track: AudioTrack
@@ -191,6 +200,13 @@ class UpdateAudioTrackResult:
 class DeleteAudioTrackResult:
     campaign: Campaign
     audio_track_id: str
+
+
+@dataclass(frozen=True, slots=True)
+class CreateProcessingJobForAudioTrackResult:
+    campaign: Campaign
+    audio_track: AudioTrack
+    job: ProcessingJob
 
 
 @dataclass(frozen=True, slots=True)
@@ -240,6 +256,17 @@ class GetJobStatusResult:
 
 
 @dataclass(frozen=True, slots=True)
+class InspectAudioMetadataResult:
+    artifact: ArtifactRef
+    metadata: AudioMetadata
+
+
+@dataclass(frozen=True, slots=True)
+class MarkdownPreviewResult:
+    markdown: str
+
+
+@dataclass(frozen=True, slots=True)
 class ScannedVoiceSampleArtifact:
     player_name: str
     artifact: ArtifactRef
@@ -280,6 +307,7 @@ __all__ = [
     "AddVoiceSampleResult",
     "CampaignFolderSnapshot",
     "CreateCampaignResult",
+    "CreateProcessingJobForAudioTrackResult",
     "DeleteAudioTrackResult",
     "DeleteCampaignResult",
     "DeleteParticipantResult",
@@ -288,10 +316,13 @@ __all__ = [
     "GenerateRecapResult",
     "GetCampaignResult",
     "GetJobStatusResult",
+    "InspectAudioMetadataResult",
     "ListAudioTracksResult",
     "ListCampaignsResult",
+    "ListJobsForCampaignResult",
     "ListParticipantsResult",
     "ListVoiceSamplesResult",
+    "MarkdownPreviewResult",
     "PreparedAudioResult",
     "PreparedVoiceSampleRange",
     "RecapGenerationContext",

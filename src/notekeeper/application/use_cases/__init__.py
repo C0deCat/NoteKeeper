@@ -20,10 +20,18 @@ from .campaigns import (
     UpdateParticipant,
     UpdateVoiceSample,
 )
-from .export import ExportRecapMarkdown, ExportTranscriptMarkdown
+from .export import (
+    ExportRecapMarkdown,
+    ExportTranscriptMarkdown,
+    PreviewRecapMarkdown,
+    PreviewTranscriptMarkdown,
+)
+from .media import InspectAudioMetadata
 from .processing import (
+    CreateProcessingJobForAudioTrack,
     GenerateRecap,
     GetJobStatus,
+    ListJobsForCampaign,
     ReviewSpeakerMappings,
     RunProcessingJob,
     SubmitRecordingForProcessing,
@@ -33,6 +41,7 @@ __all__ = [
     "AddParticipantToCampaign",
     "AddVoiceSample",
     "CreateCampaign",
+    "CreateProcessingJobForAudioTrack",
     "DeleteAudioTrack",
     "DeleteCampaign",
     "DeleteParticipant",
@@ -42,10 +51,14 @@ __all__ = [
     "GenerateRecap",
     "GetCampaign",
     "GetJobStatus",
+    "InspectAudioMetadata",
     "ListAudioTracks",
     "ListCampaigns",
+    "ListJobsForCampaign",
     "ListParticipants",
     "ListVoiceSamples",
+    "PreviewRecapMarkdown",
+    "PreviewTranscriptMarkdown",
     "RegisterAudioTrack",
     "ReviewSpeakerMappings",
     "RunProcessingJob",

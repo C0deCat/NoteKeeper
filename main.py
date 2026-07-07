@@ -1,5 +1,4 @@
-def main():
-    print("Hello from notekeeper!")
+from notekeeper.composition.main import main
 
 
 if __name__ == "__main__":

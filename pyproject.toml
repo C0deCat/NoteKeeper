@@ -13,10 +13,32 @@ dependencies = [
     "speechbrain>=1.1.0",
     "textual>=8.2.8",
     "tiktoken>=0.13.0",
+    "torch==2.8.0 ; python_version < '3.12' and (sys_platform == 'linux' or sys_platform == 'win32')",
+    "torchaudio==2.8.0 ; python_version < '3.12' and (sys_platform == 'linux' or sys_platform == 'win32')",
+    "torchvision==0.23.0 ; python_version < '3.12' and (sys_platform == 'linux' or sys_platform == 'win32')",
     "typer>=0.26.8",
     "uvicorn[standard]>=0.49.0",
     "whisperx>=3.7.2",
 ]
+
+[tool.uv.sources]
+torch = [
+    { index = "pytorch-cu128", marker = "python_version < '3.12' and (sys_platform == 'linux' or sys_platform == 'win32')" },
+]
+torchaudio = [
+    { index = "pytorch-cu128", marker = "python_version < '3.12' and (sys_platform == 'linux' or sys_platform == 'win32')" },
+]
+torchvision = [
+    { index = "pytorch-cu128", marker = "python_version < '3.12' and (sys_platform == 'linux' or sys_platform == 'win32')" },
+]
+
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
+
+[project.scripts]
+notekeeper = "notekeeper.composition.main:main"
 
 [dependency-groups]
 dev = [

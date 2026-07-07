@@ -11,6 +11,15 @@ def test_application_reexports_public_api() -> None:
     assert application.CreateCampaign is use_cases.CreateCampaign
     assert application.CreateCampaignCommand is commands.CreateCampaignCommand
     assert application.CreateCampaignResult is results.CreateCampaignResult
+    assert application.CreateProcessingJobForAudioTrack is (
+        use_cases.CreateProcessingJobForAudioTrack
+    )
+    assert application.CreateProcessingJobForAudioTrackCommand is (
+        commands.CreateProcessingJobForAudioTrackCommand
+    )
+    assert application.CreateProcessingJobForAudioTrackResult is (
+        results.CreateProcessingJobForAudioTrackResult
+    )
     assert application.RunProcessingJob is use_cases.RunProcessingJob
     assert application.TranscriptChunk is results.TranscriptChunk
 
@@ -23,6 +32,9 @@ def test_use_case_packages_reexport_expected_classes() -> None:
     assert use_cases.AddVoiceSample is campaign_use_cases.AddVoiceSample
     assert use_cases.SubmitRecordingForProcessing is (
         processing_use_cases.SubmitRecordingForProcessing
+    )
+    assert use_cases.CreateProcessingJobForAudioTrack is (
+        processing_use_cases.CreateProcessingJobForAudioTrack
     )
     assert use_cases.RunProcessingJob is processing_use_cases.RunProcessingJob
     assert use_cases.ReviewSpeakerMappings is processing_use_cases.ReviewSpeakerMappings

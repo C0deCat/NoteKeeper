@@ -11,6 +11,9 @@ from notekeeper.infrastructure.filesystem.scanner import DEFAULT_AUDIO_EXTENSION
 class NoteKeeperSettings(BaseSettings):
     model_config = SettingsConfigDict(
         env_prefix="NOTEKEEPER_",
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
         arbitrary_types_allowed=True,
     )
 
@@ -24,10 +27,10 @@ class NoteKeeperSettings(BaseSettings):
     prepared_audio_channels: int = 1
     prepared_audio_codec: str = "pcm_s16le"
     prepared_audio_container: str = "wav"
-    whisperx_model_name: str = "small"
-    whisperx_device: str = "cpu"
-    whisperx_compute_type: str = "int8"
-    whisperx_batch_size: int = 16
+    whisperx_model_name: str = "large-v3-turbo"
+    whisperx_device: str = "cuda"
+    whisperx_compute_type: str = "float16"
+    whisperx_batch_size: int = 8
     whisperx_language: str | None = None
     whisperx_alignment_enabled: bool = True
     whisperx_alignment_model_name: str | None = None

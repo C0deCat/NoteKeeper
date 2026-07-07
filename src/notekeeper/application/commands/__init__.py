@@ -100,6 +100,11 @@ class ListAudioTracksCommand:
 
 
 @dataclass(frozen=True, slots=True)
+class ListJobsForCampaignCommand:
+    campaign_id: str
+
+
+@dataclass(frozen=True, slots=True)
 class UpdateAudioTrackCommand:
     campaign_id: str
     audio_track_id: str
@@ -111,6 +116,11 @@ class UpdateAudioTrackCommand:
 @dataclass(frozen=True, slots=True)
 class DeleteAudioTrackCommand:
     campaign_id: str
+    audio_track_id: str
+
+
+@dataclass(frozen=True, slots=True)
+class CreateProcessingJobForAudioTrackCommand:
     audio_track_id: str
 
 
@@ -164,6 +174,22 @@ class GetJobStatusCommand:
 
 
 @dataclass(frozen=True, slots=True)
+class InspectAudioMetadataCommand:
+    artifact_uri: str
+    artifact_kind: str = "file"
+
+
+@dataclass(frozen=True, slots=True)
+class PreviewTranscriptMarkdownCommand:
+    transcript_id: str
+
+
+@dataclass(frozen=True, slots=True)
+class PreviewRecapMarkdownCommand:
+    recap_id: str
+
+
+@dataclass(frozen=True, slots=True)
 class SyncCampaignFolderCommand:
     campaign_id: str
 
@@ -172,6 +198,7 @@ __all__ = [
     "AddParticipantToCampaignCommand",
     "AddVoiceSampleCommand",
     "CreateCampaignCommand",
+    "CreateProcessingJobForAudioTrackCommand",
     "DeleteAudioTrackCommand",
     "DeleteCampaignCommand",
     "DeleteParticipantCommand",
@@ -183,9 +210,13 @@ __all__ = [
     "GetJobStatusCommand",
     "ListAudioTracksCommand",
     "ListCampaignsCommand",
+    "ListJobsForCampaignCommand",
     "ListParticipantsCommand",
     "ListVoiceSamplesCommand",
     "ManualSpeakerMappingCommand",
+    "InspectAudioMetadataCommand",
+    "PreviewRecapMarkdownCommand",
+    "PreviewTranscriptMarkdownCommand",
     "RegisterAudioTrackCommand",
     "ReviewSpeakerMappingsCommand",
     "RunProcessingJobCommand",
