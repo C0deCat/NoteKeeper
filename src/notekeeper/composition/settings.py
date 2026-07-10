@@ -20,6 +20,7 @@ class NoteKeeperSettings(BaseSettings):
     storage_root: Path = Field(default=Path("data") / "artifacts")
     sqlite_path: Path = Field(default=Path("data") / "notekeeper.sqlite3")
     audio_extensions: tuple[str, ...] = DEFAULT_AUDIO_EXTENSIONS
+    ffmpeg_bin: Path | None = None
     ffmpeg_path: str = "ffmpeg"
     ffprobe_path: str = "ffprobe"
     processing_work_root: Path = Field(default=Path("data") / "processing-work")
@@ -32,6 +33,7 @@ class NoteKeeperSettings(BaseSettings):
     whisperx_compute_type: str = "float16"
     whisperx_batch_size: int = 8
     whisperx_language: str | None = None
+    whisperx_vad_method: str = "pyannote"
     whisperx_alignment_enabled: bool = True
     whisperx_alignment_model_name: str | None = None
     whisperx_alignment_model_dir: Path | None = None

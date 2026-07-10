@@ -1,7 +1,11 @@
 import json
 from pathlib import Path
 
-from notekeeper.application import CreateCampaign, CreateProcessingJobForAudioTrack
+from notekeeper.application import (
+    CreateCampaign,
+    CreateProcessingJobForAudioTrack,
+    RestartFailedProcessingJob,
+)
 from notekeeper.composition import NoteKeeperSettings, build_runtime
 
 
@@ -27,6 +31,7 @@ def test_build_runtime_assembles_stage1_use_cases_and_diagnostics(
             recap_prompts_file=prompts_file,
             deepseek_api_key="deepseek-secret",
             whisperx_hf_token="hf-secret",
+            whisperx_vad_method="pyannote",
         ),
     )
 
@@ -37,7 +42,12 @@ def test_build_runtime_assembles_stage1_use_cases_and_diagnostics(
         runtime.use_cases.create_processing_job_for_audio_track,
         CreateProcessingJobForAudioTrack,
     )
+    assert isinstance(
+        runtime.use_cases.restart_failed_processing_job,
+        RestartFailedProcessingJob,
+    )
     assert diagnostics.deepseek_configured is True
     assert diagnostics.huggingface_configured is True
+    assert diagnostics.whisperx_vad_method == "pyannote"
     assert "deepseek-secret" not in str(diagnostics)
     assert "hf-secret" not in str(diagnostics)

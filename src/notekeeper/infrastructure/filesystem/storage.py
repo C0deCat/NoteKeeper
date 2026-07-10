@@ -133,7 +133,7 @@ class LocalCampaignArtifactStorage(CampaignArtifactStorage):
         suggested_name: str,
         payload: dict[str, Any],
     ) -> ArtifactRef:
-        content = json.dumps(payload, ensure_ascii=True, indent=2, sort_keys=True)
+        content = json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True)
         return self.save_campaign_text(
             campaign_id=campaign_id,
             folder=folder,

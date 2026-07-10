@@ -36,6 +36,7 @@ class WhisperXTranscriber(Transcriber):
         compute_type: str = "int8",
         batch_size: int = 16,
         language: str | None = None,
+        vad_method: str = "pyannote",
         alignment_enabled: bool = True,
         alignment_model_name: str | None = None,
         alignment_model_dir: str | Path | None = None,
@@ -56,6 +57,7 @@ class WhisperXTranscriber(Transcriber):
         self._compute_type = self._require_text(compute_type, "compute_type")
         self._batch_size = self._require_positive_int(batch_size, "batch_size")
         self._language = self._optional_text(language, "language")
+        self._vad_method = self._require_text(vad_method, "vad_method")
         self._alignment_enabled = alignment_enabled
         self._alignment_model_name = self._optional_text(
             alignment_model_name,
@@ -123,6 +125,7 @@ class WhisperXTranscriber(Transcriber):
                 compute_type=self._compute_type,
                 batch_size=self._batch_size,
                 language=self._language,
+                vad_method=self._vad_method,
                 alignment_enabled=self._alignment_enabled,
                 alignment_model_name=self._alignment_model_name,
                 alignment_model_dir=self._alignment_model_dir,
@@ -181,6 +184,7 @@ class WhisperXTranscriber(Transcriber):
             "compute_type": self._compute_type,
             "batch_size": self._batch_size,
             "language": self._language,
+            "vad_method": self._vad_method,
             "alignment": {
                 "enabled": self._alignment_enabled,
                 "model_name": self._alignment_model_name,

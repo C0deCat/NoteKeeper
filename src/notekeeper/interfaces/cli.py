@@ -26,6 +26,7 @@ from notekeeper.application import (
     PreviewRecapMarkdownCommand,
     PreviewTranscriptMarkdownCommand,
     ReviewSpeakerMappingsCommand,
+    RestartFailedProcessingJobCommand,
     RunProcessingJobCommand,
     SubmitRecordingForProcessingCommand,
     SyncCampaignFolderCommand,
@@ -291,6 +292,20 @@ def build_app(
 
         _run(action)
 
+    @job_app.command("restart")
+    def restart_job(job_id: str) -> None:
+        runtime = runtime_factory()
+
+        def action() -> None:
+            result = runtime.use_cases.restart_failed_processing_job.execute(
+                RestartFailedProcessingJobCommand(job_id=job_id),
+            )
+            typer.echo(f"restarted_from={result.source_job.id}")
+            _echo_audio_track(result.audio_track)
+            _echo_job(result.job)
+
+        _run(action)
+
     @review_app.command("submit")
     def submit_review(
         job_id: str,
@@ -375,6 +390,7 @@ def build_app(
         typer.echo(f"whisperx_model={snapshot.whisperx_model_name}")
         typer.echo(f"whisperx_device={snapshot.whisperx_device}")
         typer.echo(f"whisperx_compute_type={snapshot.whisperx_compute_type}")
+        typer.echo(f"whisperx_vad_method={snapshot.whisperx_vad_method}")
         typer.echo(f"deepseek_configured={snapshot.deepseek_configured}")
         typer.echo(f"huggingface_configured={snapshot.huggingface_configured}")
         for message in snapshot.recent_messages:

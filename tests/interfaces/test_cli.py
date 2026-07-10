@@ -15,6 +15,8 @@ from notekeeper.application import (
     ListParticipantsResult,
     ListVoiceSamplesResult,
     MarkdownPreviewResult,
+    RestartFailedProcessingJobCommand,
+    RestartFailedProcessingJobResult,
     SyncCampaignFolderCommand,
     SyncCampaignFolderResult,
 )
@@ -59,6 +61,15 @@ class FakeRuntime:
             created_at=datetime(2026, 1, 1),
             updated_at=datetime(2026, 1, 1),
         )
+        failed_job = ProcessingJob(
+            id="job-failed",
+            campaign_id=campaign.id,
+            audio_track_id="audio-track-1",
+            status=JobStatus.FAILED,
+            created_at=datetime(2026, 1, 2),
+            updated_at=datetime(2026, 1, 2),
+            error_message="failed",
+        )
         metadata = AudioMetadata(duration_seconds=12, format="wav")
         audio_track = AudioTrack(
             id="audio-track-1",
@@ -90,6 +101,14 @@ class FakeRuntime:
             ),
             submit_recording_for_processing=FakeUseCase(None),
             run_processing_job=FakeUseCase(GetJobStatusResult(job=job)),
+            restart_failed_processing_job=FakeUseCase(
+                RestartFailedProcessingJobResult(
+                    campaign=campaign,
+                    audio_track=audio_track,
+                    source_job=failed_job,
+                    job=job,
+                ),
+            ),
             list_jobs_for_campaign=FakeUseCase(ListJobsForCampaignResult(jobs=(job,))),
             get_job_status=FakeUseCase(GetJobStatusResult(job=job)),
             review_speaker_mappings=FakeUseCase(GetJobStatusResult(job=job)),
@@ -136,6 +155,7 @@ class FakeRuntime:
             whisperx_model_name="small",
             whisperx_device="cpu",
             whisperx_compute_type="int8",
+            whisperx_vad_method="silero",
             deepseek_configured=True,
             huggingface_configured=True,
         )
@@ -202,6 +222,21 @@ def test_cli_job_create_uses_existing_audio_track_use_case() -> None:
     command = runtime.use_cases.create_processing_job_for_audio_track.commands[0]
     assert isinstance(command, CreateProcessingJobForAudioTrackCommand)
     assert command.audio_track_id == "audio-track-1"
+
+
+def test_cli_job_restart_uses_failed_restart_use_case() -> None:
+    runtime = FakeRuntime()
+    app = build_app(lambda: runtime, lambda value: None)
+
+    result = CliRunner().invoke(app, ["cli", "job", "restart", "job-failed"])
+
+    assert result.exit_code == 0
+    assert "restarted_from=job-failed" in result.output
+    assert "audio_track id=audio-track-1" in result.output
+    assert "job id=job-1" in result.output
+    command = runtime.use_cases.restart_failed_processing_job.commands[0]
+    assert isinstance(command, RestartFailedProcessingJobCommand)
+    assert command.job_id == "job-failed"
 
 
 def test_cli_diagnostics_does_not_print_secret_values() -> None:

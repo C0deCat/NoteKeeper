@@ -24,6 +24,7 @@ from notekeeper.application import (
     PreviewRecapMarkdown,
     PreviewTranscriptMarkdown,
     RegisterAudioTrack,
+    RestartFailedProcessingJob,
     ReviewSpeakerMappings,
     RunProcessingJob,
     SubmitRecordingForProcessing,
@@ -46,6 +47,7 @@ class Stage1UseCases:
     create_processing_job_for_audio_track: CreateProcessingJobForAudioTrack
     submit_recording_for_processing: SubmitRecordingForProcessing
     run_processing_job: RunProcessingJob
+    restart_failed_processing_job: RestartFailedProcessingJob
     list_jobs_for_campaign: ListJobsForCampaign
     get_job_status: GetJobStatus
     review_speaker_mappings: ReviewSpeakerMappings
@@ -67,6 +69,7 @@ class RuntimeDiagnostics:
     whisperx_model_name: str
     whisperx_device: str
     whisperx_compute_type: str
+    whisperx_vad_method: str
     deepseek_configured: bool
     huggingface_configured: bool
     recent_messages: tuple[str, ...] = ()

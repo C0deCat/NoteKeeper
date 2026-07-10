@@ -138,6 +138,11 @@ class RunProcessingJobCommand:
 
 
 @dataclass(frozen=True, slots=True)
+class RestartFailedProcessingJobCommand:
+    job_id: str
+
+
+@dataclass(frozen=True, slots=True)
 class ManualSpeakerMappingCommand:
     anonymous_label: str
     participant_id: str
@@ -219,6 +224,7 @@ __all__ = [
     "PreviewTranscriptMarkdownCommand",
     "RegisterAudioTrackCommand",
     "ReviewSpeakerMappingsCommand",
+    "RestartFailedProcessingJobCommand",
     "RunProcessingJobCommand",
     "SubmitRecordingForProcessingCommand",
     "SyncCampaignFolderCommand",

@@ -1949,7 +1949,7 @@ wheels = [
 
 [[package]]
 name = "pyannote-audio"
-version = "4.0.6"
+version = "4.0.7"
 source = { registry = "https://pypi.org/simple" }
 resolution-markers = [
     "python_full_version < '3.12'",
@@ -1977,9 +1977,9 @@ dependencies = [
     { name = "torchcodec", marker = "python_full_version < '3.12'" },
     { name = "torchmetrics", marker = "python_full_version < '3.12'" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/1e/d7/66680f15af26958baa9ea4ffb95655bc8f400946e45d2d04e46bd963d77e/pyannote_audio-4.0.6.tar.gz", hash = "sha256:262eb6e968921196aefb96cbc4620fb8a879eb1e20bc90915a72729255023b0e", size = 13963309, upload-time = "2026-06-29T13:24:53.851Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/6d/d7/03b1d00d431c7be1d98635fefb99c2da64d9b84b4b8a06d5302666a96c88/pyannote_audio-4.0.7.tar.gz", hash = "sha256:3a903dfb5ca711d134cc2522561c9158b186836f5d62e8a57c46c6648e8a8229", size = 13963479, upload-time = "2026-06-30T14:28:53.454Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/da/1e/5a3f0af561e2454e47db2c3053cce6f28932152268cd36b5bf855aa4854b/pyannote_audio-4.0.6-py3-none-any.whl", hash = "sha256:709e4284aefd1d267beb6ad35b6056418e81b2c0bc1f187bdb42d912d6fa38ee", size = 894412, upload-time = "2026-06-29T13:24:51.668Z" },
+    { url = "https://files.pythonhosted.org/packages/66/a3/1d03ed6c7669f7b94ce4a7ebe3b21f5c3b6331999a5680837e371e0a0537/pyannote_audio-4.0.7-py3-none-any.whl", hash = "sha256:852ea15c4d85bc34773e618267603ffca6a521669a74d33742692cc67fc700d6", size = 894598, upload-time = "2026-06-30T14:28:51.779Z" },
 ]
 
 [[package]]
@@ -3380,7 +3380,7 @@ dependencies = [
     { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
     { name = "omegaconf", marker = "python_full_version < '3.12'" },
     { name = "pandas", marker = "python_full_version < '3.12'" },
-    { name = "pyannote-audio", version = "4.0.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
+    { name = "pyannote-audio", version = "4.0.7", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
     { name = "torch", version = "2.8.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "python_full_version < '3.12'" },
     { name = "torchaudio", version = "2.8.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "python_full_version < '3.12'" },
     { name = "torchcodec", marker = "(python_full_version < '3.12' and platform_machine == 'x86_64' and sys_platform == 'linux') or (python_full_version < '3.12' and sys_platform == 'darwin') or (python_full_version < '3.12' and sys_platform == 'win32')" },

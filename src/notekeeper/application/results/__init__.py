@@ -228,6 +228,14 @@ class RunProcessingJobResult:
 
 
 @dataclass(frozen=True, slots=True)
+class RestartFailedProcessingJobResult:
+    campaign: Campaign
+    audio_track: AudioTrack
+    source_job: ProcessingJob
+    job: ProcessingJob
+
+
+@dataclass(frozen=True, slots=True)
 class ReviewSpeakerMappingsResult:
     job: ProcessingJob
     transcript: Transcript
@@ -328,6 +336,7 @@ __all__ = [
     "RecapGenerationContext",
     "RegisterAudioTrackResult",
     "ReviewSpeakerMappingsResult",
+    "RestartFailedProcessingJobResult",
     "RunProcessingJobResult",
     "ScannedAudioTrackArtifact",
     "ScannedVoiceSampleArtifact",

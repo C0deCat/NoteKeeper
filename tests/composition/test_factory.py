@@ -222,6 +222,95 @@ def test_build_infrastructure_can_enable_deepseek_request_logging(
     assert isinstance(captured["request_logger"], LocalDeepSeekRequestLogger)
 
 
+def test_build_infrastructure_configures_ffmpeg_dll_directory_on_windows(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    prompts_file = _prompt_file(tmp_path, "chunk prompt", "combine prompt")
+    ffmpeg_bin = tmp_path / "ffmpeg" / "bin"
+    configured_paths: list[str] = []
+
+    class FakeDllDirectoryHandle:
+        pass
+
+    class CapturingRecapGenerator(RecapGenerator):
+        def __init__(self, **kwargs) -> None:
+            pass
+
+        def generate_chunk(self, chunk, *, context):
+            return "chunk"
+
+        def combine_chunks(self, chunks, *, context):
+            return "combined"
+
+    monkeypatch.setattr(factory_module.os, "name", "nt")
+    monkeypatch.setattr(
+        factory_module.os,
+        "add_dll_directory",
+        lambda path: configured_paths.append(path) or FakeDllDirectoryHandle(),
+    )
+    monkeypatch.setattr(
+        factory_module,
+        "DeepSeekRecapGenerator",
+        CapturingRecapGenerator,
+    )
+    monkeypatch.setattr(factory_module, "_CONFIGURED_FFMPEG_DLL_DIRECTORIES", set())
+    monkeypatch.setattr(factory_module, "_FFMPEG_DLL_DIRECTORY_HANDLES", [])
+
+    build_infrastructure(
+        NoteKeeperSettings(
+            storage_root=tmp_path / "artifacts",
+            sqlite_path=tmp_path / "notekeeper.sqlite3",
+            recap_prompts_file=prompts_file,
+            ffmpeg_bin=ffmpeg_bin,
+        ),
+    )
+
+    assert configured_paths == [str(ffmpeg_bin.resolve(strict=False))]
+    assert len(factory_module._FFMPEG_DLL_DIRECTORY_HANDLES) == 1
+
+
+def test_build_infrastructure_skips_ffmpeg_dll_directory_without_setting(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    prompts_file = _prompt_file(tmp_path, "chunk prompt", "combine prompt")
+    configured_paths: list[str] = []
+
+    class CapturingRecapGenerator(RecapGenerator):
+        def __init__(self, **kwargs) -> None:
+            pass
+
+        def generate_chunk(self, chunk, *, context):
+            return "chunk"
+
+        def combine_chunks(self, chunks, *, context):
+            return "combined"
+
+    monkeypatch.setattr(factory_module.os, "name", "nt")
+    monkeypatch.setattr(
+        factory_module.os,
+        "add_dll_directory",
+        lambda path: configured_paths.append(path),
+    )
+    monkeypatch.setattr(
+        factory_module,
+        "DeepSeekRecapGenerator",
+        CapturingRecapGenerator,
+    )
+
+    build_infrastructure(
+        NoteKeeperSettings(
+            storage_root=tmp_path / "artifacts",
+            sqlite_path=tmp_path / "notekeeper.sqlite3",
+            recap_prompts_file=prompts_file,
+            ffmpeg_bin=None,
+        ),
+    )
+
+    assert configured_paths == []
+
+
 def test_build_infrastructure_rejects_missing_recap_prompts_file(
     tmp_path: Path,
 ) -> None:

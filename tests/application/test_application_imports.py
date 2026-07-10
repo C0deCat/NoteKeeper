@@ -20,6 +20,15 @@ def test_application_reexports_public_api() -> None:
     assert application.CreateProcessingJobForAudioTrackResult is (
         results.CreateProcessingJobForAudioTrackResult
     )
+    assert application.RestartFailedProcessingJob is (
+        use_cases.RestartFailedProcessingJob
+    )
+    assert application.RestartFailedProcessingJobCommand is (
+        commands.RestartFailedProcessingJobCommand
+    )
+    assert application.RestartFailedProcessingJobResult is (
+        results.RestartFailedProcessingJobResult
+    )
     assert application.RunProcessingJob is use_cases.RunProcessingJob
     assert application.TranscriptChunk is results.TranscriptChunk
 
@@ -35,6 +44,9 @@ def test_use_case_packages_reexport_expected_classes() -> None:
     )
     assert use_cases.CreateProcessingJobForAudioTrack is (
         processing_use_cases.CreateProcessingJobForAudioTrack
+    )
+    assert use_cases.RestartFailedProcessingJob is (
+        processing_use_cases.RestartFailedProcessingJob
     )
     assert use_cases.RunProcessingJob is processing_use_cases.RunProcessingJob
     assert use_cases.ReviewSpeakerMappings is processing_use_cases.ReviewSpeakerMappings

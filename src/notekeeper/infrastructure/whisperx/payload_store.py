@@ -40,7 +40,7 @@ class LocalWhisperXPayloadStore:
         payload_path = self._storage.path_for_uri(payload_uri)
         payload_path.parent.mkdir(parents=True, exist_ok=True)
         payload_path.write_text(
-            json.dumps(payload, ensure_ascii=True, indent=2, sort_keys=True),
+            json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True),
             encoding="utf-8",
         )
         return ArtifactRef(uri=self._storage.uri_for_path(payload_path), kind="file")

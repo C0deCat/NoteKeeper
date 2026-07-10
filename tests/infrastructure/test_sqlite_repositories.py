@@ -136,16 +136,28 @@ def test_sqlite_job_repository_lists_and_deletes_by_audio_track(tmp_path: Path) 
         created_at=datetime(2026, 1, 1, 12, 0, 0),
         updated_at=datetime(2026, 1, 1, 12, 0, 1),
     )
+    second_job = ProcessingJob(
+        id=ProcessingJobId("job-2"),
+        campaign_id=CampaignId("campaign-1"),
+        audio_track_id=AudioTrackId("audio-track-1"),
+        status=JobStatus.FAILED,
+        created_at=datetime(2026, 1, 1, 12, 0, 2),
+        updated_at=datetime(2026, 1, 1, 12, 0, 3),
+        error_message="failed",
+    )
 
     jobs.save(job)
+    jobs.save(second_job)
 
     assert jobs.get(job.id) == job
-    assert jobs.list_for_campaign(job.campaign_id) == (job,)
-    assert jobs.list_for_audio_track(job.audio_track_id) == (job,)
+    assert jobs.get(second_job.id) == second_job
+    assert jobs.list_for_campaign(job.campaign_id) == (job, second_job)
+    assert jobs.list_for_audio_track(job.audio_track_id) == (job, second_job)
 
     jobs.delete(job.id)
 
     assert jobs.get(job.id) is None
+    assert jobs.list_for_audio_track(job.audio_track_id) == (second_job,)
 
 
 def test_sqlite_job_repository_round_trips_failed_job_error(

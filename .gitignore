@@ -17,3 +17,4 @@ wheels/
 #local data
 data/artifacts/
 data/*.sqlite3
+data/processing-work

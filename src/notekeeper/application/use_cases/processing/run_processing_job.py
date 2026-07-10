@@ -1,5 +1,6 @@
 """Run processing job use case."""
 
+import logging
 from dataclasses import replace
 
 from notekeeper.application.commands import RunProcessingJobCommand
@@ -37,6 +38,9 @@ from notekeeper.domain import (
     TranscriptId,
     apply_speaker_mappings,
 )
+
+
+logger = logging.getLogger(__name__)
 
 
 class RunProcessingJob:
@@ -162,6 +166,12 @@ class RunProcessingJob:
                 warnings=(),
             )
         except PortExecutionError as exc:
+            logger.exception(
+                "Processing job failed job_id=%s campaign_id=%s audio_track_id=%s",
+                job.id,
+                campaign.id,
+                audio_track.id,
+            )
             failed_job = replace(
                 running_job,
                 status=JobStatus.FAILED,

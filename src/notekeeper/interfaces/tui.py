@@ -41,6 +41,7 @@ from notekeeper.application import (
     PreviewRecapMarkdownCommand,
     PreviewTranscriptMarkdownCommand,
     ReviewSpeakerMappingsCommand,
+    RestartFailedProcessingJobCommand,
     RunProcessingJobCommand,
     SubmitRecordingForProcessingCommand,
     SyncCampaignFolderCommand,
@@ -164,6 +165,7 @@ class NoteKeeperTui(App[None]):
                 yield Button("Submit Recording", id="submit-recording")
                 yield Button("Create Job", id="create-job")
                 yield Button("Run Job", id="run-job", variant="success")
+                yield Button("Restart Failed Job", id="restart-job")
                 yield Button("Review Mapping", id="review-job")
                 yield Button("Preview Transcript", id="preview-transcript")
                 yield Button("Preview Recap", id="preview-recap")
@@ -203,12 +205,10 @@ class NoteKeeperTui(App[None]):
         self.refresh_dashboard(update_campaigns=False)
 
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
-        if event.data_table.id == "jobs-table":
-            self._selected_job_id = event.row_key.value
-            self._set_status(f"Selected job {self._selected_job_id}")
-        elif event.data_table.id == "recordings-table":
-            self._selected_audio_track_id = event.row_key.value
-            self._set_status(f"Selected recording {self._selected_audio_track_id}")
+        self._select_table_row(event.data_table, event.row_key, announce=True)
+
+    def on_data_table_row_highlighted(self, event: DataTable.RowHighlighted) -> None:
+        self._select_table_row(event.data_table, event.row_key)
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         button_id = event.button.id
@@ -233,6 +233,8 @@ class NoteKeeperTui(App[None]):
             self._create_job_for_selected_audio_track()
         elif button_id == "run-job":
             self._run_selected_job()
+        elif button_id == "restart-job":
+            self._restart_selected_failed_job()
         elif button_id == "review-job":
             self._with_campaign(self._open_review)
         elif button_id == "preview-transcript":
@@ -284,7 +286,7 @@ class NoteKeeperTui(App[None]):
         )
         self._reset_table(
             "recordings-table",
-            ("ID", "Title", "Duration", "Transcript", "Recap"),
+            ("ID", "Title", "Duration", "Jobs", "Latest Status"),
         )
         self._reset_table("players-table", ("ID", "Name", "Voice Sample", "Ready"))
         self._reset_table("warnings-table", ("Job", "Kind", "Message"))
@@ -328,12 +330,14 @@ class NoteKeeperTui(App[None]):
         ).jobs
 
         sample_participants = {str(sample.participant_id) for sample in voice_samples}
-        jobs_by_track = {str(job.audio_track_id): job for job in jobs}
+        jobs_by_track: dict[str, list] = {}
+        for job in jobs:
+            jobs_by_track.setdefault(str(job.audio_track_id), []).append(job)
         audio_track_ids = {str(audio_track.id) for audio_track in audio_tracks}
         self._selected_audio_track_id = (
             self._selected_audio_track_id
             if self._selected_audio_track_id in audio_track_ids
-            else None
+            else (str(audio_tracks[0].id) if audio_tracks else None)
         )
         self._selected_job_id = (
             self._selected_job_id
@@ -357,16 +361,21 @@ class NoteKeeperTui(App[None]):
 
         recordings_table = self._reset_table(
             "recordings-table",
-            ("ID", "Title", "Duration", "Transcript", "Recap"),
+            ("ID", "Title", "Duration", "Jobs", "Latest Status"),
         )
         for audio_track in audio_tracks:
-            job = jobs_by_track.get(str(audio_track.id))
+            track_jobs = jobs_by_track.get(str(audio_track.id), [])
+            latest_job = (
+                max(track_jobs, key=lambda item: item.updated_at)
+                if track_jobs
+                else None
+            )
             recordings_table.add_row(
                 str(audio_track.id),
                 audio_track.title or audio_track.artifact.uri,
                 _format_duration(audio_track.metadata),
-                "yes" if job and job.transcript_id else "no",
-                "yes" if job and job.recap_id else "no",
+                str(len(track_jobs)),
+                latest_job.status.value if latest_job is not None else "",
                 key=str(audio_track.id),
             )
 
@@ -409,9 +418,35 @@ class NoteKeeperTui(App[None]):
     def _reset_table(self, table_id: str, columns: Iterable[str]) -> DataTable:
         table = self.query_one(f"#{table_id}", DataTable)
         table.clear(columns=True)
+        table.cursor_type = "row"
         for column in columns:
             table.add_column(column)
         return table
+
+    def _select_table_row(
+        self,
+        table: DataTable,
+        row_id: object,
+        *,
+        announce: bool = False,
+    ) -> None:
+        selected_id = str(getattr(row_id, "value", row_id))
+        if table.id == "jobs-table":
+            self._selected_job_id = selected_id
+            if announce:
+                self._set_status(f"Selected job {self._selected_job_id}")
+        elif table.id == "recordings-table":
+            self._selected_audio_track_id = selected_id
+            if announce:
+                self._set_status(f"Selected recording {self._selected_audio_track_id}")
+
+    def _select_job_after_refresh(self, job_id: str) -> None:
+        self._selected_job_id = job_id
+        jobs_table = self.query_one("#jobs-table", DataTable)
+        try:
+            jobs_table.move_cursor(row=jobs_table.get_row_index(job_id))
+        except KeyError:
+            pass
 
     def _create_campaign(self, name: str | None) -> None:
         if not name:
@@ -503,8 +538,27 @@ class NoteKeeperTui(App[None]):
                 )
             )
             self.refresh_dashboard(update_campaigns=False)
-            self._selected_job_id = str(result.job.id)
+            self._select_job_after_refresh(str(result.job.id))
             self._set_status(f"Created job {result.job.id}")
+        except (ApplicationError, DomainError, ValueError) as exc:
+            self._set_status(str(exc))
+
+    def _restart_selected_failed_job(self) -> None:
+        job = self._selected_job()
+        if job is None:
+            self._set_status("Select a job")
+            return
+        if job.status is not JobStatus.FAILED:
+            self._set_status("Job is not failed")
+            return
+
+        try:
+            result = self.runtime.use_cases.restart_failed_processing_job.execute(
+                RestartFailedProcessingJobCommand(job_id=str(job.id)),
+            )
+            self.refresh_dashboard(update_campaigns=False)
+            self._select_job_after_refresh(str(result.job.id))
+            self._set_status(f"Restarted job {job.id} as {result.job.id}")
         except (ApplicationError, DomainError, ValueError) as exc:
             self._set_status(str(exc))
 
@@ -907,6 +961,7 @@ def _diagnostics_text(diagnostics: RuntimeDiagnostics) -> str:
         f"whisperx model: {diagnostics.whisperx_model_name}",
         f"whisperx device: {diagnostics.whisperx_device}",
         f"whisperx compute type: {diagnostics.whisperx_compute_type}",
+        f"whisperx VAD method: {diagnostics.whisperx_vad_method}",
         f"deepseek configured: {diagnostics.deepseek_configured}",
         f"huggingface configured: {diagnostics.huggingface_configured}",
     ]

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -64,6 +65,8 @@ from .settings import NoteKeeperSettings
 
 CHUNK_RECAP_PROMPT_KEY = "chunk_recap_prompt"
 COMBINE_CHUNKS_PROMPT_KEY = "combine_chunks_prompt"
+_FFMPEG_DLL_DIRECTORY_HANDLES: list[object] = []
+_CONFIGURED_FFMPEG_DLL_DIRECTORIES: set[str] = set()
 
 
 @dataclass(frozen=True, slots=True)
@@ -94,6 +97,7 @@ def build_infrastructure(
     settings: NoteKeeperSettings | None = None,
 ) -> InfrastructureBundle:
     resolved_settings = settings or NoteKeeperSettings()
+    _configure_ffmpeg_dll_directory(resolved_settings)
     recap_prompts = _load_recap_prompts(resolved_settings.recap_prompts_file)
     database = SQLiteDatabase(resolved_settings.sqlite_path)
     database.initialize()
@@ -129,6 +133,7 @@ def build_infrastructure(
         compute_type=resolved_settings.whisperx_compute_type,
         batch_size=resolved_settings.whisperx_batch_size,
         language=resolved_settings.whisperx_language,
+        vad_method=resolved_settings.whisperx_vad_method,
         alignment_enabled=resolved_settings.whisperx_alignment_enabled,
         alignment_model_name=resolved_settings.whisperx_alignment_model_name,
         alignment_model_dir=resolved_settings.whisperx_alignment_model_dir,
@@ -195,6 +200,19 @@ def build_infrastructure(
         clock=clock,
         id_generator=id_generator,
     )
+
+
+def _configure_ffmpeg_dll_directory(settings: NoteKeeperSettings) -> None:
+    if settings.ffmpeg_bin is None or os.name != "nt":
+        return
+
+    ffmpeg_bin = str(settings.ffmpeg_bin.resolve(strict=False))
+    if ffmpeg_bin in _CONFIGURED_FFMPEG_DLL_DIRECTORIES:
+        return
+
+    handle = os.add_dll_directory(ffmpeg_bin)
+    _FFMPEG_DLL_DIRECTORY_HANDLES.append(handle)
+    _CONFIGURED_FFMPEG_DLL_DIRECTORIES.add(ffmpeg_bin)
 
 
 def _load_recap_prompts(path: Path) -> dict[str, str]:

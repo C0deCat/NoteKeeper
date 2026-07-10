@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import inspect
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -21,6 +23,9 @@ from notekeeper.infrastructure.whisperx import (
     WhisperXTranscriber,
 )
 from notekeeper.infrastructure.whisperx.utils import transcript_from_whisperx_result
+from notekeeper.infrastructure.whisperx.utils.speechbrain_compat import (
+    patch_speechbrain_inspect_lazy_imports,
+)
 
 
 class FakeWhisperXRunner:
@@ -37,6 +42,7 @@ class FakeWhisperXRunner:
         compute_type: str,
         batch_size: int,
         language: str | None,
+        vad_method: str,
         alignment_enabled: bool,
         alignment_model_name: str | None,
         alignment_model_dir: Path | None,
@@ -55,6 +61,7 @@ class FakeWhisperXRunner:
                 "compute_type": compute_type,
                 "batch_size": batch_size,
                 "language": language,
+                "vad_method": vad_method,
                 "alignment_enabled": alignment_enabled,
                 "alignment_model_name": alignment_model_name,
                 "alignment_model_dir": alignment_model_dir,
@@ -148,6 +155,7 @@ def test_whisperx_transcriber_runs_fake_runner_and_persists_raw_payload(
         compute_type="int8",
         batch_size=4,
         language="en",
+        vad_method="silero",
         alignment_enabled=False,
         alignment_model_name="align-model",
         alignment_model_dir=tmp_path / "align-cache",
@@ -177,6 +185,7 @@ def test_whisperx_transcriber_runs_fake_runner_and_persists_raw_payload(
         "SPEAKER_01",
     ]
     assert runner.calls[0]["audio_path"] == storage.artifact_path(audio)
+    assert runner.calls[0]["vad_method"] == "silero"
     assert runner.calls[0]["alignment_enabled"] is False
     assert runner.calls[0]["diarization_enabled"] is False
     assert runner.calls[0]["fill_nearest"] is True
@@ -188,6 +197,7 @@ def test_whisperx_transcriber_runs_fake_runner_and_persists_raw_payload(
     assert raw_payload["created_at"] == "2026-01-01T00:00:00+00:00"
     assert raw_payload["audio_artifact"]["uri"] == audio.uri
     assert raw_payload["config"]["model_name"] == "tiny"
+    assert raw_payload["config"]["vad_method"] == "silero"
     assert raw_payload["config"]["diarization"]["hf_token"] == "<redacted>"
     assert "secret-token" not in json.dumps(raw_payload)
     assert raw_payload["whisperx"]["final"]["segments"][0]["text"] == "Alice speaks"
@@ -242,6 +252,23 @@ def test_whisperx_transcriber_rejects_invalid_final_payload(tmp_path: Path) -> N
             campaign_id=CampaignId("campaign-1"),
             audio_track_id=AudioTrackId("audio-track-1"),
         )
+
+
+def test_speechbrain_lazy_import_patch_ignores_python_inspection() -> None:
+    pytest.importorskip("speechbrain")
+    from speechbrain.utils.importutils import LazyModule
+
+    patch_speechbrain_inspect_lazy_imports()
+    module_name = "speechbrain.fake_missing_optional"
+    sys.modules[module_name] = LazyModule(
+        module_name,
+        "notekeeper_missing_optional_module",
+        None,
+    )
+    try:
+        assert inspect.getmodule(object()) is None
+    finally:
+        sys.modules.pop(module_name, None)
 
 
 def _payload() -> dict[str, Any]:

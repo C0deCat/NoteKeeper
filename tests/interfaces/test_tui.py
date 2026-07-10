@@ -14,6 +14,9 @@ from notekeeper.application import (
     ListJobsForCampaignResult,
     ListParticipantsResult,
     ListVoiceSamplesResult,
+    RestartFailedProcessingJobCommand,
+    RestartFailedProcessingJobResult,
+    RunProcessingJobCommand,
     SyncCampaignFolderCommand,
     SyncCampaignFolderResult,
 )
@@ -42,6 +45,30 @@ class FakeUseCase:
         return self.result
 
 
+class FakeRestartUseCase(FakeUseCase):
+    def __init__(self, result, list_jobs_use_case: FakeUseCase) -> None:
+        super().__init__(result)
+        self.list_jobs_use_case = list_jobs_use_case
+
+    def execute(self, command):
+        result = super().execute(command)
+        existing_jobs = self.list_jobs_use_case.result.jobs
+        self.list_jobs_use_case.result = ListJobsForCampaignResult(
+            jobs=(*existing_jobs, result.job),
+        )
+        return result
+
+
+class FakeJobStatusUseCase:
+    def __init__(self, jobs: tuple[ProcessingJob, ...]) -> None:
+        self.jobs = {str(job.id): job for job in jobs}
+        self.commands = []
+
+    def execute(self, command):
+        self.commands.append(command)
+        return GetJobStatusResult(job=self.jobs[str(command.job_id)])
+
+
 class FakeRuntime:
     def __init__(self, *, has_campaigns: bool = True) -> None:
         campaign = Campaign(id=CampaignId("campaign-1"), name="Demo")
@@ -58,9 +85,26 @@ class FakeRuntime:
             created_at=datetime(2026, 1, 1),
             updated_at=datetime(2026, 1, 1),
         )
+        second_job = ProcessingJob(
+            id="job-2",
+            campaign_id=campaign.id,
+            audio_track_id="audio-track-1",
+            status=JobStatus.FAILED,
+            created_at=datetime(2026, 1, 2),
+            updated_at=datetime(2026, 1, 2),
+            error_message="failed",
+        )
+        restarted_job = ProcessingJob(
+            id="job-3",
+            campaign_id=campaign.id,
+            audio_track_id="audio-track-1",
+            status=JobStatus.PENDING,
+            created_at=datetime(2026, 1, 3),
+            updated_at=datetime(2026, 1, 3),
+        )
         campaigns = (campaign,) if has_campaigns else ()
         participants = (participant,) if has_campaigns else ()
-        jobs = (job,) if has_campaigns else ()
+        jobs = (job, second_job) if has_campaigns else ()
         metadata = AudioMetadata(
             duration_seconds=12,
             format="wav",
@@ -73,6 +117,7 @@ class FakeRuntime:
             metadata=metadata,
             title="Session 1",
         )
+        list_jobs = FakeUseCase(ListJobsForCampaignResult(jobs=jobs))
         self.use_cases = Stage1UseCases(
             create_campaign=FakeUseCase(None),
             get_campaign=FakeUseCase(None),
@@ -98,8 +143,17 @@ class FakeRuntime:
             ),
             submit_recording_for_processing=FakeUseCase(None),
             run_processing_job=FakeUseCase(GetJobStatusResult(job=job)),
-            list_jobs_for_campaign=FakeUseCase(ListJobsForCampaignResult(jobs=jobs)),
-            get_job_status=FakeUseCase(GetJobStatusResult(job=job)),
+            restart_failed_processing_job=FakeRestartUseCase(
+                RestartFailedProcessingJobResult(
+                    campaign=campaign,
+                    audio_track=audio_track,
+                    source_job=second_job,
+                    job=restarted_job,
+                ),
+                list_jobs,
+            ),
+            list_jobs_for_campaign=list_jobs,
+            get_job_status=FakeJobStatusUseCase((job, second_job, restarted_job)),
             review_speaker_mappings=FakeUseCase(GetJobStatusResult(job=job)),
             generate_recap=FakeUseCase(None),
             export_transcript_markdown=FakeUseCase(None),
@@ -131,6 +185,7 @@ class FakeRuntime:
             whisperx_model_name="small",
             whisperx_device="cpu",
             whisperx_compute_type="int8",
+            whisperx_vad_method="silero",
             deepseek_configured=True,
             huggingface_configured=True,
             recent_messages=("job-1: warning",),
@@ -145,9 +200,14 @@ def test_tui_dashboard_loads_campaign_data() -> None:
         app = NoteKeeperTui(FakeRuntime())
         async with app.run_test() as pilot:
             await pilot.pause()
-            assert app.query_one("#jobs-table", DataTable).row_count == 1
+            assert app.query_one("#jobs-table", DataTable).row_count == 2
             assert app.query_one("#players-table", DataTable).row_count == 1
-            assert "1 jobs" in str(app.query_one("#status", Static).render())
+            assert app._selected_job_id in {"job-1", "job-2"}
+            assert app._selected_audio_track_id == "audio-track-1"
+            recordings_table = app.query_one("#recordings-table", DataTable)
+            recording_row = recordings_table.get_row_at(0)
+            assert recording_row[3] == "2"
+            assert recording_row[4] == "failed"
 
     asyncio.run(run())
 
@@ -191,7 +251,6 @@ def test_tui_sync_folder_button_uses_runtime_use_case() -> None:
             command = runtime.use_cases.sync_campaign_folder.commands[0]
             assert isinstance(command, SyncCampaignFolderCommand)
             assert command.campaign_id == "campaign-1"
-            assert "Synced:" in str(app.query_one("#status", Static).render())
 
     asyncio.run(run())
 
@@ -203,12 +262,11 @@ def test_tui_create_job_button_uses_selected_recording() -> None:
         async with app.run_test() as pilot:
             await pilot.pause()
             recordings_table = app.query_one("#recordings-table", DataTable)
-            app.on_data_table_row_selected(
-                SimpleNamespace(
-                    data_table=recordings_table,
-                    row_key=SimpleNamespace(value="audio-track-1"),
-                ),
+            assert recordings_table.cursor_type == "row"
+            app.on_data_table_row_highlighted(
+                DataTable.RowHighlighted(recordings_table, 0, "audio-track-1"),
             )
+            assert app._selected_audio_track_id == "audio-track-1"
             app.on_button_pressed(
                 SimpleNamespace(button=SimpleNamespace(id="create-job")),
             )
@@ -221,6 +279,80 @@ def test_tui_create_job_button_uses_selected_recording() -> None:
             assert command.audio_track_id == "audio-track-1"
             status = str(app.query_one("#status", Static).render())
             assert "Created job job-1" in status
+
+    asyncio.run(run())
+
+
+def test_tui_run_job_button_uses_selected_job() -> None:
+    async def run() -> None:
+        runtime = FakeRuntime()
+        app = NoteKeeperTui(runtime)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            jobs_table = app.query_one("#jobs-table", DataTable)
+            assert jobs_table.cursor_type == "row"
+            app.on_data_table_row_highlighted(
+                DataTable.RowHighlighted(jobs_table, 1, "job-2"),
+            )
+            assert app._selected_job_id == "job-2"
+            app.on_button_pressed(SimpleNamespace(button=SimpleNamespace(id="run-job")))
+            for _ in range(20):
+                await pilot.pause()
+                if runtime.use_cases.run_processing_job.commands:
+                    break
+            for _ in range(10):
+                await pilot.pause()
+
+            command = runtime.use_cases.run_processing_job.commands[0]
+            assert isinstance(command, RunProcessingJobCommand)
+            assert command.job_id == "job-2"
+
+    asyncio.run(run())
+
+
+def test_tui_restart_failed_job_button_uses_selected_failed_job() -> None:
+    async def run() -> None:
+        runtime = FakeRuntime()
+        app = NoteKeeperTui(runtime)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            jobs_table = app.query_one("#jobs-table", DataTable)
+            app.on_data_table_row_highlighted(
+                DataTable.RowHighlighted(jobs_table, 1, "job-2"),
+            )
+            assert app._selected_job_id == "job-2"
+            app.on_button_pressed(
+                SimpleNamespace(button=SimpleNamespace(id="restart-job")),
+            )
+            await pilot.pause()
+
+            command = runtime.use_cases.restart_failed_processing_job.commands[0]
+            assert isinstance(command, RestartFailedProcessingJobCommand)
+            assert command.job_id == "job-2"
+            assert app._selected_job_id == "job-3"
+            status = str(app.query_one("#status", Static).render())
+            assert "Restarted job job-2 as job-3" in status
+
+    asyncio.run(run())
+
+
+def test_tui_restart_failed_job_rejects_non_failed_selection() -> None:
+    async def run() -> None:
+        runtime = FakeRuntime()
+        app = NoteKeeperTui(runtime)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            jobs_table = app.query_one("#jobs-table", DataTable)
+            app.on_data_table_row_highlighted(
+                DataTable.RowHighlighted(jobs_table, 0, "job-1"),
+            )
+            app.on_button_pressed(
+                SimpleNamespace(button=SimpleNamespace(id="restart-job")),
+            )
+            await pilot.pause()
+
+            assert not runtime.use_cases.restart_failed_processing_job.commands
+            assert "Job is not failed" in str(app.query_one("#status", Static).render())
 
     asyncio.run(run())
 

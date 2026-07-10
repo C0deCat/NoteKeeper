@@ -18,6 +18,7 @@ class WhisperXRunner(Protocol):
         compute_type: str,
         batch_size: int,
         language: str | None,
+        vad_method: str,
         alignment_enabled: bool,
         alignment_model_name: str | None,
         alignment_model_dir: Path | None,

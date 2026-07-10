@@ -24,6 +24,7 @@ from notekeeper.application import (
     GetJobStatusCommand,
     InspectAudioMetadata,
     InspectAudioMetadataCommand,
+    InvalidOperationError,
     ListJobsForCampaign,
     ListJobsForCampaignCommand,
     ManualSpeakerMappingCommand,
@@ -34,6 +35,8 @@ from notekeeper.application import (
     PortExecutionError,
     PreparedAudioResult,
     RecapGenerationContext,
+    RestartFailedProcessingJob,
+    RestartFailedProcessingJobCommand,
     ReviewSpeakerMappings,
     ReviewSpeakerMappingsCommand,
     RunProcessingJob,
@@ -58,6 +61,7 @@ from notekeeper.domain import (
     Participant,
     ParticipantId,
     PipelineWarningKind,
+    PipelineWarning,
     ProcessingJob,
     ProcessingJobId,
     Recap,
@@ -426,6 +430,15 @@ class Harness:
             self.ids,
         )
 
+    def restart_use_case(self) -> RestartFailedProcessingJob:
+        return RestartFailedProcessingJob(
+            self.campaigns,
+            self.audio_tracks,
+            self.jobs,
+            self.clock,
+            self.ids,
+        )
+
     def review_use_case(self) -> ReviewSpeakerMappings:
         return ReviewSpeakerMappings(
             self.campaigns,
@@ -530,6 +543,36 @@ def test_create_processing_job_for_existing_audio_track() -> None:
     assert harness.metadata_reader.read_artifacts == []
 
 
+def test_create_processing_job_allows_multiple_jobs_for_same_audio_track() -> None:
+    harness = Harness()
+    campaign = harness.ready_campaign("Alice")
+    audio_track = AudioTrack(
+        id="audio-track-1",
+        campaign_id=campaign.id,
+        artifact=ArtifactRef(uri="sessions/session-1.wav"),
+        metadata=AudioMetadata(duration_seconds=12),
+        title="Session 1",
+    )
+    campaign = add_audio_track(campaign, audio_track)
+    harness.campaigns.save(campaign)
+    harness.audio_tracks.save(audio_track)
+
+    first = harness.create_job_for_audio_track_use_case().execute(
+        CreateProcessingJobForAudioTrackCommand(audio_track_id="audio-track-1"),
+    )
+    second = harness.create_job_for_audio_track_use_case().execute(
+        CreateProcessingJobForAudioTrackCommand(audio_track_id="audio-track-1"),
+    )
+
+    assert first.job.id == ProcessingJobId("job-1")
+    assert second.job.id == ProcessingJobId("job-2")
+    assert first.job.audio_track_id == second.job.audio_track_id == audio_track.id
+    assert harness.jobs.list_for_audio_track(audio_track.id) == (
+        first.job,
+        second.job,
+    )
+
+
 def test_create_processing_job_rejects_unready_campaign() -> None:
     harness = Harness()
     participant = Participant(
@@ -560,6 +603,85 @@ def test_create_processing_job_rejects_unready_campaign() -> None:
 
     assert not harness.jobs.items
     assert harness.metadata_reader.read_artifacts == []
+
+
+def test_restart_failed_processing_job_creates_new_pending_job() -> None:
+    harness = Harness()
+    campaign = harness.ready_campaign("Alice")
+    audio_track = AudioTrack(
+        id="audio-track-1",
+        campaign_id=campaign.id,
+        artifact=ArtifactRef(uri="sessions/session-1.wav"),
+        metadata=AudioMetadata(duration_seconds=12),
+        title="Session 1",
+    )
+    campaign = add_audio_track(campaign, audio_track)
+    harness.campaigns.save(campaign)
+    harness.audio_tracks.save(audio_track)
+    warning = PipelineWarning(
+        kind=PipelineWarningKind.MISSING_VOICE_SAMPLE,
+        message="sample missing",
+    )
+    failed = ProcessingJob(
+        id=ProcessingJobId("job-failed"),
+        campaign_id=campaign.id,
+        audio_track_id=audio_track.id,
+        status=JobStatus.FAILED,
+        created_at=harness.clock.now(),
+        updated_at=harness.clock.now(),
+        transcript_id=TranscriptId("transcript-1"),
+        warnings=(warning,),
+        error_message="DeepSeek failed",
+    )
+    harness.jobs.save(failed)
+
+    result = harness.restart_use_case().execute(
+        RestartFailedProcessingJobCommand(job_id=failed.id),
+    )
+
+    assert result.source_job == failed
+    assert result.audio_track == audio_track
+    assert result.job.id == ProcessingJobId("job-1")
+    assert result.job.status is JobStatus.PENDING
+    assert result.job.audio_track_id == failed.audio_track_id
+    assert result.job.transcript_id is None
+    assert result.job.recap_id is None
+    assert result.job.warnings == ()
+    assert result.job.error_message is None
+    assert result.job.updated_at == result.job.created_at
+    assert harness.jobs.get(failed.id) == failed
+    assert harness.jobs.get(result.job.id) == result.job
+
+
+def test_restart_failed_processing_job_rejects_non_failed_job() -> None:
+    harness = Harness()
+    campaign = harness.ready_campaign("Alice")
+    audio_track = AudioTrack(
+        id="audio-track-1",
+        campaign_id=campaign.id,
+        artifact=ArtifactRef(uri="sessions/session-1.wav"),
+        metadata=AudioMetadata(duration_seconds=12),
+        title="Session 1",
+    )
+    campaign = add_audio_track(campaign, audio_track)
+    harness.campaigns.save(campaign)
+    harness.audio_tracks.save(audio_track)
+    pending = ProcessingJob(
+        id=ProcessingJobId("job-pending"),
+        campaign_id=campaign.id,
+        audio_track_id=audio_track.id,
+        status=JobStatus.PENDING,
+        created_at=harness.clock.now(),
+        updated_at=harness.clock.now(),
+    )
+    harness.jobs.save(pending)
+
+    with pytest.raises(InvalidOperationError, match="must be failed"):
+        harness.restart_use_case().execute(
+            RestartFailedProcessingJobCommand(job_id=pending.id),
+        )
+
+    assert harness.jobs.items == {pending.id: pending}
 
 
 def test_run_processing_job_completes_clean_mapping_flow() -> None:
