@@ -6,6 +6,7 @@ from collections.abc import Callable, Iterable
 from pathlib import Path
 
 from textual.app import App, ComposeResult
+from textual.css.query import NoMatches
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.worker import Worker, WorkerState
 from textual.widgets import Button, DataTable, Footer, Header, Label, ProgressBar, Select, Static
@@ -18,7 +19,7 @@ from notekeeper.application import (
     ListParticipantsCommand,
     ListVoiceSamplesCommand,
 )
-from notekeeper.domain import DomainError
+from notekeeper.domain import DomainError, JobStatus, ProcessingJob
 
 from ..contracts import InterfaceRuntime
 from . import (
@@ -34,6 +35,7 @@ from . import (
 )
 from .campaign_app import CreateCampaignScreen
 from .common import format_duration, sync_result_status
+from .identifier_data_table import IdentifierDataTable
 from .participant_app import AddParticipantScreen
 
 
@@ -54,6 +56,9 @@ class NoteKeeperTui(App[None]):
         self._selected_campaign_id: str | None = None
         self._selected_job_id: str | None = None
         self._selected_audio_track_id: str | None = None
+        self._dashboard_jobs: dict[str, ProcessingJob] = {}
+        self._campaign_has_participants = False
+        self._campaign_is_processing_ready = False
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -80,13 +85,25 @@ class NoteKeeperTui(App[None]):
                 yield ProgressBar(total=None, id="job-progress")
             with Vertical(id="content"):
                 yield Label("Jobs")
-                yield DataTable(id="jobs-table", classes="panel short-panel")
+                yield IdentifierDataTable(
+                    id="jobs-table",
+                    classes="panel short-panel",
+                )
                 yield Label("Recordings")
-                yield DataTable(id="recordings-table", classes="panel short-panel")
+                yield IdentifierDataTable(
+                    id="recordings-table",
+                    classes="panel short-panel",
+                )
                 yield Label("Players")
-                yield DataTable(id="players-table", classes="panel short-panel")
+                yield IdentifierDataTable(
+                    id="players-table",
+                    classes="panel short-panel",
+                )
                 yield Label("Warnings and errors")
-                yield DataTable(id="warnings-table", classes="panel short-panel")
+                yield IdentifierDataTable(
+                    id="warnings-table",
+                    classes="panel short-panel",
+                )
         yield Footer()
 
     def on_mount(self) -> None:
@@ -213,8 +230,14 @@ class NoteKeeperTui(App[None]):
 
     def _refresh_campaign_panels(self) -> None:
         if self._selected_campaign_id is None:
+            self._selected_job_id = None
+            self._selected_audio_track_id = None
+            self._dashboard_jobs = {}
+            self._campaign_has_participants = False
+            self._campaign_is_processing_ready = False
             self._clear_tables()
             self._set_status("No campaign")
+            self._update_action_buttons()
             return
 
         campaign_id = self._selected_campaign_id
@@ -231,33 +254,60 @@ class NoteKeeperTui(App[None]):
             ListJobsForCampaignCommand(campaign_id=campaign_id),
         ).jobs
 
+        ordered_jobs = tuple(
+            job
+            for _, job in sorted(
+                enumerate(jobs),
+                key=lambda item: (
+                    item[1].updated_at,
+                    item[1].created_at,
+                    item[0],
+                ),
+                reverse=True,
+            )
+        )
+        ordered_audio_tracks = tuple(reversed(audio_tracks))
+        ordered_participants = tuple(reversed(participants))
         sample_participants = {str(sample.participant_id) for sample in voice_samples}
-        jobs_by_track: dict[str, list] = {}
-        for job in jobs:
+        jobs_by_track: dict[str, list[ProcessingJob]] = {}
+        for job in ordered_jobs:
             jobs_by_track.setdefault(str(job.audio_track_id), []).append(job)
-        audio_track_ids = {str(audio_track.id) for audio_track in audio_tracks}
+        self._dashboard_jobs = {str(job.id): job for job in ordered_jobs}
+        self._campaign_has_participants = bool(participants)
+        self._campaign_is_processing_ready = (
+            self._campaign_has_participants
+            and all(
+                str(participant.id) in sample_participants
+                for participant in participants
+            )
+        )
+
+        audio_track_ids = {
+            str(audio_track.id) for audio_track in ordered_audio_tracks
+        }
         self._selected_audio_track_id = (
             self._selected_audio_track_id
             if self._selected_audio_track_id in audio_track_ids
-            else (str(audio_tracks[0].id) if audio_tracks else None)
+            else (str(ordered_audio_tracks[0].id) if ordered_audio_tracks else None)
         )
         self._selected_job_id = (
             self._selected_job_id
-            if self._selected_job_id in {str(job.id) for job in jobs}
-            else (str(jobs[-1].id) if jobs else None)
+            if self._selected_job_id in self._dashboard_jobs
+            else (str(ordered_jobs[0].id) if ordered_jobs else None)
         )
 
         jobs_table = self._reset_table(
             "jobs-table",
             ("ID", "Status", "Transcript", "Recap", "Updated"),
         )
-        for job in jobs:
-            jobs_table.add_row(
+        for job in ordered_jobs:
+            jobs_table.add_identifier_row(
                 str(job.id),
                 job.status.value,
                 str(job.transcript_id or ""),
                 str(job.recap_id or ""),
                 job.updated_at.isoformat(timespec="seconds"),
+                identifier_indices=(0, 2, 3),
                 key=str(job.id),
             )
 
@@ -265,15 +315,20 @@ class NoteKeeperTui(App[None]):
             "recordings-table",
             ("ID", "Title", "Duration", "Jobs", "Latest Status"),
         )
-        for audio_track in audio_tracks:
+        for audio_track in ordered_audio_tracks:
             track_jobs = jobs_by_track.get(str(audio_track.id), [])
-            latest_job = max(track_jobs, key=lambda item: item.updated_at) if track_jobs else None
-            recordings_table.add_row(
+            latest_job = (
+                max(track_jobs, key=lambda item: item.updated_at)
+                if track_jobs
+                else None
+            )
+            recordings_table.add_identifier_row(
                 str(audio_track.id),
                 audio_track.title or audio_track.artifact.uri,
                 format_duration(audio_track.metadata),
                 str(len(track_jobs)),
                 latest_job.status.value if latest_job is not None else "",
+                identifier_indices=(0,),
                 key=str(audio_track.id),
             )
 
@@ -281,40 +336,48 @@ class NoteKeeperTui(App[None]):
             "players-table",
             ("ID", "Name", "Voice Sample", "Ready"),
         )
-        for participant in participants:
+        for participant in ordered_participants:
             has_sample = str(participant.id) in sample_participants
-            players_table.add_row(
+            players_table.add_identifier_row(
                 str(participant.id),
                 participant.display_name,
                 "yes" if has_sample else "no",
                 "ready" if has_sample else "missing",
+                identifier_indices=(0,),
                 key=str(participant.id),
             )
 
         warnings_table = self._reset_table("warnings-table", ("Job", "Kind", "Message"))
-        for job in jobs:
+        for job in ordered_jobs:
             for warning in job.warnings:
-                warnings_table.add_row(
+                warnings_table.add_identifier_row(
                     str(job.id),
                     warning.kind.value,
                     warning.message,
+                    identifier_indices=(0,),
                     key=f"{job.id}:{warning.kind.value}:{warning.message}",
                 )
             if job.error_message:
-                warnings_table.add_row(
+                warnings_table.add_identifier_row(
                     str(job.id),
                     "error",
                     job.error_message,
+                    identifier_indices=(0,),
                     key=f"{job.id}:error",
                 )
 
-        self._set_status(f"{len(jobs)} jobs")
+        self._set_status(f"{len(ordered_jobs)} jobs")
+        self._update_action_buttons()
 
     def _clear_tables(self) -> None:
         self._setup_tables()
 
-    def _reset_table(self, table_id: str, columns: Iterable[str]) -> DataTable:
-        table = self.query_one(f"#{table_id}", DataTable)
+    def _reset_table(
+        self,
+        table_id: str,
+        columns: Iterable[str],
+    ) -> IdentifierDataTable:
+        table = self.query_one(f"#{table_id}", IdentifierDataTable)
         table.clear(columns=True)
         table.cursor_type = "row"
         for column in columns:
@@ -331,10 +394,12 @@ class NoteKeeperTui(App[None]):
         selected_id = str(getattr(row_id, "value", row_id))
         if table.id == "jobs-table":
             self._selected_job_id = selected_id
+            self._update_action_buttons()
             if announce:
                 self._set_status(f"Selected job {self._selected_job_id}")
         elif table.id == "recordings-table":
             self._selected_audio_track_id = selected_id
+            self._update_action_buttons()
             if announce:
                 self._set_status(f"Selected recording {self._selected_audio_track_id}")
 
@@ -345,6 +410,66 @@ class NoteKeeperTui(App[None]):
             jobs_table.move_cursor(row=jobs_table.get_row_index(job_id))
         except KeyError:
             pass
+        self._update_action_buttons()
+
+    def _update_action_buttons(self) -> None:
+        """Enable only actions whose current dashboard context supports them."""
+        campaign_selected = self._selected_campaign_id is not None
+        selected_job = self._dashboard_jobs.get(self._selected_job_id or "")
+        processing_ready = campaign_selected and self._campaign_is_processing_ready
+
+        self._set_button_disabled("refresh", False)
+        self._set_button_disabled("new-campaign", False)
+        self._set_button_disabled("diagnostics", False)
+        self._set_button_disabled("sync-folder", not campaign_selected)
+        self._set_button_disabled("add-player", not campaign_selected)
+        self._set_button_disabled(
+            "add-sample",
+            not campaign_selected or not self._campaign_has_participants,
+        )
+        self._set_button_disabled("submit-recording", not processing_ready)
+        self._set_button_disabled(
+            "create-job",
+            not processing_ready or self._selected_audio_track_id is None,
+        )
+        self._set_button_disabled(
+            "run-job",
+            selected_job is None or selected_job.status is not JobStatus.PENDING,
+        )
+        self._set_button_disabled(
+            "restart-job",
+            not processing_ready
+            or selected_job is None
+            or selected_job.status is not JobStatus.FAILED,
+        )
+        self._set_button_disabled(
+            "review-job",
+            selected_job is None
+            or selected_job.status is not JobStatus.WAITING_FOR_REVIEW,
+        )
+        self._set_button_disabled(
+            "preview-transcript",
+            selected_job is None or selected_job.transcript_id is None,
+        )
+        self._set_button_disabled(
+            "export-transcript",
+            selected_job is None or selected_job.transcript_id is None,
+        )
+        self._set_button_disabled(
+            "preview-recap",
+            selected_job is None or selected_job.recap_id is None,
+        )
+        self._set_button_disabled(
+            "export-recap",
+            selected_job is None or selected_job.recap_id is None,
+        )
+
+    def _set_button_disabled(self, button_id: str, disabled: bool) -> None:
+        try:
+            self.query_one(f"#{button_id}", Button).disabled = disabled
+        except NoMatches:
+            # Table events can finish dispatching while Textual tears down the screen.
+            return
 
     def _create_campaign(self, name: str | None) -> None:
         campaign_app.create_campaign(self, name)
