@@ -36,6 +36,6 @@ def add_participant(app, campaign_id: str, display_name: str | None) -> None:
                 display_name=display_name,
             ),
         )
-        app.refresh_dashboard()
+        app.refresh_dashboard(update_campaigns=False)
     except (ApplicationError, DomainError, ValueError) as exc:
         app._set_status(str(exc))

@@ -3,23 +3,28 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable
+from dataclasses import dataclass
 from pathlib import Path
 
 from textual.app import App, ComposeResult
 from textual.css.query import NoMatches
-from textual.containers import Horizontal, Vertical, VerticalScroll
+from textual.containers import Horizontal, ItemGrid, Vertical, VerticalScroll
 from textual.worker import Worker, WorkerState
 from textual.widgets import Button, DataTable, Footer, Header, Label, ProgressBar, Select, Static
 
 from notekeeper.application import (
     ApplicationError,
-    ListAudioTracksCommand,
+    GetCampaignCommand,
     ListCampaignsCommand,
     ListJobsForCampaignCommand,
-    ListParticipantsCommand,
-    ListVoiceSamplesCommand,
 )
-from notekeeper.domain import DomainError, JobStatus, ProcessingJob
+from notekeeper.domain import (
+    AudioTrack,
+    DomainError,
+    JobStatus,
+    Participant,
+    ProcessingJob,
+)
 
 from ..contracts import InterfaceRuntime
 from . import (
@@ -39,6 +44,19 @@ from .identifier_data_table import IdentifierDataTable
 from .participant_app import AddParticipantScreen
 
 
+@dataclass(frozen=True, slots=True)
+class DashboardWarning:
+    """Selectable dashboard representation of a warning or job error row."""
+
+    key: str
+    job_id: str
+    kind: str
+    message: str
+
+
+SelectedObject = ProcessingJob | AudioTrack | Participant | DashboardWarning
+
+
 class NoteKeeperTui(App[None]):
     """Dashboard-first Textual interface for Stage 1."""
 
@@ -54,9 +72,11 @@ class NoteKeeperTui(App[None]):
         super().__init__()
         self.runtime = runtime
         self._selected_campaign_id: str | None = None
-        self._selected_job_id: str | None = None
-        self._selected_audio_track_id: str | None = None
+        self._selected_object: SelectedObject | None = None
         self._dashboard_jobs: dict[str, ProcessingJob] = {}
+        self._dashboard_audio_tracks: dict[str, AudioTrack] = {}
+        self._dashboard_participants: dict[str, Participant] = {}
+        self._dashboard_warnings: dict[str, DashboardWarning] = {}
         self._campaign_has_participants = False
         self._campaign_is_processing_ready = False
 
@@ -66,13 +86,19 @@ class NoteKeeperTui(App[None]):
             yield Select((), prompt="Campaign", id="campaign-select")
             yield Button("Manage Campaign", id="manage-campaign")
             yield Static("Ready", id="status")
+        with ItemGrid(
+            id="campaign-actions",
+            min_column_width=20,
+            stretch_height=False,
+        ):
+            yield Button("Refresh", id="refresh", variant="primary")
+            yield Button("Sync Folder", id="sync-folder")
+            yield Button("Add Player", id="add-player")
+            yield Button("Add Voice Sample", id="add-sample")
+            yield Button("Submit Recording", id="submit-recording")
+            yield Button("Diagnostics", id="diagnostics")
         with Horizontal(id="dashboard"):
             with VerticalScroll(id="actions"):
-                yield Button("Refresh", id="refresh", variant="primary")
-                yield Button("Sync Folder", id="sync-folder")
-                yield Button("Add Player", id="add-player")
-                yield Button("Add Voice Sample", id="add-sample")
-                yield Button("Submit Recording", id="submit-recording")
                 yield Button("Create Job", id="create-job")
                 yield Button("Run Job", id="run-job", variant="success")
                 yield Button("Restart Failed Job", id="restart-job")
@@ -81,28 +107,31 @@ class NoteKeeperTui(App[None]):
                 yield Button("Preview Recap", id="preview-recap")
                 yield Button("Export Transcript", id="export-transcript")
                 yield Button("Export Recap", id="export-recap")
-                yield Button("Diagnostics", id="diagnostics")
                 yield ProgressBar(total=None, id="job-progress")
             with Vertical(id="content"):
                 yield Label("Jobs")
                 yield IdentifierDataTable(
                     id="jobs-table",
                     classes="panel short-panel",
+                    show_cursor=False,
                 )
                 yield Label("Recordings")
                 yield IdentifierDataTable(
                     id="recordings-table",
                     classes="panel short-panel",
+                    show_cursor=False,
                 )
                 yield Label("Players")
                 yield IdentifierDataTable(
                     id="players-table",
                     classes="panel short-panel",
+                    show_cursor=False,
                 )
                 yield Label("Warnings and errors")
                 yield IdentifierDataTable(
                     id="warnings-table",
                     classes="panel short-panel",
+                    show_cursor=False,
                 )
         yield Footer()
 
@@ -120,16 +149,23 @@ class NoteKeeperTui(App[None]):
     def on_select_changed(self, event: Select.Changed) -> None:
         if event.select.id != "campaign-select":
             return
+        previous_campaign_id = self._selected_campaign_id
         if event.value in (Select.BLANK, Select.NULL):
             self._selected_campaign_id = None
         else:
             self._selected_campaign_id = str(event.value)
+        if self._selected_campaign_id != previous_campaign_id:
+            self._selected_object = None
         self.refresh_dashboard(update_campaigns=False)
 
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
+        if not self._event_matches_table_cursor(event.data_table, event.row_key):
+            return
         self._select_table_row(event.data_table, event.row_key, announce=True)
 
     def on_data_table_row_highlighted(self, event: DataTable.RowHighlighted) -> None:
+        if not self._event_matches_table_cursor(event.data_table, event.row_key):
+            return
         self._select_table_row(event.data_table, event.row_key)
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
@@ -186,7 +222,7 @@ class NoteKeeperTui(App[None]):
                 self.notify(message)
             else:
                 self._set_status("Done")
-                self.refresh_dashboard()
+                self.refresh_dashboard(update_campaigns=False)
         elif event.state is WorkerState.ERROR:
             self._progress().display = False
             message = str(event.worker.error) if event.worker.error else "worker failed"
@@ -216,23 +252,28 @@ class NoteKeeperTui(App[None]):
         ).campaigns
         options = tuple((campaign.name, str(campaign.id)) for campaign in campaigns)
         select = self.query_one("#campaign-select", Select)
-        select.set_options(options)
+        with select.prevent(Select.Changed):
+            select.set_options(options)
 
-        ids = {str(campaign.id) for campaign in campaigns}
-        if not ids:
-            self._selected_campaign_id = None
-            select.clear()
-            return
+            ids = {str(campaign.id) for campaign in campaigns}
+            if not ids:
+                self._selected_campaign_id = None
+                self._selected_object = None
+                select.clear()
+                return
 
-        if self._selected_campaign_id not in ids:
-            self._selected_campaign_id = str(campaigns[0].id)
-        select.value = self._selected_campaign_id
+            if self._selected_campaign_id not in ids:
+                self._selected_campaign_id = str(campaigns[0].id)
+                self._selected_object = None
+            select.value = self._selected_campaign_id
 
     def _refresh_campaign_panels(self) -> None:
         if self._selected_campaign_id is None:
-            self._selected_job_id = None
-            self._selected_audio_track_id = None
+            self._selected_object = None
             self._dashboard_jobs = {}
+            self._dashboard_audio_tracks = {}
+            self._dashboard_participants = {}
+            self._dashboard_warnings = {}
             self._campaign_has_participants = False
             self._campaign_is_processing_ready = False
             self._clear_tables()
@@ -241,15 +282,12 @@ class NoteKeeperTui(App[None]):
             return
 
         campaign_id = self._selected_campaign_id
-        participants = self.runtime.use_cases.list_participants.execute(
-            ListParticipantsCommand(campaign_id=campaign_id),
-        ).participants
-        voice_samples = self.runtime.use_cases.list_voice_samples.execute(
-            ListVoiceSamplesCommand(campaign_id=campaign_id),
-        ).voice_samples
-        audio_tracks = self.runtime.use_cases.list_audio_tracks.execute(
-            ListAudioTracksCommand(campaign_id=campaign_id),
-        ).audio_tracks
+        campaign = self.runtime.use_cases.get_campaign.execute(
+            GetCampaignCommand(campaign_id=campaign_id),
+        ).campaign
+        participants = campaign.participants
+        voice_samples = campaign.voice_samples
+        audio_tracks = campaign.audio_tracks
         jobs = self.runtime.use_cases.list_jobs_for_campaign.execute(
             ListJobsForCampaignCommand(campaign_id=campaign_id),
         ).jobs
@@ -273,6 +311,13 @@ class NoteKeeperTui(App[None]):
         for job in ordered_jobs:
             jobs_by_track.setdefault(str(job.audio_track_id), []).append(job)
         self._dashboard_jobs = {str(job.id): job for job in ordered_jobs}
+        self._dashboard_audio_tracks = {
+            str(audio_track.id): audio_track for audio_track in ordered_audio_tracks
+        }
+        self._dashboard_participants = {
+            str(participant.id): participant for participant in ordered_participants
+        }
+        self._dashboard_warnings = {}
         self._campaign_has_participants = bool(participants)
         self._campaign_is_processing_ready = (
             self._campaign_has_participants
@@ -282,19 +327,7 @@ class NoteKeeperTui(App[None]):
             )
         )
 
-        audio_track_ids = {
-            str(audio_track.id) for audio_track in ordered_audio_tracks
-        }
-        self._selected_audio_track_id = (
-            self._selected_audio_track_id
-            if self._selected_audio_track_id in audio_track_ids
-            else (str(ordered_audio_tracks[0].id) if ordered_audio_tracks else None)
-        )
-        self._selected_job_id = (
-            self._selected_job_id
-            if self._selected_job_id in self._dashboard_jobs
-            else (str(ordered_jobs[0].id) if ordered_jobs else None)
-        )
+        selected_key = self._selected_object_key(self._selected_object)
 
         jobs_table = self._reset_table(
             "jobs-table",
@@ -349,23 +382,53 @@ class NoteKeeperTui(App[None]):
 
         warnings_table = self._reset_table("warnings-table", ("Job", "Kind", "Message"))
         for job in ordered_jobs:
+            duplicate_counts: dict[tuple[str, str], int] = {}
             for warning in job.warnings:
+                signature = (warning.kind.value, warning.message)
+                occurrence = duplicate_counts.get(signature, 0)
+                duplicate_counts[signature] = occurrence + 1
+                warning_key = (
+                    f"{job.id}:warning:{warning.kind.value}:"
+                    f"{warning.message}:{occurrence}"
+                )
+                dashboard_warning = DashboardWarning(
+                    key=warning_key,
+                    job_id=str(job.id),
+                    kind=warning.kind.value,
+                    message=warning.message,
+                )
+                self._dashboard_warnings[warning_key] = dashboard_warning
                 warnings_table.add_identifier_row(
                     str(job.id),
                     warning.kind.value,
                     warning.message,
                     identifier_indices=(0,),
-                    key=f"{job.id}:{warning.kind.value}:{warning.message}",
+                    key=warning_key,
                 )
             if job.error_message:
+                error_key = f"{job.id}:error"
+                self._dashboard_warnings[error_key] = DashboardWarning(
+                    key=error_key,
+                    job_id=str(job.id),
+                    kind="error",
+                    message=job.error_message,
+                )
                 warnings_table.add_identifier_row(
                     str(job.id),
                     "error",
                     job.error_message,
                     identifier_indices=(0,),
-                    key=f"{job.id}:error",
+                    key=error_key,
                 )
 
+        self._selected_object = self._restore_selected_object(selected_key)
+        if self._selected_object is None:
+            self._selected_object = (
+                ordered_jobs[0]
+                if ordered_jobs
+                else (ordered_audio_tracks[0] if ordered_audio_tracks else None)
+            )
+        self._sync_table_selection()
         self._set_status(f"{len(ordered_jobs)} jobs")
         self._update_action_buttons()
 
@@ -392,30 +455,65 @@ class NoteKeeperTui(App[None]):
         announce: bool = False,
     ) -> None:
         selected_id = str(getattr(row_id, "value", row_id))
+        previous_key = self._selected_object_key(self._selected_object)
         if table.id == "jobs-table":
-            self._selected_job_id = selected_id
-            self._update_action_buttons()
-            if announce:
-                self._set_status(f"Selected job {self._selected_job_id}")
+            self._selected_object = self._dashboard_jobs.get(selected_id)
+            selected_label = f"job {selected_id}"
         elif table.id == "recordings-table":
-            self._selected_audio_track_id = selected_id
-            self._update_action_buttons()
-            if announce:
-                self._set_status(f"Selected recording {self._selected_audio_track_id}")
+            self._selected_object = self._dashboard_audio_tracks.get(selected_id)
+            selected_label = f"recording {selected_id}"
+        elif table.id == "players-table":
+            self._selected_object = self._dashboard_participants.get(selected_id)
+            selected_label = f"player {selected_id}"
+        elif table.id == "warnings-table":
+            self._selected_object = self._dashboard_warnings.get(selected_id)
+            selected_label = f"warning {selected_id}"
+        else:
+            return
+
+        if self._selected_object_key(self._selected_object) == previous_key:
+            if announce and self._selected_object is not None:
+                self._set_status(f"Selected {selected_label}")
+            return
+
+        self._sync_table_selection()
+        self._update_action_buttons()
+        if announce and self._selected_object is not None:
+            self._set_status(f"Selected {selected_label}")
+
+    def _event_matches_table_cursor(
+        self,
+        table: DataTable,
+        row_key: object,
+    ) -> bool:
+        if not table.show_cursor:
+            return False
+        try:
+            current_row_key = table.ordered_rows[table.cursor_row].key
+        except IndexError:
+            return False
+        return str(getattr(row_key, "value", row_key)) == str(
+            getattr(current_row_key, "value", current_row_key),
+        )
 
     def _select_job_after_refresh(self, job_id: str) -> None:
-        self._selected_job_id = job_id
-        jobs_table = self.query_one("#jobs-table", DataTable)
-        try:
-            jobs_table.move_cursor(row=jobs_table.get_row_index(job_id))
-        except KeyError:
-            pass
+        self._selected_object = self._dashboard_jobs.get(job_id)
+        self._sync_table_selection()
         self._update_action_buttons()
 
     def _update_action_buttons(self) -> None:
         """Enable only actions whose current dashboard context supports them."""
         campaign_selected = self._selected_campaign_id is not None
-        selected_job = self._dashboard_jobs.get(self._selected_job_id or "")
+        selected_job = (
+            self._selected_object
+            if isinstance(self._selected_object, ProcessingJob)
+            else None
+        )
+        selected_audio_track = (
+            self._selected_object
+            if isinstance(self._selected_object, AudioTrack)
+            else None
+        )
         processing_ready = campaign_selected and self._campaign_is_processing_ready
 
         self._set_button_disabled("refresh", False)
@@ -428,10 +526,22 @@ class NoteKeeperTui(App[None]):
             not campaign_selected or not self._campaign_has_participants,
         )
         self._set_button_disabled("submit-recording", not processing_ready)
+
+        self._set_button_display("create-job", selected_audio_track is not None)
         self._set_button_disabled(
             "create-job",
-            not processing_ready or self._selected_audio_track_id is None,
+            not processing_ready or selected_audio_track is None,
         )
+        for button_id in (
+            "run-job",
+            "restart-job",
+            "review-job",
+            "preview-transcript",
+            "export-transcript",
+            "preview-recap",
+            "export-recap",
+        ):
+            self._set_button_display(button_id, selected_job is not None)
         self._set_button_disabled(
             "run-job",
             selected_job is None or selected_job.status is not JobStatus.PENDING,
@@ -471,6 +581,75 @@ class NoteKeeperTui(App[None]):
             # Table events can finish dispatching while Textual tears down the screen.
             return
 
+    def _set_button_display(self, button_id: str, display: bool) -> None:
+        try:
+            self.query_one(f"#{button_id}", Button).display = display
+        except NoMatches:
+            return
+
+    def _selected_object_key(
+        self,
+        selected_object: SelectedObject | None,
+    ) -> tuple[str, str] | None:
+        if isinstance(selected_object, ProcessingJob):
+            return ("job", str(selected_object.id))
+        if isinstance(selected_object, AudioTrack):
+            return ("recording", str(selected_object.id))
+        if isinstance(selected_object, Participant):
+            return ("player", str(selected_object.id))
+        if isinstance(selected_object, DashboardWarning):
+            return ("warning", selected_object.key)
+        return None
+
+    def _restore_selected_object(
+        self,
+        selected_key: tuple[str, str] | None,
+    ) -> SelectedObject | None:
+        if selected_key is None:
+            return None
+        object_type, object_id = selected_key
+        objects = {
+            "job": self._dashboard_jobs,
+            "recording": self._dashboard_audio_tracks,
+            "player": self._dashboard_participants,
+            "warning": self._dashboard_warnings,
+        }
+        return objects.get(object_type, {}).get(object_id)
+
+    def _sync_table_selection(self) -> None:
+        selected_key = self._selected_object_key(self._selected_object)
+        selected_table_id = {
+            "job": "jobs-table",
+            "recording": "recordings-table",
+            "player": "players-table",
+            "warning": "warnings-table",
+        }.get(selected_key[0] if selected_key else "")
+
+        tables = tuple(self.query(IdentifierDataTable))
+        if not tables:
+            return
+
+        if selected_key is None or selected_table_id is None:
+            for table in tables:
+                if table.show_cursor:
+                    table.show_cursor = False
+            return
+        try:
+            table = self.query_one(f"#{selected_table_id}", IdentifierDataTable)
+        except NoMatches:
+            return
+        try:
+            selected_row = table.get_row_index(selected_key[1])
+        except KeyError:
+            return
+        if table.cursor_row != selected_row:
+            table.move_cursor(row=selected_row, scroll=False)
+
+        for dashboard_table in tables:
+            should_show_cursor = dashboard_table is table
+            if dashboard_table.show_cursor != should_show_cursor:
+                dashboard_table.show_cursor = should_show_cursor
+
     def _open_manage_campaigns(self) -> None:
         self.push_screen(
             ManageCampaignsScreen(self.runtime, self._selected_campaign_id),
@@ -478,6 +657,8 @@ class NoteKeeperTui(App[None]):
         )
 
     def _finish_manage_campaigns(self, campaign_id: str | None) -> None:
+        if campaign_id != self._selected_campaign_id:
+            self._selected_object = None
         self._selected_campaign_id = campaign_id
         self.refresh_dashboard()
 
@@ -521,7 +702,9 @@ class NoteKeeperTui(App[None]):
         diagnostics_app.open_diagnostics(self)
 
     def _selected_job(self):
-        return job_app.selected_job(self)
+        if isinstance(self._selected_object, ProcessingJob):
+            return self._selected_object
+        return None
 
     def _with_campaign(self, action: Callable[[str], None]) -> None:
         if self._selected_campaign_id is None:

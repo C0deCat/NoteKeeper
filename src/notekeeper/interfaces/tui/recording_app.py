@@ -77,5 +77,7 @@ class RecordingScreen(ModalScreen[bool]):
 def open_submit_recording(app, campaign_id: str) -> None:
     app.push_screen(
         RecordingScreen(app.runtime, campaign_id),
-        lambda completed: app.refresh_dashboard() if completed else None,
+        lambda completed: (
+            app.refresh_dashboard(update_campaigns=False) if completed else None
+        ),
     )

@@ -11,6 +11,8 @@ from notekeeper.application import (
     CreateProcessingJobForAudioTrackResult,
     CreateCampaignResult,
     DeleteCampaignResult,
+    GetCampaignCommand,
+    GetCampaignResult,
     GetJobStatusResult,
     InspectAudioMetadataResult,
     ListAudioTracksResult,
@@ -43,6 +45,7 @@ from notekeeper.interfaces import RuntimeDiagnostics, Stage1UseCases
 from notekeeper.interfaces.tui import NoteKeeperTui, RecordingScreen, VoiceSampleScreen
 from notekeeper.interfaces.tui.campaign_management_screen import ManageCampaignsScreen
 from notekeeper.interfaces.tui.identifier_data_table import compact_identifier
+from notekeeper.interfaces.tui.tui import DashboardWarning
 
 
 class FakeUseCase:
@@ -181,11 +184,18 @@ class FakeRuntime:
             metadata=metadata,
             title="Session 1",
         )
+        dashboard_campaign = replace(
+            campaign,
+            participants=participants,
+            audio_tracks=(audio_track,) if has_campaigns else (),
+        )
         list_campaigns = FakeUseCase(ListCampaignsResult(campaigns=campaigns))
         list_jobs = FakeUseCase(ListJobsForCampaignResult(jobs=jobs))
         self.use_cases = Stage1UseCases(
             create_campaign=FakeCreateCampaignUseCase(list_campaigns),
-            get_campaign=FakeUseCase(None),
+            get_campaign=FakeUseCase(
+                GetCampaignResult(campaign=dashboard_campaign),
+            ),
             list_campaigns=list_campaigns,
             update_campaign=FakeUpdateCampaignUseCase(list_campaigns),
             delete_campaign=FakeDeleteCampaignUseCase(list_campaigns),
@@ -269,12 +279,16 @@ def test_tui_dashboard_loads_campaign_data() -> None:
             await pilot.pause()
             assert app.query_one("#jobs-table", DataTable).row_count == 2
             assert app.query_one("#players-table", DataTable).row_count == 1
-            assert app._selected_job_id == "job-2"
-            assert app._selected_audio_track_id == "audio-track-1"
+            assert isinstance(app._selected_object, ProcessingJob)
+            assert str(app._selected_object.id) == "job-2"
             recordings_table = app.query_one("#recordings-table", DataTable)
             recording_row = recordings_table.get_row_at(0)
             assert recording_row[3] == "2"
             assert recording_row[4] == "failed"
+            assert app.query_one("#jobs-table", DataTable).show_cursor is True
+            assert recordings_table.show_cursor is False
+            assert app.query_one("#players-table", DataTable).show_cursor is False
+            assert app.query_one("#warnings-table", DataTable).show_cursor is False
 
     asyncio.run(run())
 
@@ -363,6 +377,13 @@ def test_tui_sorts_dashboard_rows_newest_first() -> None:
                 second_participant,
             ),
         )
+        runtime.use_cases.get_campaign.result = GetCampaignResult(
+            campaign=replace(
+                runtime.use_cases.get_campaign.result.campaign,
+                audio_tracks=runtime.use_cases.list_audio_tracks.result.audio_tracks,
+                participants=runtime.use_cases.list_participants.result.participants,
+            ),
+        )
         runtime.use_cases.list_jobs_for_campaign.result = ListJobsForCampaignResult(
             jobs=(older_job, newer_job),
         )
@@ -375,7 +396,8 @@ def test_tui_sorts_dashboard_rows_newest_first() -> None:
             players_table = app.query_one("#players-table", DataTable)
             warnings_table = app.query_one("#warnings-table", DataTable)
 
-            assert app._selected_job_id == "job-2"
+            assert isinstance(app._selected_object, ProcessingJob)
+            assert str(app._selected_object.id) == "job-2"
             assert jobs_table.get_row_at(0)[0] == compact_identifier("job-2")
             assert recordings_table.get_row_at(0)[0] == compact_identifier(
                 "audio-track-2",
@@ -404,15 +426,16 @@ def test_tui_action_buttons_follow_current_dashboard_context() -> None:
             assert app.query_one("#add-player", Button).disabled is False
             assert app.query_one("#add-sample", Button).disabled is False
             assert app.query_one("#submit-recording", Button).disabled is True
-            assert app.query_one("#create-job", Button).disabled is True
+            assert app.query_one("#create-job", Button).display is False
+            assert app.query_one("#run-job", Button).display is True
             assert app.query_one("#run-job", Button).disabled is True
             assert app.query_one("#restart-job", Button).disabled is True
 
             jobs_table = app.query_one("#jobs-table", DataTable)
-            app.on_data_table_row_highlighted(
-                DataTable.RowHighlighted(jobs_table, 1, "job-1"),
-            )
+            app._select_table_row(jobs_table, "job-1")
             await pilot.pause()
+            assert isinstance(app._selected_object, ProcessingJob)
+            assert str(app._selected_object.id) == "job-1"
             assert app.query_one("#run-job", Button).disabled is False
 
             campaign = runtime.use_cases.list_campaigns.result.campaigns[0]
@@ -429,13 +452,23 @@ def test_tui_action_buttons_follow_current_dashboard_context() -> None:
                     ),
                 ),
             )
+            runtime.use_cases.get_campaign.result = GetCampaignResult(
+                campaign=replace(
+                    runtime.use_cases.get_campaign.result.campaign,
+                    voice_samples=runtime.use_cases.list_voice_samples.result.voice_samples,
+                ),
+            )
             app.refresh_dashboard(update_campaigns=False)
             assert app.query_one("#submit-recording", Button).disabled is False
+            recordings_table = app.query_one("#recordings-table", DataTable)
+            app._select_table_row(recordings_table, "audio-track-1")
+            await pilot.pause()
+            assert app.query_one("#create-job", Button).display is True
             assert app.query_one("#create-job", Button).disabled is False
+            assert app.query_one("#run-job", Button).display is False
 
-            app.on_data_table_row_highlighted(
-                DataTable.RowHighlighted(jobs_table, 0, "job-2"),
-            )
+            jobs_table = app.query_one("#jobs-table", DataTable)
+            app._select_table_row(jobs_table, "job-2")
             await pilot.pause()
             assert app.query_one("#restart-job", Button).disabled is False
 
@@ -449,7 +482,7 @@ def test_tui_action_buttons_follow_current_dashboard_context() -> None:
             runtime.use_cases.list_jobs_for_campaign.result = ListJobsForCampaignResult(
                 jobs=(pending_job, waiting_job),
             )
-            app._selected_job_id = "job-2"
+            app._selected_object = waiting_job
             app.refresh_dashboard(update_campaigns=False)
             assert app.query_one("#review-job", Button).disabled is False
             assert app.query_one("#preview-transcript", Button).disabled is False
@@ -468,6 +501,204 @@ def test_tui_action_buttons_follow_current_dashboard_context() -> None:
             assert app.query_one("#review-job", Button).disabled is True
             assert app.query_one("#preview-recap", Button).disabled is False
             assert app.query_one("#export-recap", Button).disabled is False
+
+    asyncio.run(run())
+
+
+def test_tui_dashboard_uses_one_campaign_aggregate_read() -> None:
+    async def run() -> None:
+        runtime = FakeRuntime()
+        app = NoteKeeperTui(runtime)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            assert len(runtime.use_cases.get_campaign.commands) == 1
+            command = runtime.use_cases.get_campaign.commands[0]
+            assert isinstance(command, GetCampaignCommand)
+            assert command.campaign_id == "campaign-1"
+            assert not runtime.use_cases.list_participants.commands
+            assert not runtime.use_cases.list_voice_samples.commands
+            assert not runtime.use_cases.list_audio_tracks.commands
+
+            campaign_list_reads = len(runtime.use_cases.list_campaigns.commands)
+            app.refresh_dashboard(update_campaigns=False)
+            assert len(runtime.use_cases.get_campaign.commands) == 2
+            assert len(runtime.use_cases.list_campaigns.commands) == campaign_list_reads
+
+    asyncio.run(run())
+
+
+def test_tui_players_and_warnings_are_selectable_without_object_actions() -> None:
+    async def run() -> None:
+        app = NoteKeeperTui(FakeRuntime())
+        async with app.run_test(size=(160, 80)) as pilot:
+            await pilot.pause()
+            tables = {
+                table.id: table
+                for table in app.query(DataTable)
+                if table.id in {
+                    "jobs-table",
+                    "recordings-table",
+                    "players-table",
+                    "warnings-table",
+                }
+            }
+            object_button_ids = (
+                "create-job",
+                "run-job",
+                "restart-job",
+                "review-job",
+                "preview-transcript",
+                "preview-recap",
+                "export-transcript",
+                "export-recap",
+            )
+
+            await pilot.click("#recordings-table", offset=(4, 2))
+            await pilot.pause()
+            assert isinstance(app._selected_object, AudioTrack)
+            assert str(app._selected_object.id) == "audio-track-1"
+            assert tables["recordings-table"].show_cursor is True
+            assert sum(table.show_cursor for table in tables.values()) == 1
+            assert app.query_one("#create-job", Button).display is True
+
+            await pilot.click("#players-table", offset=(4, 2))
+            await pilot.pause()
+            assert isinstance(app._selected_object, Participant)
+            assert str(app._selected_object.id) == "participant-1"
+            assert tables["players-table"].show_cursor is True
+            assert sum(table.show_cursor for table in tables.values()) == 1
+            assert all(
+                app.query_one(f"#{button_id}", Button).display is False
+                for button_id in object_button_ids
+            )
+
+            await pilot.click("#warnings-table", offset=(4, 2))
+            await pilot.pause()
+            assert isinstance(app._selected_object, DashboardWarning)
+            assert app._selected_object.job_id == "job-2"
+            assert app._selected_object.kind == "error"
+            assert tables["warnings-table"].show_cursor is True
+            assert sum(table.show_cursor for table in tables.values()) == 1
+            assert all(
+                app.query_one(f"#{button_id}", Button).display is False
+                for button_id in object_button_ids
+            )
+
+            await pilot.click("#jobs-table", offset=(4, 2))
+            await pilot.pause()
+            assert isinstance(app._selected_object, ProcessingJob)
+            assert str(app._selected_object.id) == "job-2"
+            assert tables["jobs-table"].show_cursor is True
+            assert sum(table.show_cursor for table in tables.values()) == 1
+
+            await pilot.click("#recordings-table", offset=(4, 2))
+            await pilot.pause()
+            stale_event = DataTable.RowHighlighted(
+                tables["jobs-table"],
+                0,
+                "job-2",
+            )
+            app.on_data_table_row_highlighted(stale_event)
+            assert isinstance(app._selected_object, AudioTrack)
+
+            await pilot.click("#warnings-table", offset=(4, 2))
+            await pilot.pause()
+            app.refresh_dashboard(update_campaigns=False)
+            assert isinstance(app._selected_object, DashboardWarning)
+            assert app._selected_object.key == "job-2:error"
+            assert tables["warnings-table"].show_cursor is True
+            assert sum(table.show_cursor for table in tables.values()) == 1
+
+    asyncio.run(run())
+
+
+def test_tui_row_highlight_events_stop_when_idle() -> None:
+    async def run() -> None:
+        highlighted_events: list[str | None] = []
+
+        def record_message(message) -> None:
+            if isinstance(message, DataTable.RowHighlighted):
+                highlighted_events.append(message.data_table.id)
+
+        app = NoteKeeperTui(FakeRuntime())
+        async with app.run_test(
+            size=(160, 80),
+            message_hook=record_message,
+        ) as pilot:
+            await pilot.pause(0.2)
+            event_count = len(highlighted_events)
+            await pilot.pause(0.2)
+            assert len(highlighted_events) == event_count
+
+            await pilot.click("#recordings-table", offset=(4, 2))
+            await pilot.pause(0.2)
+            event_count = len(highlighted_events)
+            await pilot.pause(0.2)
+            assert len(highlighted_events) == event_count
+
+    asyncio.run(run())
+
+
+def test_tui_selection_falls_back_to_job_then_recording() -> None:
+    async def run() -> None:
+        runtime = FakeRuntime()
+        app = NoteKeeperTui(runtime)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app._select_table_row(
+                app.query_one("#players-table", DataTable),
+                "participant-1",
+            )
+
+            runtime.use_cases.list_participants.result = ListParticipantsResult(
+                participants=(),
+            )
+            runtime.use_cases.get_campaign.result = GetCampaignResult(
+                campaign=replace(
+                    runtime.use_cases.get_campaign.result.campaign,
+                    participants=(),
+                ),
+            )
+            app.refresh_dashboard(update_campaigns=False)
+            assert isinstance(app._selected_object, ProcessingJob)
+            assert str(app._selected_object.id) == "job-2"
+
+            runtime.use_cases.list_jobs_for_campaign.result = ListJobsForCampaignResult(
+                jobs=(),
+            )
+            app.refresh_dashboard(update_campaigns=False)
+            assert isinstance(app._selected_object, AudioTrack)
+            assert str(app._selected_object.id) == "audio-track-1"
+            assert app.query_one("#recordings-table", DataTable).show_cursor is True
+
+    asyncio.run(run())
+
+
+def test_tui_campaign_actions_wrap_by_available_width() -> None:
+    async def run() -> None:
+        narrow_app = NoteKeeperTui(FakeRuntime())
+        async with narrow_app.run_test(size=(45, 30)) as pilot:
+            await pilot.pause()
+            panel = narrow_app.query_one("#campaign-actions")
+            topbar = narrow_app.query_one("#topbar")
+            buttons = tuple(panel.query(Button))
+            assert panel.layout.grid_size == (2, 3)
+            assert panel.region.y - topbar.region.bottom == 1
+            assert len({button.region.y for button in buttons}) == 3
+            assert narrow_app.query_one("#refresh", Button).region.width < (
+                narrow_app.query_one("#add-sample", Button).region.width
+            )
+            assert narrow_app.query_one("#refresh", Button).parent is panel
+            assert narrow_app.query_one("#diagnostics", Button).parent is panel
+
+        wide_app = NoteKeeperTui(FakeRuntime())
+        async with wide_app.run_test(size=(140, 30)) as pilot:
+            await pilot.pause()
+            panel = wide_app.query_one("#campaign-actions")
+            buttons = tuple(panel.query(Button))
+            assert panel.layout.grid_size == (6, 1)
+            assert len({button.region.y for button in buttons}) == 1
+            assert sum(button.region.width for button in buttons) < panel.region.width
 
     asyncio.run(run())
 
@@ -545,14 +776,14 @@ def test_tui_dashboard_loads_without_campaigns() -> None:
             assert app.query_one("#add-player", Button).disabled is True
             assert app.query_one("#add-sample", Button).disabled is True
             assert app.query_one("#submit-recording", Button).disabled is True
-            assert app.query_one("#create-job", Button).disabled is True
-            assert app.query_one("#run-job", Button).disabled is True
-            assert app.query_one("#restart-job", Button).disabled is True
-            assert app.query_one("#review-job", Button).disabled is True
-            assert app.query_one("#preview-transcript", Button).disabled is True
-            assert app.query_one("#export-transcript", Button).disabled is True
-            assert app.query_one("#preview-recap", Button).disabled is True
-            assert app.query_one("#export-recap", Button).disabled is True
+            assert app.query_one("#create-job", Button).display is False
+            assert app.query_one("#run-job", Button).display is False
+            assert app.query_one("#restart-job", Button).display is False
+            assert app.query_one("#review-job", Button).display is False
+            assert app.query_one("#preview-transcript", Button).display is False
+            assert app.query_one("#export-transcript", Button).display is False
+            assert app.query_one("#preview-recap", Button).display is False
+            assert app.query_one("#export-recap", Button).display is False
 
     asyncio.run(run())
 
@@ -596,10 +827,10 @@ def test_tui_create_job_button_uses_selected_recording() -> None:
             await pilot.pause()
             recordings_table = app.query_one("#recordings-table", DataTable)
             assert recordings_table.cursor_type == "row"
-            app.on_data_table_row_highlighted(
-                DataTable.RowHighlighted(recordings_table, 0, "audio-track-1"),
-            )
-            assert app._selected_audio_track_id == "audio-track-1"
+            app._select_table_row(recordings_table, "audio-track-1")
+            assert isinstance(app._selected_object, AudioTrack)
+            assert str(app._selected_object.id) == "audio-track-1"
+            campaign_list_reads = len(runtime.use_cases.list_campaigns.commands)
             app.on_button_pressed(
                 SimpleNamespace(button=SimpleNamespace(id="create-job")),
             )
@@ -610,6 +841,7 @@ def test_tui_create_job_button_uses_selected_recording() -> None:
             )
             assert isinstance(command, CreateProcessingJobForAudioTrackCommand)
             assert command.audio_track_id == "audio-track-1"
+            assert len(runtime.use_cases.list_campaigns.commands) == campaign_list_reads
             status = str(app.query_one("#status", Static).render())
             assert "Created job job-1" in status
 
@@ -624,10 +856,9 @@ def test_tui_run_job_button_uses_selected_job() -> None:
             await pilot.pause()
             jobs_table = app.query_one("#jobs-table", DataTable)
             assert jobs_table.cursor_type == "row"
-            app.on_data_table_row_highlighted(
-                DataTable.RowHighlighted(jobs_table, 1, "job-2"),
-            )
-            assert app._selected_job_id == "job-2"
+            app._select_table_row(jobs_table, "job-2")
+            assert isinstance(app._selected_object, ProcessingJob)
+            assert str(app._selected_object.id) == "job-2"
             app.on_button_pressed(SimpleNamespace(button=SimpleNamespace(id="run-job")))
             for _ in range(20):
                 await pilot.pause()
@@ -650,10 +881,9 @@ def test_tui_restart_failed_job_button_uses_selected_failed_job() -> None:
         async with app.run_test() as pilot:
             await pilot.pause()
             jobs_table = app.query_one("#jobs-table", DataTable)
-            app.on_data_table_row_highlighted(
-                DataTable.RowHighlighted(jobs_table, 1, "job-2"),
-            )
-            assert app._selected_job_id == "job-2"
+            app._select_table_row(jobs_table, "job-2")
+            assert isinstance(app._selected_object, ProcessingJob)
+            assert str(app._selected_object.id) == "job-2"
             app.on_button_pressed(
                 SimpleNamespace(button=SimpleNamespace(id="restart-job")),
             )
@@ -662,7 +892,8 @@ def test_tui_restart_failed_job_button_uses_selected_failed_job() -> None:
             command = runtime.use_cases.restart_failed_processing_job.commands[0]
             assert isinstance(command, RestartFailedProcessingJobCommand)
             assert command.job_id == "job-2"
-            assert app._selected_job_id == "job-3"
+            assert isinstance(app._selected_object, ProcessingJob)
+            assert str(app._selected_object.id) == "job-3"
             status = str(app.query_one("#status", Static).render())
             assert "Restarted job job-2 as job-3" in status
 
@@ -676,9 +907,7 @@ def test_tui_restart_failed_job_rejects_non_failed_selection() -> None:
         async with app.run_test() as pilot:
             await pilot.pause()
             jobs_table = app.query_one("#jobs-table", DataTable)
-            app.on_data_table_row_highlighted(
-                DataTable.RowHighlighted(jobs_table, 0, "job-1"),
-            )
+            app._select_table_row(jobs_table, "job-1")
             app.on_button_pressed(
                 SimpleNamespace(button=SimpleNamespace(id="restart-job")),
             )

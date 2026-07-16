@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 from typing import Self
 
+from textual import events
 from textual.coordinate import Coordinate
 from textual.widgets import DataTable
 
@@ -19,6 +20,10 @@ class IdentifierDataTable(DataTable):
     def clear(self, columns: bool = False) -> Self:
         self._full_identifiers.clear()
         return super().clear(columns=columns)
+
+    def on_focus(self, event: events.Focus) -> None:
+        """Make a focused table eligible to become the dashboard selection."""
+        self.show_cursor = True
 
     def add_identifier_row(
         self,

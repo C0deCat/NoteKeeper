@@ -94,5 +94,7 @@ def open_add_sample(app, campaign_id: str) -> None:
             campaign_id=campaign_id,
             participants=tuple((p.display_name, str(p.id)) for p in participants),
         ),
-        lambda completed: app.refresh_dashboard() if completed else None,
+        lambda completed: (
+            app.refresh_dashboard(update_campaigns=False) if completed else None
+        ),
     )

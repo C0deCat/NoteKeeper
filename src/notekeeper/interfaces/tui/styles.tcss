@@ -22,6 +22,26 @@ Screen {
     content-align: right middle;
 }
 
+#campaign-actions {
+    width: 100%;
+    height: auto;
+    min-height: 1;
+    margin-top: 1;
+    padding: 0 1;
+    grid-columns: auto;
+    grid-rows: 1;
+    grid-gutter: 0 1;
+    background: $panel;
+}
+
+#campaign-actions Button {
+    width: auto;
+    height: 1;
+    min-width: 0;
+    border: none;
+    padding: 0 1;
+}
+
 #dashboard {
     height: 1fr;
     overflow-y: auto;
