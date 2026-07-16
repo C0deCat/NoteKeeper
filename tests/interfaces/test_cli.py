@@ -82,6 +82,8 @@ class FakeRuntime:
             create_campaign=FakeUseCase(None),
             get_campaign=FakeUseCase(None),
             list_campaigns=FakeUseCase(ListCampaignsResult(campaigns=(campaign,))),
+            update_campaign=FakeUseCase(None),
+            delete_campaign=FakeUseCase(None),
             add_participant=FakeUseCase(None),
             list_participants=FakeUseCase(
                 ListParticipantsResult(participants=(participant,)),

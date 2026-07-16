@@ -34,6 +34,17 @@ def test_storage_creates_campaign_layout_and_saves_campaign_text(tmp_path: Path)
     assert storage.read_text(artifact) == "# Session"
 
 
+def test_storage_delete_campaign_removes_only_its_campaign_folder(tmp_path: Path) -> None:
+    storage = LocalCampaignArtifactStorage(tmp_path)
+    storage.ensure_campaign_layout(CampaignId("campaign-1"))
+    storage.ensure_campaign_layout(CampaignId("campaign-2"))
+
+    storage.delete_campaign(CampaignId("campaign-1"))
+
+    assert not (tmp_path / "campaign-1").exists()
+    assert (tmp_path / "campaign-2").is_dir()
+
+
 def test_storage_rejects_unsafe_relative_uri(tmp_path: Path) -> None:
     storage = LocalCampaignArtifactStorage(tmp_path)
 

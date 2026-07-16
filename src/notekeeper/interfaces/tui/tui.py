@@ -33,7 +33,7 @@ from . import (
     sample_app,
     transcript_app,
 )
-from .campaign_app import CreateCampaignScreen
+from .campaign_management_screen import ManageCampaignsScreen
 from .common import format_duration, sync_result_status
 from .identifier_data_table import IdentifierDataTable
 from .participant_app import AddParticipantScreen
@@ -64,12 +64,12 @@ class NoteKeeperTui(App[None]):
         yield Header()
         with Horizontal(id="topbar"):
             yield Select((), prompt="Campaign", id="campaign-select")
+            yield Button("Manage Campaign", id="manage-campaign")
             yield Static("Ready", id="status")
         with Horizontal(id="dashboard"):
             with VerticalScroll(id="actions"):
                 yield Button("Refresh", id="refresh", variant="primary")
                 yield Button("Sync Folder", id="sync-folder")
-                yield Button("New Campaign", id="new-campaign")
                 yield Button("Add Player", id="add-player")
                 yield Button("Add Voice Sample", id="add-sample")
                 yield Button("Submit Recording", id="submit-recording")
@@ -136,10 +136,10 @@ class NoteKeeperTui(App[None]):
         button_id = event.button.id
         if button_id == "refresh":
             self.refresh_dashboard()
+        elif button_id == "manage-campaign":
+            self._open_manage_campaigns()
         elif button_id == "sync-folder":
             self._with_campaign(self._sync_campaign_folder)
-        elif button_id == "new-campaign":
-            self.push_screen(CreateCampaignScreen(), self._create_campaign)
         elif button_id == "add-player":
             self._with_campaign(
                 lambda campaign_id: self.push_screen(
@@ -419,7 +419,7 @@ class NoteKeeperTui(App[None]):
         processing_ready = campaign_selected and self._campaign_is_processing_ready
 
         self._set_button_disabled("refresh", False)
-        self._set_button_disabled("new-campaign", False)
+        self._set_button_disabled("manage-campaign", False)
         self._set_button_disabled("diagnostics", False)
         self._set_button_disabled("sync-folder", not campaign_selected)
         self._set_button_disabled("add-player", not campaign_selected)
@@ -471,8 +471,15 @@ class NoteKeeperTui(App[None]):
             # Table events can finish dispatching while Textual tears down the screen.
             return
 
-    def _create_campaign(self, name: str | None) -> None:
-        campaign_app.create_campaign(self, name)
+    def _open_manage_campaigns(self) -> None:
+        self.push_screen(
+            ManageCampaignsScreen(self.runtime, self._selected_campaign_id),
+            self._finish_manage_campaigns,
+        )
+
+    def _finish_manage_campaigns(self, campaign_id: str | None) -> None:
+        self._selected_campaign_id = campaign_id
+        self.refresh_dashboard()
 
     def _add_participant(self, campaign_id: str, display_name: str | None) -> None:
         participant_app.add_participant(self, campaign_id, display_name)

@@ -10,6 +10,7 @@ from notekeeper.application import (
     AddVoiceSample,
     CreateCampaign,
     CreateProcessingJobForAudioTrack,
+    DeleteCampaign,
     ExportRecapMarkdown,
     ExportTranscriptMarkdown,
     GenerateRecap,
@@ -30,6 +31,7 @@ from notekeeper.application import (
     RunProcessingJob,
     SubmitRecordingForProcessing,
     SyncCampaignFolder,
+    UpdateCampaign,
 )
 from notekeeper.application.errors import ApplicationError
 from notekeeper.domain import ArtifactRef
@@ -93,6 +95,11 @@ def build_stage1_use_cases(infrastructure: InfrastructureBundle) -> Stage1UseCas
         ),
         get_campaign=GetCampaign(infrastructure.campaign_repository),
         list_campaigns=ListCampaigns(infrastructure.campaign_repository),
+        update_campaign=UpdateCampaign(infrastructure.campaign_repository),
+        delete_campaign=DeleteCampaign(
+            infrastructure.campaign_repository,
+            infrastructure.artifact_storage,
+        ),
         add_participant=AddParticipantToCampaign(
             infrastructure.campaign_repository,
             infrastructure.id_generator,

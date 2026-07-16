@@ -12,6 +12,11 @@ Screen {
     width: 1fr;
 }
 
+#manage-campaign {
+    width: 20;
+    margin-left: 1;
+}
+
 #status {
     width: 38;
     content-align: right middle;
@@ -64,6 +69,17 @@ Screen {
 
 .modal Button {
     margin-right: 1;
+}
+
+#campaigns-table {
+    height: 12;
+    border: solid $accent;
+    margin: 1 0;
+}
+
+#campaign-management-status {
+    min-height: 1;
+    margin: 1 0;
 }
 
 .metadata {

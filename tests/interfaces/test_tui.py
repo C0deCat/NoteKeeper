@@ -9,6 +9,8 @@ from textual.widgets import Button, DataTable, Input, Static
 from notekeeper.application import (
     CreateProcessingJobForAudioTrackCommand,
     CreateProcessingJobForAudioTrackResult,
+    CreateCampaignResult,
+    DeleteCampaignResult,
     GetJobStatusResult,
     InspectAudioMetadataResult,
     ListAudioTracksResult,
@@ -21,6 +23,7 @@ from notekeeper.application import (
     RunProcessingJobCommand,
     SyncCampaignFolderCommand,
     SyncCampaignFolderResult,
+    UpdateCampaignResult,
 )
 from notekeeper.domain import (
     ArtifactRef,
@@ -38,6 +41,7 @@ from notekeeper.domain import (
 )
 from notekeeper.interfaces import RuntimeDiagnostics, Stage1UseCases
 from notekeeper.interfaces.tui import NoteKeeperTui, RecordingScreen, VoiceSampleScreen
+from notekeeper.interfaces.tui.campaign_management_screen import ManageCampaignsScreen
 from notekeeper.interfaces.tui.identifier_data_table import compact_identifier
 
 
@@ -73,6 +77,60 @@ class FakeJobStatusUseCase:
     def execute(self, command):
         self.commands.append(command)
         return GetJobStatusResult(job=self.jobs[str(command.job_id)])
+
+
+class FakeCreateCampaignUseCase:
+    def __init__(self, list_campaigns_use_case: FakeUseCase) -> None:
+        self.list_campaigns_use_case = list_campaigns_use_case
+        self.commands = []
+
+    def execute(self, command):
+        self.commands.append(command)
+        campaign = Campaign(
+            id=CampaignId(f"campaign-{len(self.list_campaigns_use_case.result.campaigns) + 1}"),
+            name=command.name,
+        )
+        self.list_campaigns_use_case.result = ListCampaignsResult(
+            campaigns=(*self.list_campaigns_use_case.result.campaigns, campaign),
+        )
+        return CreateCampaignResult(campaign=campaign)
+
+
+class FakeUpdateCampaignUseCase:
+    def __init__(self, list_campaigns_use_case: FakeUseCase) -> None:
+        self.list_campaigns_use_case = list_campaigns_use_case
+        self.commands = []
+
+    def execute(self, command):
+        self.commands.append(command)
+        campaigns = tuple(
+            replace(campaign, name=command.name)
+            if str(campaign.id) == command.campaign_id
+            else campaign
+            for campaign in self.list_campaigns_use_case.result.campaigns
+        )
+        self.list_campaigns_use_case.result = ListCampaignsResult(campaigns=campaigns)
+        campaign = next(
+            item for item in campaigns if str(item.id) == command.campaign_id
+        )
+        return UpdateCampaignResult(campaign=campaign)
+
+
+class FakeDeleteCampaignUseCase:
+    def __init__(self, list_campaigns_use_case: FakeUseCase) -> None:
+        self.list_campaigns_use_case = list_campaigns_use_case
+        self.commands = []
+
+    def execute(self, command):
+        self.commands.append(command)
+        self.list_campaigns_use_case.result = ListCampaignsResult(
+            campaigns=tuple(
+                campaign
+                for campaign in self.list_campaigns_use_case.result.campaigns
+                if str(campaign.id) != command.campaign_id
+            ),
+        )
+        return DeleteCampaignResult(campaign_id=command.campaign_id)
 
 
 class FakeRuntime:
@@ -123,11 +181,14 @@ class FakeRuntime:
             metadata=metadata,
             title="Session 1",
         )
+        list_campaigns = FakeUseCase(ListCampaignsResult(campaigns=campaigns))
         list_jobs = FakeUseCase(ListJobsForCampaignResult(jobs=jobs))
         self.use_cases = Stage1UseCases(
-            create_campaign=FakeUseCase(None),
+            create_campaign=FakeCreateCampaignUseCase(list_campaigns),
             get_campaign=FakeUseCase(None),
-            list_campaigns=FakeUseCase(ListCampaignsResult(campaigns=campaigns)),
+            list_campaigns=list_campaigns,
+            update_campaign=FakeUpdateCampaignUseCase(list_campaigns),
+            delete_campaign=FakeDeleteCampaignUseCase(list_campaigns),
             add_participant=FakeUseCase(None),
             list_participants=FakeUseCase(
                 ListParticipantsResult(participants=participants),
@@ -337,7 +398,7 @@ def test_tui_action_buttons_follow_current_dashboard_context() -> None:
             await pilot.pause()
 
             assert app.query_one("#refresh", Button).disabled is False
-            assert app.query_one("#new-campaign", Button).disabled is False
+            assert app.query_one("#manage-campaign", Button).disabled is False
             assert app.query_one("#diagnostics", Button).disabled is False
             assert app.query_one("#sync-folder", Button).disabled is False
             assert app.query_one("#add-player", Button).disabled is False
@@ -411,6 +472,66 @@ def test_tui_action_buttons_follow_current_dashboard_context() -> None:
     asyncio.run(run())
 
 
+def test_tui_manages_campaigns_in_a_modal() -> None:
+    async def run() -> None:
+        runtime = FakeRuntime()
+        app = NoteKeeperTui(runtime)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            assert not list(app.query("#new-campaign"))
+
+            await pilot.click("#manage-campaign")
+            await pilot.pause()
+            assert isinstance(app.screen, ManageCampaignsScreen)
+            screen = app.screen
+            campaigns_table = screen.query_one("#campaigns-table", DataTable)
+            assert campaigns_table.get_row_at(0)[0] == compact_identifier("campaign-1")
+
+            campaigns_table.hover_coordinate = Coordinate(0, 0)
+            await pilot.pause()
+            assert campaigns_table.tooltip == "campaign-1"
+
+            name_input = screen.query_one("#campaign-name", Input)
+            name_input.value = "New Campaign"
+            await pilot.pause()
+            assert screen.query_one("#create", Button).disabled is False
+            screen.query_one("#create", Button).press()
+            await pilot.pause()
+            assert runtime.use_cases.create_campaign.commands[-1].name == "New Campaign"
+            assert campaigns_table.row_count == 2
+            assert screen._selected_campaign_id == "campaign-2"
+
+            name_input.value = "Renamed Campaign"
+            await pilot.pause()
+            screen.query_one("#rename", Button).press()
+            await pilot.pause()
+            assert runtime.use_cases.update_campaign.commands[-1].name == "Renamed Campaign"
+            assert screen.query_one("#campaigns-table", DataTable).get_row_at(1)[1] == (
+                "Renamed Campaign"
+            )
+
+            screen.query_one("#delete", Button).press()
+            await pilot.pause()
+            app.screen.query_one("#database-only", Button).press()
+            await pilot.pause()
+            assert runtime.use_cases.delete_campaign.commands[-1].delete_files is False
+            assert screen.query_one("#campaigns-table", DataTable).row_count == 1
+
+            screen.query_one("#delete", Button).press()
+            await pilot.pause()
+            app.screen.query_one("#campaign-and-files", Button).press()
+            await pilot.pause()
+            assert runtime.use_cases.delete_campaign.commands[-1].delete_files is True
+            assert screen.query_one("#campaigns-table", DataTable).row_count == 0
+
+            screen.query_one("#close", Button).press()
+            await pilot.pause()
+            assert app._selected_campaign_id is None
+            assert "No campaign" in str(app.query_one("#status", Static).render())
+
+    asyncio.run(run())
+
+
 def test_tui_dashboard_loads_without_campaigns() -> None:
     async def run() -> None:
         app = NoteKeeperTui(FakeRuntime(has_campaigns=False))
@@ -419,6 +540,7 @@ def test_tui_dashboard_loads_without_campaigns() -> None:
             assert app.query_one("#jobs-table", DataTable).row_count == 0
             assert app.query_one("#players-table", DataTable).row_count == 0
             assert "No campaign" in str(app.query_one("#status", Static).render())
+            assert app.query_one("#manage-campaign", Button).disabled is False
             assert app.query_one("#sync-folder", Button).disabled is True
             assert app.query_one("#add-player", Button).disabled is True
             assert app.query_one("#add-sample", Button).disabled is True

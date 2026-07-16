@@ -30,6 +30,7 @@ class UpdateCampaignCommand:
 @dataclass(frozen=True, slots=True)
 class DeleteCampaignCommand:
     campaign_id: str
+    delete_files: bool = False
 
 
 @dataclass(frozen=True, slots=True)

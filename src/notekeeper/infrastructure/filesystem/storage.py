@@ -36,6 +36,18 @@ class LocalCampaignArtifactStorage(CampaignArtifactStorage):
         for folder in CAMPAIGN_FOLDERS:
             (campaign_path / folder).mkdir(parents=True, exist_ok=True)
 
+    def delete_campaign(self, campaign_id: CampaignId) -> None:
+        campaign_path = self.campaign_path(campaign_id)
+        ensure_within_root(campaign_path, self._storage_root)
+        if not campaign_path.exists():
+            return
+        if campaign_path.is_symlink():
+            raise InfrastructureError("campaign path must not be a symbolic link")
+        try:
+            shutil.rmtree(campaign_path)
+        except OSError as exc:
+            raise InfrastructureError("could not delete campaign files") from exc
+
     def campaign_path(self, campaign_id: CampaignId) -> Path:
         return self._storage_root / safe_name(str(campaign_id), "campaign_id")
 
