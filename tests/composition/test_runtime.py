@@ -4,7 +4,9 @@ from pathlib import Path
 from notekeeper.application import (
     CreateCampaign,
     CreateProcessingJobForAudioTrack,
+    DeleteCampaign,
     RestartFailedProcessingJob,
+    UpdateCampaign,
 )
 from notekeeper.composition import NoteKeeperSettings, build_runtime
 
@@ -38,6 +40,8 @@ def test_build_runtime_assembles_stage1_use_cases_and_diagnostics(
     diagnostics = runtime.diagnostics()
 
     assert isinstance(runtime.use_cases.create_campaign, CreateCampaign)
+    assert isinstance(runtime.use_cases.update_campaign, UpdateCampaign)
+    assert isinstance(runtime.use_cases.delete_campaign, DeleteCampaign)
     assert isinstance(
         runtime.use_cases.create_processing_job_for_audio_track,
         CreateProcessingJobForAudioTrack,

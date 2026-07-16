@@ -213,6 +213,8 @@ class ArtifactStorage(Protocol):
 class CampaignArtifactStorage(ArtifactStorage, Protocol):
     def ensure_campaign_layout(self, campaign_id: CampaignId) -> None: ...
 
+    def delete_campaign(self, campaign_id: CampaignId) -> None: ...
+
     def save_campaign_text(
         self,
         *,

@@ -51,6 +51,7 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/notekeeper"]
+artifacts = ["src/notekeeper/interfaces/tui/styles.tcss"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]

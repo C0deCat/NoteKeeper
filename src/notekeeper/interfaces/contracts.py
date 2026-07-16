@@ -10,6 +10,7 @@ from notekeeper.application import (
     AddVoiceSample,
     CreateCampaign,
     CreateProcessingJobForAudioTrack,
+    DeleteCampaign,
     ExportRecapMarkdown,
     ExportTranscriptMarkdown,
     GenerateRecap,
@@ -29,6 +30,7 @@ from notekeeper.application import (
     RunProcessingJob,
     SubmitRecordingForProcessing,
     SyncCampaignFolder,
+    UpdateCampaign,
 )
 from notekeeper.domain import ArtifactRef
 
@@ -38,6 +40,8 @@ class Stage1UseCases:
     create_campaign: CreateCampaign
     get_campaign: GetCampaign
     list_campaigns: ListCampaigns
+    update_campaign: UpdateCampaign
+    delete_campaign: DeleteCampaign
     add_participant: AddParticipantToCampaign
     list_participants: ListParticipants
     add_voice_sample: AddVoiceSample

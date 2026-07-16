@@ -73,10 +73,19 @@ class SQLiteCampaignRepository(CampaignRepository):
 
     def delete(self, campaign_id: CampaignId) -> None:
         with self._database.connect() as connection:
+            job_rows = connection.execute(
+                "SELECT id FROM jobs WHERE campaign_id = ?",
+                (str(campaign_id),),
+            ).fetchall()
             transcript_rows = connection.execute(
                 "SELECT id FROM transcripts WHERE campaign_id = ?",
                 (str(campaign_id),),
             ).fetchall()
+            for row in job_rows:
+                connection.execute(
+                    "DELETE FROM speaker_mappings WHERE job_id = ?",
+                    (row["id"],),
+                )
             for row in transcript_rows:
                 connection.execute(
                     "DELETE FROM recaps WHERE transcript_id = ?",

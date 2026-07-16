@@ -1,0 +1,96 @@
+Screen {
+    layout: vertical;
+}
+
+#topbar {
+    height: 3;
+    padding: 0 1;
+    background: $panel;
+}
+
+#campaign-select {
+    width: 1fr;
+}
+
+#manage-campaign {
+    width: 20;
+    margin-left: 1;
+}
+
+#status {
+    width: 38;
+    content-align: right middle;
+}
+
+#dashboard {
+    height: 1fr;
+    overflow-y: auto;
+}
+
+#actions {
+    width: 28;
+    height: 1fr;
+    padding: 1;
+    background: $surface;
+    overflow-y: auto;
+}
+
+#actions Button {
+    width: 100%;
+    margin-bottom: 1;
+}
+
+#content {
+    width: 1fr;
+    padding: 1;
+    overflow-y: auto;
+    overflow-x: auto;
+}
+
+.panel {
+    height: 1fr;
+    border: solid $accent;
+    padding: 1;
+    margin-bottom: 1;
+}
+
+.short-panel {
+    height: 12;
+}
+
+.modal {
+    width: 72;
+    height: auto;
+    max-height: 90%;
+    padding: 1 2;
+    border: thick $accent;
+    background: $panel;
+}
+
+.modal Button {
+    margin-right: 1;
+}
+
+#campaigns-table {
+    height: 12;
+    border: solid $accent;
+    margin: 1 0;
+}
+
+#campaign-management-status {
+    min-height: 1;
+    margin: 1 0;
+}
+
+.metadata {
+    min-height: 5;
+    border: solid $secondary;
+    padding: 1;
+    margin: 1 0;
+}
+
+#preview-markdown {
+    height: 28;
+    border: solid $accent;
+    padding: 1;
+}

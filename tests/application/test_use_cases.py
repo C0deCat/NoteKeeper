@@ -14,6 +14,8 @@ from notekeeper.application import (
     CreateCampaignCommand,
     CreateProcessingJobForAudioTrack,
     CreateProcessingJobForAudioTrackCommand,
+    DeleteCampaign,
+    DeleteCampaignCommand,
     ExportRecapMarkdown,
     ExportRecapMarkdownCommand,
     ExportTranscriptMarkdown,
@@ -80,6 +82,7 @@ from notekeeper.domain import (
     add_participant,
     add_voice_sample,
 )
+from notekeeper.infrastructure import InfrastructureError
 
 
 class InMemoryRepository:
@@ -333,6 +336,16 @@ class FakeRecapGenerator:
 class FakeArtifactStorage:
     def __init__(self) -> None:
         self.saved: dict[str, tuple[str, str, ArtifactRef]] = {}
+        self.deleted_campaigns: list[CampaignId] = []
+        self.delete_error: Exception | None = None
+
+    def ensure_campaign_layout(self, campaign_id: CampaignId) -> None:
+        return None
+
+    def delete_campaign(self, campaign_id: CampaignId) -> None:
+        if self.delete_error is not None:
+            raise self.delete_error
+        self.deleted_campaigns.append(campaign_id)
 
     def save_text(
         self,
@@ -496,6 +509,52 @@ def test_campaign_use_cases_create_campaign_add_participant_and_voice_sample() -
     assert harness.campaigns.get(campaign.id).voice_samples == (
         sample_result.voice_sample,
     )
+
+
+def test_delete_campaign_can_preserve_or_remove_campaign_files() -> None:
+    database_only_harness = Harness()
+    database_only_campaign = database_only_harness.ready_campaign("Alice")
+
+    DeleteCampaign(
+        database_only_harness.campaigns,
+        database_only_harness.artifact_storage,
+    ).execute(
+        DeleteCampaignCommand(campaign_id=str(database_only_campaign.id)),
+    )
+
+    assert database_only_harness.campaigns.get(database_only_campaign.id) is None
+    assert database_only_harness.artifact_storage.deleted_campaigns == []
+
+    full_delete_harness = Harness()
+    full_delete_campaign = full_delete_harness.ready_campaign("Alice")
+
+    DeleteCampaign(
+        full_delete_harness.campaigns,
+        full_delete_harness.artifact_storage,
+    ).execute(
+        DeleteCampaignCommand(
+            campaign_id=str(full_delete_campaign.id),
+            delete_files=True,
+        ),
+    )
+
+    assert full_delete_harness.campaigns.get(full_delete_campaign.id) is None
+    assert full_delete_harness.artifact_storage.deleted_campaigns == [
+        full_delete_campaign.id,
+    ]
+
+
+def test_delete_campaign_keeps_database_record_when_file_deletion_fails() -> None:
+    harness = Harness()
+    campaign = harness.ready_campaign("Alice")
+    harness.artifact_storage.delete_error = InfrastructureError("disk unavailable")
+
+    with pytest.raises(InfrastructureError, match="disk unavailable"):
+        DeleteCampaign(harness.campaigns, harness.artifact_storage).execute(
+            DeleteCampaignCommand(campaign_id=str(campaign.id), delete_files=True),
+        )
+
+    assert harness.campaigns.get(campaign.id) == campaign
 
 
 def test_submit_recording_rejects_campaign_without_voice_samples() -> None:
