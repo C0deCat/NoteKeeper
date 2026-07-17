@@ -83,6 +83,8 @@ class NoteKeeperTui(App[None]):
         self._campaign_is_processing_ready = False
         self._failed_job_count = 0
         self._clear_failed_jobs_in_progress = False
+        self._job_delete_in_progress = False
+        self._job_cancel_in_progress = False
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -105,6 +107,8 @@ class NoteKeeperTui(App[None]):
             with VerticalScroll(id="actions"):
                 yield Button("Create Job", id="create-job")
                 yield Button("Run", id="job-action", variant="success")
+                yield Button("Delete", id="delete-job", variant="error")
+                yield Button("Cancel", id="cancel-job", variant="warning")
                 yield Button("Preview Transcript", id="preview-transcript")
                 yield Button("Preview Recap", id="preview-recap")
                 yield Button("Export Transcript", id="export-transcript")
@@ -199,6 +203,10 @@ class NoteKeeperTui(App[None]):
             self._create_job_for_selected_audio_track()
         elif button_id == "job-action":
             self._perform_selected_job_action()
+        elif button_id == "delete-job":
+            job_app.confirm_delete_selected_job(self)
+        elif button_id == "cancel-job":
+            job_app.confirm_cancel_selected_job(self)
         elif button_id == "clear-failed-jobs":
             self._confirm_clear_failed_jobs()
         elif button_id == "preview-transcript":
@@ -213,7 +221,9 @@ class NoteKeeperTui(App[None]):
             self._open_diagnostics()
 
     def on_worker_state_changed(self, event: Worker.StateChanged) -> None:
-        if event.worker.group not in {"cleanup", "job", "review", "sync"}:
+        if event.worker.group not in {
+            "cleanup", "job", "job-delete", "job-cancel", "review", "sync"
+        }:
             return
 
         if event.state is WorkerState.RUNNING:
@@ -222,8 +232,17 @@ class NoteKeeperTui(App[None]):
                 self._set_status("Syncing")
             elif event.worker.group == "cleanup":
                 self._set_status("Clearing failed jobs")
+            elif event.worker.group == "job-delete":
+                self._set_status("Deleting job")
+            elif event.worker.group == "job-cancel":
+                self._set_status("Canceling job")
             else:
                 self._set_status("Running")
+                if event.worker.group == "job":
+                    self.set_timer(
+                        0.1,
+                        lambda: self.refresh_dashboard(update_campaigns=False),
+                    )
         elif event.state is WorkerState.SUCCESS:
             self._progress().display = False
             if event.worker.group == "sync":
@@ -238,6 +257,18 @@ class NoteKeeperTui(App[None]):
                 message = f"Cleared {deleted_count} failed jobs"
                 self._set_status(message)
                 self.notify(message)
+            elif event.worker.group == "job-delete":
+                self._job_delete_in_progress = False
+                self.refresh_dashboard(update_campaigns=False)
+                message = f"Deleted job {event.worker.result.job_id}"
+                self._set_status(message)
+                self.notify(message)
+            elif event.worker.group == "job-cancel":
+                self._job_cancel_in_progress = False
+                self.refresh_dashboard(update_campaigns=False)
+                message = f"Canceled job {event.worker.result.job.id}"
+                self._set_status(message)
+                self.notify(message)
             else:
                 self._set_status("Done")
                 self.refresh_dashboard(update_campaigns=False)
@@ -246,6 +277,12 @@ class NoteKeeperTui(App[None]):
             if event.worker.group == "cleanup":
                 self._clear_failed_jobs_in_progress = False
                 self._update_action_buttons()
+            elif event.worker.group == "job-delete":
+                self._job_delete_in_progress = False
+                self._update_action_buttons()
+            elif event.worker.group == "job-cancel":
+                self._job_cancel_in_progress = False
+                self._update_action_buttons()
             message = str(event.worker.error) if event.worker.error else "worker failed"
             self._set_status(message)
             self.notify(message, severity="error")
@@ -253,6 +290,12 @@ class NoteKeeperTui(App[None]):
             self._progress().display = False
             if event.worker.group == "cleanup":
                 self._clear_failed_jobs_in_progress = False
+                self._update_action_buttons()
+            elif event.worker.group == "job-delete":
+                self._job_delete_in_progress = False
+                self._update_action_buttons()
+            elif event.worker.group == "job-cancel":
+                self._job_cancel_in_progress = False
                 self._update_action_buttons()
 
     def refresh_dashboard(self, *, update_campaigns: bool = True) -> None:
@@ -578,6 +621,7 @@ class NoteKeeperTui(App[None]):
         action_labels = {
             JobStatus.PENDING: "Run",
             JobStatus.FAILED: "Restart",
+            JobStatus.CANCELED: "Restart",
             JobStatus.WAITING_FOR_REVIEW: "Review and Continue",
         }
         action_label = (
@@ -593,9 +637,25 @@ class NoteKeeperTui(App[None]):
             selected_job is None
             or action_label is None
             or (
-                selected_job.status is JobStatus.FAILED
+                selected_job.status in {JobStatus.FAILED, JobStatus.CANCELED}
                 and not processing_ready
             ),
+        )
+        for button_id in ("delete-job", "cancel-job"):
+            self._set_button_display(button_id, selected_job is not None)
+        self._set_button_disabled(
+            "delete-job",
+            selected_job is None
+            or selected_job.status is JobStatus.RUNNING
+            or self._job_delete_in_progress
+            or self._job_cancel_in_progress,
+        )
+        self._set_button_disabled(
+            "cancel-job",
+            selected_job is None
+            or selected_job.status is not JobStatus.RUNNING
+            or self._job_cancel_in_progress
+            or self._job_delete_in_progress,
         )
         self._set_button_disabled(
             "preview-transcript",
@@ -720,7 +780,7 @@ class NoteKeeperTui(App[None]):
             self._set_status("Select a job")
         elif job.status is JobStatus.PENDING:
             self._run_selected_job()
-        elif job.status is JobStatus.FAILED:
+        elif job.status in {JobStatus.FAILED, JobStatus.CANCELED}:
             self._restart_selected_failed_job()
         elif job.status is JobStatus.WAITING_FOR_REVIEW:
             self._with_campaign(self._open_review)

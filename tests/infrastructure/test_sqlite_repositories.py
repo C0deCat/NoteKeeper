@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
 
@@ -158,6 +159,32 @@ def test_sqlite_job_repository_lists_and_deletes_by_audio_track(tmp_path: Path) 
 
     assert jobs.get(job.id) is None
     assert jobs.list_for_audio_track(job.audio_track_id) == (second_job,)
+
+
+def test_sqlite_job_repository_conditionally_updates_expected_status(
+    tmp_path: Path,
+) -> None:
+    jobs = SQLiteJobRepository(_database(tmp_path))
+    job = ProcessingJob(
+        id="job-1",
+        campaign_id="campaign-1",
+        audio_track_id="audio-track-1",
+        status=JobStatus.RUNNING,
+        created_at=datetime(2026, 1, 1, 12, 0, 0),
+        updated_at=datetime(2026, 1, 1, 12, 0, 1),
+    )
+    jobs.save(job)
+    canceled = replace(job, status=JobStatus.CANCELED)
+
+    assert jobs.save_if_status(canceled, JobStatus.RUNNING) is True
+    assert (
+        jobs.save_if_status(
+            replace(job, status=JobStatus.COMPLETED),
+            JobStatus.RUNNING,
+        )
+        is False
+    )
+    assert jobs.get(job.id) == canceled
 
 
 def test_sqlite_job_repository_round_trips_failed_job_error(

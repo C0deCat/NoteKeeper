@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import datetime, timedelta
 
 import pytest
@@ -100,6 +101,13 @@ class InMemoryRepository:
 
     def save(self, item) -> None:
         self.items[item.id] = item
+
+    def save_if_status(self, item, expected_status) -> bool:
+        current = self.items.get(item.id)
+        if current is None or current.status is not expected_status:
+            return False
+        self.items[item.id] = item
+        return True
 
     def delete(self, item_id) -> None:
         self.items.pop(item_id, None)
@@ -773,6 +781,37 @@ def test_restart_failed_processing_job_rejects_non_failed_job() -> None:
     assert harness.jobs.items == {pending.id: pending}
 
 
+def test_restart_canceled_processing_job_creates_new_pending_job() -> None:
+    harness = Harness()
+    campaign = harness.ready_campaign("Alice")
+    audio_track = AudioTrack(
+        id="audio-track-1",
+        campaign_id=campaign.id,
+        artifact=ArtifactRef(uri="sessions/session-1.wav"),
+        metadata=AudioMetadata(duration_seconds=12),
+    )
+    campaign = add_audio_track(campaign, audio_track)
+    harness.campaigns.save(campaign)
+    harness.audio_tracks.save(audio_track)
+    canceled = ProcessingJob(
+        id="job-canceled",
+        campaign_id=campaign.id,
+        audio_track_id=audio_track.id,
+        status=JobStatus.CANCELED,
+        created_at=harness.clock.now(),
+        updated_at=harness.clock.now(),
+    )
+    harness.jobs.save(canceled)
+
+    result = harness.restart_use_case().execute(
+        RestartFailedProcessingJobCommand(job_id=canceled.id),
+    )
+
+    assert result.source_job == canceled
+    assert result.job.status is JobStatus.PENDING
+    assert harness.jobs.get(canceled.id) == canceled
+
+
 def test_clear_failed_jobs_for_campaign_filters_and_deletes_only_failed_jobs() -> None:
     harness = Harness()
     campaign = harness.ready_campaign("Alice")
@@ -884,6 +923,40 @@ def test_run_processing_job_completes_clean_mapping_flow() -> None:
     assert chunk_context.job_id == submitted.job.id
     assert chunk_context.chunk_index == 0
     assert harness.recap_generator.combined_contexts[0].chunk_index is None
+
+
+def test_run_processing_job_does_not_overwrite_concurrent_cancel() -> None:
+    harness = Harness()
+    harness.ready_campaign("Alice")
+    harness.transcriber.segments = (
+        segment(0, 0, 1, "SPEAKER_00", "Hello there"),
+    )
+    harness.speaker_identifier.mappings = (
+        confirmed_mapping("SPEAKER_00", "Alice", "participant-1"),
+    )
+    submitted = harness.submit_use_case().execute(
+        SubmitRecordingForProcessingCommand(
+            campaign_id="campaign-1",
+            artifact_uri="sessions/session-1.wav",
+        ),
+    )
+    original_save_if_status = harness.jobs.save_if_status
+
+    def cancel_before_terminal_save(job, expected_status):
+        if expected_status is JobStatus.RUNNING:
+            current = harness.jobs.get(job.id)
+            harness.jobs.save(replace(current, status=JobStatus.CANCELED))
+            return False
+        return original_save_if_status(job, expected_status)
+
+    harness.jobs.save_if_status = cancel_before_terminal_save
+
+    result = harness.run_use_case().execute(
+        RunProcessingJobCommand(job_id=submitted.job.id),
+    )
+
+    assert result.job.status is JobStatus.CANCELED
+    assert harness.jobs.get(submitted.job.id).status is JobStatus.CANCELED
 
 
 def test_run_processing_job_waits_for_review_when_mapping_warnings_exist() -> None:

@@ -16,7 +16,7 @@ from notekeeper.application.ports import (
     CampaignFolderScanner,
     CampaignRepository,
     Clock,
-    FailedJobCleaner,
+    JobCleaner,
     IdGenerator,
     JobRepository,
     ParticipantRepository,
@@ -35,7 +35,7 @@ from notekeeper.infrastructure.deepseek import (
     LocalDeepSeekRequestLogger,
     NoOpDeepSeekRequestLogger,
 )
-from notekeeper.infrastructure.cleanup import LocalFailedJobCleaner
+from notekeeper.infrastructure.cleanup import LocalJobCleaner
 from notekeeper.infrastructure.errors import InfrastructureError
 from notekeeper.infrastructure.ffmpeg import FfmpegAudioProcessor
 from notekeeper.infrastructure.filesystem import (
@@ -91,7 +91,7 @@ class InfrastructureBundle:
     recap_repository: RecapRepository
     job_repository: JobRepository
     speaker_mapping_repository: SpeakerMappingRepository
-    failed_job_cleaner: FailedJobCleaner
+    job_cleaner: JobCleaner
     clock: Clock
     id_generator: IdGenerator
 
@@ -200,7 +200,7 @@ def build_infrastructure(
         recap_repository=SQLiteRecapRepository(database, artifact_storage),
         job_repository=SQLiteJobRepository(database),
         speaker_mapping_repository=SQLiteSpeakerMappingRepository(database),
-        failed_job_cleaner=LocalFailedJobCleaner(
+        job_cleaner=LocalJobCleaner(
             database,
             artifact_storage,
             resolved_settings.processing_work_root,

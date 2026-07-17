@@ -2,10 +2,12 @@ import json
 from pathlib import Path
 
 from notekeeper.application import (
+    CancelProcessingJob,
     ClearFailedJobsForCampaign,
     CreateCampaign,
     CreateProcessingJobForAudioTrack,
     DeleteCampaign,
+    DeleteProcessingJob,
     RestartFailedProcessingJob,
     UpdateCampaign,
 )
@@ -55,6 +57,8 @@ def test_build_runtime_assembles_stage1_use_cases_and_diagnostics(
         runtime.use_cases.clear_failed_jobs_for_campaign,
         ClearFailedJobsForCampaign,
     )
+    assert isinstance(runtime.use_cases.delete_processing_job, DeleteProcessingJob)
+    assert isinstance(runtime.use_cases.cancel_processing_job, CancelProcessingJob)
     assert diagnostics.deepseek_configured is True
     assert diagnostics.huggingface_configured is True
     assert diagnostics.whisperx_vad_method == "pyannote"

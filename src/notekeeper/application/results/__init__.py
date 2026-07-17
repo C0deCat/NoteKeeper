@@ -199,6 +199,16 @@ class ClearFailedJobsForCampaignResult:
 
 
 @dataclass(frozen=True, slots=True)
+class DeleteProcessingJobResult:
+    job_id: str
+
+
+@dataclass(frozen=True, slots=True)
+class CancelProcessingJobResult:
+    job: ProcessingJob
+
+
+@dataclass(frozen=True, slots=True)
 class UpdateAudioTrackResult:
     campaign: Campaign
     audio_track: AudioTrack
@@ -236,11 +246,14 @@ class RunProcessingJobResult:
 
 
 @dataclass(frozen=True, slots=True)
-class RestartFailedProcessingJobResult:
+class RestartProcessingJobResult:
     campaign: Campaign
     audio_track: AudioTrack
     source_job: ProcessingJob
     job: ProcessingJob
+
+
+RestartFailedProcessingJobResult = RestartProcessingJobResult
 
 
 @dataclass(frozen=True, slots=True)
@@ -321,6 +334,7 @@ class SyncCampaignFolderResult:
 __all__ = [
     "AddParticipantToCampaignResult",
     "AddVoiceSampleResult",
+    "CancelProcessingJobResult",
     "CampaignFolderSnapshot",
     "ClearFailedJobsForCampaignResult",
     "CreateCampaignResult",
@@ -328,6 +342,7 @@ __all__ = [
     "DeleteAudioTrackResult",
     "DeleteCampaignResult",
     "DeleteParticipantResult",
+    "DeleteProcessingJobResult",
     "DeleteVoiceSampleResult",
     "ExportMarkdownResult",
     "GenerateRecapResult",
@@ -346,6 +361,7 @@ __all__ = [
     "RegisterAudioTrackResult",
     "ReviewSpeakerMappingsResult",
     "RestartFailedProcessingJobResult",
+    "RestartProcessingJobResult",
     "RunProcessingJobResult",
     "ScannedAudioTrackArtifact",
     "ScannedVoiceSampleArtifact",

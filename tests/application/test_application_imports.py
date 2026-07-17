@@ -8,6 +8,11 @@ import notekeeper.application.use_cases.processing as processing_use_cases
 
 
 def test_application_reexports_public_api() -> None:
+    assert application.CancelProcessingJob is use_cases.CancelProcessingJob
+    assert application.CancelProcessingJobCommand is (
+        commands.CancelProcessingJobCommand
+    )
+    assert application.CancelProcessingJobResult is results.CancelProcessingJobResult
     assert application.ClearFailedJobsForCampaign is (
         use_cases.ClearFailedJobsForCampaign
     )
@@ -29,6 +34,11 @@ def test_application_reexports_public_api() -> None:
     assert application.CreateProcessingJobForAudioTrackResult is (
         results.CreateProcessingJobForAudioTrackResult
     )
+    assert application.DeleteProcessingJob is use_cases.DeleteProcessingJob
+    assert application.DeleteProcessingJobCommand is (
+        commands.DeleteProcessingJobCommand
+    )
+    assert application.DeleteProcessingJobResult is results.DeleteProcessingJobResult
     assert application.RestartFailedProcessingJob is (
         use_cases.RestartFailedProcessingJob
     )
@@ -38,6 +48,11 @@ def test_application_reexports_public_api() -> None:
     assert application.RestartFailedProcessingJobResult is (
         results.RestartFailedProcessingJobResult
     )
+    assert application.RestartProcessingJob is use_cases.RestartProcessingJob
+    assert application.RestartProcessingJobCommand is (
+        commands.RestartProcessingJobCommand
+    )
+    assert application.RestartProcessingJobResult is results.RestartProcessingJobResult
     assert application.RunProcessingJob is use_cases.RunProcessingJob
     assert application.TranscriptChunk is results.TranscriptChunk
 

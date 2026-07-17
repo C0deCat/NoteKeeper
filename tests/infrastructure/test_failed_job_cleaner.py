@@ -68,8 +68,8 @@ def test_failed_job_cleaner_removes_owned_data_and_preserves_other_data(
     assert context.jobs.get(failed.id) is None
     assert context.jobs.get(pending.id) == pending
     assert context.jobs.get(other_campaign_job.id) == other_campaign_job
-    assert context.transcripts.get(transcript.id) is None
-    assert context.recaps.get(recap.id) is None
+    assert context.transcripts.get(transcript.id) == transcript
+    assert context.recaps.get(recap.id) == recap
     assert context.mappings.list_for_job(failed.id) == ()
     assert all(not path.exists() for path in paths["deleted"])
     assert all(path.exists() for path in paths["preserved"])
@@ -182,7 +182,7 @@ def test_failed_job_cleaner_rolls_back_database_transaction(
 
     with pytest.raises(
         InfrastructureError,
-        match="could not delete failed jobs from the database",
+        match="could not delete processing jobs from the database",
     ):
         context.cleaner.clean(context.campaign.id, (failed,))
 
@@ -355,6 +355,8 @@ class _CleanupContext:
             "deleted": (
                 prepared,
                 work,
+            ),
+            "preserved": (
                 raw,
                 orphan_raw,
                 transcript_export,
@@ -362,8 +364,9 @@ class _CleanupContext:
                 diagnostics,
                 transcript_payload,
                 recap_payload,
+                source_recording,
+                other_campaign_file,
             ),
-            "preserved": (source_recording, other_campaign_file),
         }
 
 

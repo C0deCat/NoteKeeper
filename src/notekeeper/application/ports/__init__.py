@@ -11,6 +11,7 @@ from notekeeper.application.results import (
     RecapGenerationContext,
     SpeakerMappingRecord,
     TranscriptChunk,
+    RunProcessingJobResult,
 )
 from notekeeper.domain import (
     ArtifactRef,
@@ -19,6 +20,7 @@ from notekeeper.domain import (
     AudioTrackId,
     Campaign,
     CampaignId,
+    JobStatus,
     Participant,
     ParticipantId,
     VoiceSampleId,
@@ -123,15 +125,32 @@ class JobRepository(Protocol):
 
     def save(self, job: ProcessingJob) -> None: ...
 
+    def save_if_status(
+        self,
+        job: ProcessingJob,
+        expected_status: JobStatus,
+    ) -> bool: ...
+
     def delete(self, job_id: ProcessingJobId) -> None: ...
 
 
-class FailedJobCleaner(Protocol):
+class JobCleaner(Protocol):
     def clean(
         self,
         campaign_id: CampaignId,
         jobs: tuple[ProcessingJob, ...],
     ) -> tuple[ProcessingJobId, ...]: ...
+
+
+FailedJobCleaner = JobCleaner
+
+
+class JobExecutionController(Protocol):
+    def cancel(self, job_id: ProcessingJobId) -> None: ...
+
+
+class JobProcessExecutor(JobExecutionController, Protocol):
+    def execute(self, job_id: ProcessingJobId) -> RunProcessingJobResult: ...
 
 
 class AudioMetadataReader(Protocol):
@@ -294,6 +313,9 @@ __all__ = [
     "CampaignRepository",
     "Clock",
     "FailedJobCleaner",
+    "JobCleaner",
+    "JobExecutionController",
+    "JobProcessExecutor",
     "IdGenerator",
     "JobRepository",
     "ParticipantRepository",

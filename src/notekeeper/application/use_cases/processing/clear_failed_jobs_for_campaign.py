@@ -3,7 +3,7 @@
 from notekeeper.application.commands import ClearFailedJobsForCampaignCommand
 from notekeeper.application.ports import (
     CampaignRepository,
-    FailedJobCleaner,
+    JobCleaner,
     JobRepository,
 )
 from notekeeper.application.results import ClearFailedJobsForCampaignResult
@@ -16,11 +16,11 @@ class ClearFailedJobsForCampaign:
         self,
         campaign_repository: CampaignRepository,
         job_repository: JobRepository,
-        failed_job_cleaner: FailedJobCleaner,
+        job_cleaner: JobCleaner,
     ) -> None:
         self._campaign_repository = campaign_repository
         self._job_repository = job_repository
-        self._failed_job_cleaner = failed_job_cleaner
+        self._job_cleaner = job_cleaner
 
     def execute(
         self,
@@ -36,7 +36,7 @@ class ClearFailedJobsForCampaign:
         if not failed_jobs:
             return ClearFailedJobsForCampaignResult(deleted_job_ids=())
 
-        deleted_job_ids = self._failed_job_cleaner.clean(campaign_id, failed_jobs)
+        deleted_job_ids = self._job_cleaner.clean(campaign_id, failed_jobs)
         return ClearFailedJobsForCampaignResult(
             deleted_job_ids=tuple(str(job_id) for job_id in deleted_job_ids),
         )

@@ -48,6 +48,9 @@ from notekeeper.interfaces.tui import NoteKeeperTui, RecordingScreen, VoiceSampl
 from notekeeper.interfaces.tui.campaign_management_screen import ManageCampaignsScreen
 from notekeeper.interfaces.tui.clear_failed_jobs_screen import ClearFailedJobsScreen
 from notekeeper.interfaces.tui.identifier_data_table import compact_identifier
+from notekeeper.interfaces.tui.job_action_confirmation_screen import (
+    JobActionConfirmationScreen,
+)
 from notekeeper.interfaces.tui.review_app import ReviewMappingsScreen
 from notekeeper.interfaces.tui.tui import DashboardWarning
 
@@ -540,6 +543,46 @@ def test_tui_action_buttons_follow_current_dashboard_context() -> None:
             assert action_button.display is False
             assert app.query_one("#preview-recap", Button).disabled is False
             assert app.query_one("#export-recap", Button).disabled is False
+
+    asyncio.run(run())
+
+
+def test_tui_job_delete_and_cancel_buttons_follow_job_status() -> None:
+    async def run() -> None:
+        runtime = FakeRuntime()
+        app = NoteKeeperTui(runtime)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            assert app.query_one("#delete-job", Button).disabled is False
+            assert app.query_one("#cancel-job", Button).disabled is True
+
+            failed = app._selected_object
+            assert isinstance(failed, ProcessingJob)
+            running = replace(failed, status=JobStatus.RUNNING)
+            runtime.use_cases.list_jobs_for_campaign.result = ListJobsForCampaignResult(
+                jobs=(running,),
+            )
+            app.refresh_dashboard(update_campaigns=False)
+            await pilot.pause()
+            assert app.query_one("#delete-job", Button).disabled is True
+            assert app.query_one("#cancel-job", Button).disabled is False
+
+    asyncio.run(run())
+
+
+def test_tui_delete_job_opens_preserving_confirmation() -> None:
+    async def run() -> None:
+        app = NoteKeeperTui(FakeRuntime())
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await pilot.click("#delete-job")
+            await pilot.pause()
+            assert isinstance(app.screen, JobActionConfirmationScreen)
+            text = " ".join(
+                str(label.render()) for label in app.screen.query("Label")
+            )
+            assert "Transcripts and recaps will be preserved" in text
+            await pilot.click("#back")
 
     asyncio.run(run())
 

@@ -33,6 +33,7 @@ from notekeeper.application.use_cases.utils import (
 )
 from notekeeper.domain import (
     JobStatus,
+    ProcessingJob,
     ProcessingJobId,
     SpeakerMapping,
     TranscriptId,
@@ -75,6 +76,10 @@ class RunProcessingJob:
         self._id_generator = id_generator
 
     def execute(self, command: RunProcessingJobCommand) -> RunProcessingJobResult:
+        running_job = self.start(command)
+        return self.execute_running(command, running_job=running_job)
+
+    def start(self, command: RunProcessingJobCommand) -> ProcessingJob:
         job = _require_job(self._job_repository, ProcessingJobId(command.job_id))
         if job.status is not JobStatus.PENDING:
             raise InvalidOperationError("processing job must be pending")
@@ -92,7 +97,36 @@ class RunProcessingJob:
             warnings=(),
             error_message=None,
         )
-        self._job_repository.save(running_job)
+        save_if_status = getattr(self._job_repository, "save_if_status", None)
+        if callable(save_if_status):
+            if not save_if_status(running_job, JobStatus.PENDING):
+                raise InvalidOperationError("processing job is no longer pending")
+        else:
+            self._job_repository.save(running_job)
+        return running_job
+
+    def execute_running(
+        self,
+        command: RunProcessingJobCommand,
+        *,
+        running_job: ProcessingJob | None = None,
+    ) -> RunProcessingJobResult:
+        running_job = running_job or _require_job(
+            self._job_repository,
+            ProcessingJobId(command.job_id),
+        )
+        if running_job.status is not JobStatus.RUNNING:
+            raise InvalidOperationError("processing job must be running")
+
+        campaign = _require_campaign(
+            self._campaign_repository,
+            running_job.campaign_id,
+        )
+        audio_track = _require_audio_track(
+            self._audio_track_repository,
+            running_job.audio_track_id,
+        )
+        job = running_job
 
         persisted_transcript = None
         known_warnings = ()
@@ -134,7 +168,7 @@ class RunProcessingJob:
                     transcript_id=mapped.transcript.id,
                     warnings=mapped.warnings,
                 )
-                self._job_repository.save(waiting_job)
+                waiting_job = self._save_terminal(waiting_job)
                 return RunProcessingJobResult(
                     job=waiting_job,
                     transcript=mapped.transcript,
@@ -158,7 +192,7 @@ class RunProcessingJob:
                 recap_id=recap.id,
                 warnings=(),
             )
-            self._job_repository.save(completed_job)
+            completed_job = self._save_terminal(completed_job)
             return RunProcessingJobResult(
                 job=completed_job,
                 transcript=mapped.transcript,
@@ -184,13 +218,25 @@ class RunProcessingJob:
                 warnings=known_warnings,
                 error_message=_port_error_message(exc),
             )
-            self._job_repository.save(failed_job)
+            failed_job = self._save_terminal(failed_job)
             return RunProcessingJobResult(
                 job=failed_job,
                 transcript=persisted_transcript,
                 recap=None,
                 warnings=known_warnings,
             )
+
+    def _save_terminal(self, job: ProcessingJob) -> ProcessingJob:
+        save_if_status = getattr(self._job_repository, "save_if_status", None)
+        if callable(save_if_status):
+            if save_if_status(job, JobStatus.RUNNING):
+                return job
+            current = _require_job(self._job_repository, job.id)
+            if current.status is JobStatus.CANCELED:
+                return current
+            raise InvalidOperationError("processing job status changed during execution")
+        self._job_repository.save(job)
+        return job
 
 
 def _port_error_message(error: PortExecutionError) -> str:

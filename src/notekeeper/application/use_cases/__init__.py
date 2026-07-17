@@ -28,12 +28,15 @@ from .export import (
 )
 from .media import InspectAudioMetadata
 from .processing import (
+    CancelProcessingJob,
     ClearFailedJobsForCampaign,
     CreateProcessingJobForAudioTrack,
+    DeleteProcessingJob,
     GenerateRecap,
     GetJobStatus,
     ListJobsForCampaign,
     RestartFailedProcessingJob,
+    RestartProcessingJob,
     ReviewSpeakerMappings,
     RunProcessingJob,
     SubmitRecordingForProcessing,
@@ -42,12 +45,14 @@ from .processing import (
 __all__ = [
     "AddParticipantToCampaign",
     "AddVoiceSample",
+    "CancelProcessingJob",
     "ClearFailedJobsForCampaign",
     "CreateCampaign",
     "CreateProcessingJobForAudioTrack",
     "DeleteAudioTrack",
     "DeleteCampaign",
     "DeleteParticipant",
+    "DeleteProcessingJob",
     "DeleteVoiceSample",
     "ExportRecapMarkdown",
     "ExportTranscriptMarkdown",
@@ -64,6 +69,7 @@ __all__ = [
     "PreviewTranscriptMarkdown",
     "RegisterAudioTrack",
     "RestartFailedProcessingJob",
+    "RestartProcessingJob",
     "ReviewSpeakerMappings",
     "RunProcessingJob",
     "SubmitRecordingForProcessing",

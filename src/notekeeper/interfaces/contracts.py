@@ -8,10 +8,12 @@ from typing import Protocol
 from notekeeper.application import (
     AddParticipantToCampaign,
     AddVoiceSample,
+    CancelProcessingJob,
     ClearFailedJobsForCampaign,
     CreateCampaign,
     CreateProcessingJobForAudioTrack,
     DeleteCampaign,
+    DeleteProcessingJob,
     ExportRecapMarkdown,
     ExportTranscriptMarkdown,
     GenerateRecap,
@@ -27,6 +29,7 @@ from notekeeper.application import (
     PreviewTranscriptMarkdown,
     RegisterAudioTrack,
     RestartFailedProcessingJob,
+    RestartProcessingJob,
     ReviewSpeakerMappings,
     RunProcessingJob,
     SubmitRecordingForProcessing,
@@ -64,6 +67,9 @@ class Stage1UseCases:
     preview_recap_markdown: PreviewRecapMarkdown
     inspect_audio_metadata: InspectAudioMetadata
     sync_campaign_folder: SyncCampaignFolder
+    restart_processing_job: RestartProcessingJob | None = None
+    delete_processing_job: DeleteProcessingJob | None = None
+    cancel_processing_job: CancelProcessingJob | None = None
 
 
 @dataclass(frozen=True, slots=True)

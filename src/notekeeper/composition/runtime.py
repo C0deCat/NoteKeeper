@@ -8,10 +8,12 @@ from pathlib import Path
 from notekeeper.application import (
     AddParticipantToCampaign,
     AddVoiceSample,
+    CancelProcessingJob,
     ClearFailedJobsForCampaign,
     CreateCampaign,
     CreateProcessingJobForAudioTrack,
     DeleteCampaign,
+    DeleteProcessingJob,
     ExportRecapMarkdown,
     ExportTranscriptMarkdown,
     GenerateRecap,
@@ -28,6 +30,7 @@ from notekeeper.application import (
     PreviewTranscriptMarkdown,
     RegisterAudioTrack,
     RestartFailedProcessingJob,
+    RestartProcessingJob,
     ReviewSpeakerMappings,
     RunProcessingJob,
     SubmitRecordingForProcessing,
@@ -39,6 +42,9 @@ from notekeeper.domain import ArtifactRef
 from notekeeper.interfaces import InterfaceRuntime, RuntimeDiagnostics, Stage1UseCases
 
 from .factory import InfrastructureBundle, build_infrastructure
+from .isolated_run_processing_job import IsolatedRunProcessingJob
+from .job_pipeline import build_processing_pipeline
+from .process_job_executor import LocalProcessJobExecutor
 from .settings import NoteKeeperSettings
 
 
@@ -88,6 +94,18 @@ def build_runtime(settings: NoteKeeperSettings | None = None) -> NoteKeeperRunti
 
 
 def build_stage1_use_cases(infrastructure: InfrastructureBundle) -> Stage1UseCases:
+    processing_pipeline = build_processing_pipeline(infrastructure)
+    process_executor = LocalProcessJobExecutor(
+        infrastructure.settings,
+        infrastructure.job_repository,
+    )
+    restart_processing_job = RestartProcessingJob(
+        infrastructure.campaign_repository,
+        infrastructure.audio_track_repository,
+        infrastructure.job_repository,
+        infrastructure.clock,
+        infrastructure.id_generator,
+    )
     return Stage1UseCases(
         create_campaign=CreateCampaign(
             infrastructure.campaign_repository,
@@ -133,32 +151,24 @@ def build_stage1_use_cases(infrastructure: InfrastructureBundle) -> Stage1UseCas
             infrastructure.clock,
             infrastructure.id_generator,
         ),
-        run_processing_job=RunProcessingJob(
-            infrastructure.campaign_repository,
-            infrastructure.audio_track_repository,
-            infrastructure.transcript_repository,
-            infrastructure.recap_repository,
-            infrastructure.job_repository,
-            infrastructure.audio_processor,
-            infrastructure.transcriber,
-            infrastructure.speaker_identifier,
-            infrastructure.speaker_mapping_repository,
-            infrastructure.tokenizer,
-            infrastructure.recap_generator,
-            infrastructure.clock,
-            infrastructure.id_generator,
+        run_processing_job=IsolatedRunProcessingJob(
+            processing_pipeline,
+            process_executor,
         ),
-        restart_failed_processing_job=RestartFailedProcessingJob(
-            infrastructure.campaign_repository,
-            infrastructure.audio_track_repository,
-            infrastructure.job_repository,
-            infrastructure.clock,
-            infrastructure.id_generator,
-        ),
+        restart_failed_processing_job=restart_processing_job,
         clear_failed_jobs_for_campaign=ClearFailedJobsForCampaign(
             infrastructure.campaign_repository,
             infrastructure.job_repository,
-            infrastructure.failed_job_cleaner,
+            infrastructure.job_cleaner,
+        ),
+        delete_processing_job=DeleteProcessingJob(
+            infrastructure.job_repository,
+            infrastructure.job_cleaner,
+        ),
+        cancel_processing_job=CancelProcessingJob(
+            infrastructure.job_repository,
+            infrastructure.clock,
+            process_executor,
         ),
         list_jobs_for_campaign=ListJobsForCampaign(
             infrastructure.campaign_repository,
@@ -203,6 +213,7 @@ def build_stage1_use_cases(infrastructure: InfrastructureBundle) -> Stage1UseCas
             infrastructure.metadata_reader,
             infrastructure.id_generator,
         ),
+        restart_processing_job=restart_processing_job,
     )
 
 
