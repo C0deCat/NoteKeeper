@@ -8,6 +8,7 @@ from pathlib import Path
 from notekeeper.application import (
     AddParticipantToCampaign,
     AddVoiceSample,
+    ClearFailedJobsForCampaign,
     CreateCampaign,
     CreateProcessingJobForAudioTrack,
     DeleteCampaign,
@@ -153,6 +154,11 @@ def build_stage1_use_cases(infrastructure: InfrastructureBundle) -> Stage1UseCas
             infrastructure.job_repository,
             infrastructure.clock,
             infrastructure.id_generator,
+        ),
+        clear_failed_jobs_for_campaign=ClearFailedJobsForCampaign(
+            infrastructure.campaign_repository,
+            infrastructure.job_repository,
+            infrastructure.failed_job_cleaner,
         ),
         list_jobs_for_campaign=ListJobsForCampaign(
             infrastructure.campaign_repository,

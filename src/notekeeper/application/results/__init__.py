@@ -191,6 +191,14 @@ class ListJobsForCampaignResult:
 
 
 @dataclass(frozen=True, slots=True)
+class ClearFailedJobsForCampaignResult:
+    deleted_job_ids: tuple[str, ...]
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "deleted_job_ids", tuple(self.deleted_job_ids))
+
+
+@dataclass(frozen=True, slots=True)
 class UpdateAudioTrackResult:
     campaign: Campaign
     audio_track: AudioTrack
@@ -314,6 +322,7 @@ __all__ = [
     "AddParticipantToCampaignResult",
     "AddVoiceSampleResult",
     "CampaignFolderSnapshot",
+    "ClearFailedJobsForCampaignResult",
     "CreateCampaignResult",
     "CreateProcessingJobForAudioTrackResult",
     "DeleteAudioTrackResult",

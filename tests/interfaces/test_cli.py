@@ -111,6 +111,7 @@ class FakeRuntime:
                     job=job,
                 ),
             ),
+            clear_failed_jobs_for_campaign=FakeUseCase(None),
             list_jobs_for_campaign=FakeUseCase(ListJobsForCampaignResult(jobs=(job,))),
             get_job_status=FakeUseCase(GetJobStatusResult(job=job)),
             review_speaker_mappings=FakeUseCase(GetJobStatusResult(job=job)),

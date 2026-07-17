@@ -67,6 +67,29 @@ Screen {
     overflow-x: auto;
 }
 
+#content Button {
+    width: auto;
+    height: 1;
+    min-width: 0;
+    border: none;
+    padding: 0 1;
+}
+
+#jobs-header {
+    height: 1;
+    align: left middle;
+}
+
+#jobs-header Label {
+    width: 1fr;
+    content-align: left middle;
+}
+
+#clear-failed-jobs {
+    width: auto;
+    min-width: 20;
+}
+
 .panel {
     height: 1fr;
     border: solid $accent;

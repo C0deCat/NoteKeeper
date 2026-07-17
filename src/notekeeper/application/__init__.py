@@ -3,6 +3,7 @@
 from .commands import (
     AddParticipantToCampaignCommand,
     AddVoiceSampleCommand,
+    ClearFailedJobsForCampaignCommand,
     CreateCampaignCommand,
     CreateProcessingJobForAudioTrackCommand,
     DeleteAudioTrackCommand,
@@ -44,6 +45,7 @@ from .results import (
     AddParticipantToCampaignResult,
     AddVoiceSampleResult,
     CampaignFolderSnapshot,
+    ClearFailedJobsForCampaignResult,
     CreateCampaignResult,
     CreateProcessingJobForAudioTrackResult,
     DeleteAudioTrackResult,
@@ -82,6 +84,7 @@ from .results import (
 from .use_cases import (
     AddParticipantToCampaign,
     AddVoiceSample,
+    ClearFailedJobsForCampaign,
     CreateCampaign,
     CreateProcessingJobForAudioTrack,
     DeleteAudioTrack,
@@ -122,6 +125,9 @@ __all__ = [
     "AddVoiceSampleResult",
     "ApplicationError",
     "CampaignFolderSnapshot",
+    "ClearFailedJobsForCampaign",
+    "ClearFailedJobsForCampaignCommand",
+    "ClearFailedJobsForCampaignResult",
     "CreateCampaign",
     "CreateCampaignCommand",
     "CreateCampaignResult",

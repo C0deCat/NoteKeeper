@@ -126,6 +126,14 @@ class JobRepository(Protocol):
     def delete(self, job_id: ProcessingJobId) -> None: ...
 
 
+class FailedJobCleaner(Protocol):
+    def clean(
+        self,
+        campaign_id: CampaignId,
+        jobs: tuple[ProcessingJob, ...],
+    ) -> tuple[ProcessingJobId, ...]: ...
+
+
 class AudioMetadataReader(Protocol):
     def read(self, artifact: ArtifactRef) -> AudioMetadata: ...
 
@@ -285,6 +293,7 @@ __all__ = [
     "CampaignFolderScanner",
     "CampaignRepository",
     "Clock",
+    "FailedJobCleaner",
     "IdGenerator",
     "JobRepository",
     "ParticipantRepository",

@@ -8,6 +8,15 @@ import notekeeper.application.use_cases.processing as processing_use_cases
 
 
 def test_application_reexports_public_api() -> None:
+    assert application.ClearFailedJobsForCampaign is (
+        use_cases.ClearFailedJobsForCampaign
+    )
+    assert application.ClearFailedJobsForCampaignCommand is (
+        commands.ClearFailedJobsForCampaignCommand
+    )
+    assert application.ClearFailedJobsForCampaignResult is (
+        results.ClearFailedJobsForCampaignResult
+    )
     assert application.CreateCampaign is use_cases.CreateCampaign
     assert application.CreateCampaignCommand is commands.CreateCampaignCommand
     assert application.CreateCampaignResult is results.CreateCampaignResult
@@ -41,6 +50,9 @@ def test_use_case_packages_reexport_expected_classes() -> None:
     assert use_cases.AddVoiceSample is campaign_use_cases.AddVoiceSample
     assert use_cases.SubmitRecordingForProcessing is (
         processing_use_cases.SubmitRecordingForProcessing
+    )
+    assert use_cases.ClearFailedJobsForCampaign is (
+        processing_use_cases.ClearFailedJobsForCampaign
     )
     assert use_cases.CreateProcessingJobForAudioTrack is (
         processing_use_cases.CreateProcessingJobForAudioTrack

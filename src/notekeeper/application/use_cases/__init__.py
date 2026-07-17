@@ -28,6 +28,7 @@ from .export import (
 )
 from .media import InspectAudioMetadata
 from .processing import (
+    ClearFailedJobsForCampaign,
     CreateProcessingJobForAudioTrack,
     GenerateRecap,
     GetJobStatus,
@@ -41,6 +42,7 @@ from .processing import (
 __all__ = [
     "AddParticipantToCampaign",
     "AddVoiceSample",
+    "ClearFailedJobsForCampaign",
     "CreateCampaign",
     "CreateProcessingJobForAudioTrack",
     "DeleteAudioTrack",

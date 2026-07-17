@@ -14,6 +14,7 @@ from textual.widgets import Button, DataTable, Footer, Header, Label, ProgressBa
 
 from notekeeper.application import (
     ApplicationError,
+    ClearFailedJobsForCampaignCommand,
     GetCampaignCommand,
     ListCampaignsCommand,
     ListJobsForCampaignCommand,
@@ -39,6 +40,7 @@ from . import (
     transcript_app,
 )
 from .campaign_management_screen import ManageCampaignsScreen
+from .clear_failed_jobs_screen import ClearFailedJobsScreen
 from .common import format_duration, sync_result_status
 from .identifier_data_table import IdentifierDataTable
 from .participant_app import AddParticipantScreen
@@ -79,6 +81,8 @@ class NoteKeeperTui(App[None]):
         self._dashboard_warnings: dict[str, DashboardWarning] = {}
         self._campaign_has_participants = False
         self._campaign_is_processing_ready = False
+        self._failed_job_count = 0
+        self._clear_failed_jobs_in_progress = False
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -100,16 +104,20 @@ class NoteKeeperTui(App[None]):
         with Horizontal(id="dashboard"):
             with VerticalScroll(id="actions"):
                 yield Button("Create Job", id="create-job")
-                yield Button("Run Job", id="run-job", variant="success")
-                yield Button("Restart Failed Job", id="restart-job")
-                yield Button("Review Mapping", id="review-job")
+                yield Button("Run", id="job-action", variant="success")
                 yield Button("Preview Transcript", id="preview-transcript")
                 yield Button("Preview Recap", id="preview-recap")
                 yield Button("Export Transcript", id="export-transcript")
                 yield Button("Export Recap", id="export-recap")
                 yield ProgressBar(total=None, id="job-progress")
             with Vertical(id="content"):
-                yield Label("Jobs")
+                with Horizontal(id="jobs-header"):
+                    yield Label("Jobs")
+                    yield Button(
+                        "Clear Failed Jobs",
+                        id="clear-failed-jobs",
+                        variant="error",
+                    )
                 yield IdentifierDataTable(
                     id="jobs-table",
                     classes="panel short-panel",
@@ -189,12 +197,10 @@ class NoteKeeperTui(App[None]):
             self._with_campaign(self._open_submit_recording)
         elif button_id == "create-job":
             self._create_job_for_selected_audio_track()
-        elif button_id == "run-job":
-            self._run_selected_job()
-        elif button_id == "restart-job":
-            self._restart_selected_failed_job()
-        elif button_id == "review-job":
-            self._with_campaign(self._open_review)
+        elif button_id == "job-action":
+            self._perform_selected_job_action()
+        elif button_id == "clear-failed-jobs":
+            self._confirm_clear_failed_jobs()
         elif button_id == "preview-transcript":
             self._preview_transcript()
         elif button_id == "preview-recap":
@@ -207,12 +213,17 @@ class NoteKeeperTui(App[None]):
             self._open_diagnostics()
 
     def on_worker_state_changed(self, event: Worker.StateChanged) -> None:
-        if event.worker.group not in {"job", "review", "sync"}:
+        if event.worker.group not in {"cleanup", "job", "review", "sync"}:
             return
 
         if event.state is WorkerState.RUNNING:
             self._progress().display = True
-            self._set_status("Syncing" if event.worker.group == "sync" else "Running")
+            if event.worker.group == "sync":
+                self._set_status("Syncing")
+            elif event.worker.group == "cleanup":
+                self._set_status("Clearing failed jobs")
+            else:
+                self._set_status("Running")
         elif event.state is WorkerState.SUCCESS:
             self._progress().display = False
             if event.worker.group == "sync":
@@ -220,14 +231,29 @@ class NoteKeeperTui(App[None]):
                 self.refresh_dashboard(update_campaigns=False)
                 self._set_status(message)
                 self.notify(message)
+            elif event.worker.group == "cleanup":
+                self._clear_failed_jobs_in_progress = False
+                deleted_count = len(event.worker.result.deleted_job_ids)
+                self.refresh_dashboard(update_campaigns=False)
+                message = f"Cleared {deleted_count} failed jobs"
+                self._set_status(message)
+                self.notify(message)
             else:
                 self._set_status("Done")
                 self.refresh_dashboard(update_campaigns=False)
         elif event.state is WorkerState.ERROR:
             self._progress().display = False
+            if event.worker.group == "cleanup":
+                self._clear_failed_jobs_in_progress = False
+                self._update_action_buttons()
             message = str(event.worker.error) if event.worker.error else "worker failed"
             self._set_status(message)
             self.notify(message, severity="error")
+        elif event.state is WorkerState.CANCELLED:
+            self._progress().display = False
+            if event.worker.group == "cleanup":
+                self._clear_failed_jobs_in_progress = False
+                self._update_action_buttons()
 
     def refresh_dashboard(self, *, update_campaigns: bool = True) -> None:
         try:
@@ -276,6 +302,7 @@ class NoteKeeperTui(App[None]):
             self._dashboard_warnings = {}
             self._campaign_has_participants = False
             self._campaign_is_processing_ready = False
+            self._failed_job_count = 0
             self._clear_tables()
             self._set_status("No campaign")
             self._update_action_buttons()
@@ -325,6 +352,9 @@ class NoteKeeperTui(App[None]):
                 str(participant.id) in sample_participants
                 for participant in participants
             )
+        )
+        self._failed_job_count = sum(
+            job.status is JobStatus.FAILED for job in ordered_jobs
         )
 
         selected_key = self._selected_object_key(self._selected_object)
@@ -526,6 +556,12 @@ class NoteKeeperTui(App[None]):
             not campaign_selected or not self._campaign_has_participants,
         )
         self._set_button_disabled("submit-recording", not processing_ready)
+        self._set_button_disabled(
+            "clear-failed-jobs",
+            not campaign_selected
+            or self._failed_job_count == 0
+            or self._clear_failed_jobs_in_progress,
+        )
 
         self._set_button_display("create-job", selected_audio_track is not None)
         self._set_button_disabled(
@@ -533,29 +569,33 @@ class NoteKeeperTui(App[None]):
             not processing_ready or selected_audio_track is None,
         )
         for button_id in (
-            "run-job",
-            "restart-job",
-            "review-job",
             "preview-transcript",
             "export-transcript",
             "preview-recap",
             "export-recap",
         ):
             self._set_button_display(button_id, selected_job is not None)
-        self._set_button_disabled(
-            "run-job",
-            selected_job is None or selected_job.status is not JobStatus.PENDING,
+        action_labels = {
+            JobStatus.PENDING: "Run",
+            JobStatus.FAILED: "Restart",
+            JobStatus.WAITING_FOR_REVIEW: "Review and Continue",
+        }
+        action_label = (
+            action_labels.get(selected_job.status)
+            if selected_job is not None
+            else None
         )
+        self._set_button_display("job-action", action_label is not None)
+        if action_label is not None:
+            self.query_one("#job-action", Button).label = action_label
         self._set_button_disabled(
-            "restart-job",
-            not processing_ready
-            or selected_job is None
-            or selected_job.status is not JobStatus.FAILED,
-        )
-        self._set_button_disabled(
-            "review-job",
+            "job-action",
             selected_job is None
-            or selected_job.status is not JobStatus.WAITING_FOR_REVIEW,
+            or action_label is None
+            or (
+                selected_job.status is JobStatus.FAILED
+                and not processing_ready
+            ),
         )
         self._set_button_disabled(
             "preview-transcript",
@@ -673,6 +713,48 @@ class NoteKeeperTui(App[None]):
 
     def _open_review(self, campaign_id: str) -> None:
         review_app.open_review(self, campaign_id)
+
+    def _perform_selected_job_action(self) -> None:
+        job = self._selected_job()
+        if job is None:
+            self._set_status("Select a job")
+        elif job.status is JobStatus.PENDING:
+            self._run_selected_job()
+        elif job.status is JobStatus.FAILED:
+            self._restart_selected_failed_job()
+        elif job.status is JobStatus.WAITING_FOR_REVIEW:
+            self._with_campaign(self._open_review)
+        else:
+            self._set_status("No action is available for this job")
+
+    def _confirm_clear_failed_jobs(self) -> None:
+        if self._selected_campaign_id is None:
+            self._set_status("Select a campaign")
+            return
+        if self._failed_job_count == 0:
+            self._set_status("No failed jobs to clear")
+            return
+        if self._clear_failed_jobs_in_progress:
+            return
+        self.push_screen(
+            ClearFailedJobsScreen(self._failed_job_count),
+            self._clear_failed_jobs,
+        )
+
+    def _clear_failed_jobs(self, confirmed: bool) -> None:
+        campaign_id = self._selected_campaign_id
+        if not confirmed or campaign_id is None:
+            return
+        self._clear_failed_jobs_in_progress = True
+        self._update_action_buttons()
+        self.run_worker(
+            lambda: self.runtime.use_cases.clear_failed_jobs_for_campaign.execute(
+                ClearFailedJobsForCampaignCommand(campaign_id=campaign_id),
+            ),
+            group="cleanup",
+            thread=True,
+            exit_on_error=False,
+        )
 
     def _run_selected_job(self) -> None:
         job_app.run_selected_job(self)

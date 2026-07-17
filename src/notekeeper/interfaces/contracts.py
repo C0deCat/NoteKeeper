@@ -8,6 +8,7 @@ from typing import Protocol
 from notekeeper.application import (
     AddParticipantToCampaign,
     AddVoiceSample,
+    ClearFailedJobsForCampaign,
     CreateCampaign,
     CreateProcessingJobForAudioTrack,
     DeleteCampaign,
@@ -52,6 +53,7 @@ class Stage1UseCases:
     submit_recording_for_processing: SubmitRecordingForProcessing
     run_processing_job: RunProcessingJob
     restart_failed_processing_job: RestartFailedProcessingJob
+    clear_failed_jobs_for_campaign: ClearFailedJobsForCampaign
     list_jobs_for_campaign: ListJobsForCampaign
     get_job_status: GetJobStatus
     review_speaker_mappings: ReviewSpeakerMappings

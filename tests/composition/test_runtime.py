@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 
 from notekeeper.application import (
+    ClearFailedJobsForCampaign,
     CreateCampaign,
     CreateProcessingJobForAudioTrack,
     DeleteCampaign,
@@ -49,6 +50,10 @@ def test_build_runtime_assembles_stage1_use_cases_and_diagnostics(
     assert isinstance(
         runtime.use_cases.restart_failed_processing_job,
         RestartFailedProcessingJob,
+    )
+    assert isinstance(
+        runtime.use_cases.clear_failed_jobs_for_campaign,
+        ClearFailedJobsForCampaign,
     )
     assert diagnostics.deepseek_configured is True
     assert diagnostics.huggingface_configured is True

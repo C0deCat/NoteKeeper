@@ -106,6 +106,11 @@ class ListJobsForCampaignCommand:
 
 
 @dataclass(frozen=True, slots=True)
+class ClearFailedJobsForCampaignCommand:
+    campaign_id: str
+
+
+@dataclass(frozen=True, slots=True)
 class UpdateAudioTrackCommand:
     campaign_id: str
     audio_track_id: str
@@ -203,6 +208,7 @@ class SyncCampaignFolderCommand:
 __all__ = [
     "AddParticipantToCampaignCommand",
     "AddVoiceSampleCommand",
+    "ClearFailedJobsForCampaignCommand",
     "CreateCampaignCommand",
     "CreateProcessingJobForAudioTrackCommand",
     "DeleteAudioTrackCommand",

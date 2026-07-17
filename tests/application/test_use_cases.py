@@ -10,6 +10,8 @@ from notekeeper.application import (
     AddVoiceSample,
     AddVoiceSampleCommand,
     CampaignFolderSnapshot,
+    ClearFailedJobsForCampaign,
+    ClearFailedJobsForCampaignCommand,
     CreateCampaign,
     CreateCampaignCommand,
     CreateProcessingJobForAudioTrack,
@@ -56,6 +58,7 @@ from notekeeper.domain import (
     ArtifactRef,
     AudioMetadata,
     AudioTrack,
+    AudioTrackId,
     Campaign,
     CampaignId,
     CampaignValidationError,
@@ -267,6 +270,25 @@ class FakeSpeakerMappingRepository:
         )
 
 
+class FakeFailedJobCleaner:
+    def __init__(self, job_repository: InMemoryRepository) -> None:
+        self._job_repository = job_repository
+        self.calls: list[tuple[CampaignId, tuple[ProcessingJob, ...]]] = []
+        self.error: Exception | None = None
+
+    def clean(
+        self,
+        campaign_id: CampaignId,
+        jobs: tuple[ProcessingJob, ...],
+    ) -> tuple[ProcessingJobId, ...]:
+        self.calls.append((campaign_id, jobs))
+        if self.error is not None:
+            raise self.error
+        for job in jobs:
+            self._job_repository.delete(job.id)
+        return tuple(job.id for job in jobs)
+
+
 class FakeTokenizer:
     def __init__(self) -> None:
         self.calls: list[tuple[Transcript, int]] = []
@@ -374,6 +396,7 @@ class Harness:
         self.transcripts = InMemoryRepository()
         self.recaps = InMemoryRepository()
         self.jobs = InMemoryRepository()
+        self.failed_job_cleaner = FakeFailedJobCleaner(self.jobs)
         self.metadata_reader = FakeMetadataReader()
         self.audio_processor = FakeAudioProcessor()
         self.transcriber = FakeTranscriber()
@@ -463,6 +486,13 @@ class Harness:
             self.recap_generator,
             self.clock,
             self.ids,
+        )
+
+    def clear_failed_jobs_use_case(self) -> ClearFailedJobsForCampaign:
+        return ClearFailedJobsForCampaign(
+            self.campaigns,
+            self.jobs,
+            self.failed_job_cleaner,
         )
 
     def sync_use_case(self) -> SyncCampaignFolder:
@@ -741,6 +771,70 @@ def test_restart_failed_processing_job_rejects_non_failed_job() -> None:
         )
 
     assert harness.jobs.items == {pending.id: pending}
+
+
+def test_clear_failed_jobs_for_campaign_filters_and_deletes_only_failed_jobs() -> None:
+    harness = Harness()
+    campaign = harness.ready_campaign("Alice")
+    failed_jobs = tuple(
+        ProcessingJob(
+            id=ProcessingJobId(f"job-failed-{index}"),
+            campaign_id=campaign.id,
+            audio_track_id=AudioTrackId("audio-track-1"),
+            status=JobStatus.FAILED,
+            created_at=harness.clock.now(),
+            updated_at=harness.clock.now(),
+            error_message="failed",
+        )
+        for index in range(1, 3)
+    )
+    pending_job = ProcessingJob(
+        id=ProcessingJobId("job-pending"),
+        campaign_id=campaign.id,
+        audio_track_id=AudioTrackId("audio-track-1"),
+        status=JobStatus.PENDING,
+        created_at=harness.clock.now(),
+        updated_at=harness.clock.now(),
+    )
+    for job in (*failed_jobs, pending_job):
+        harness.jobs.save(job)
+
+    result = harness.clear_failed_jobs_use_case().execute(
+        ClearFailedJobsForCampaignCommand(campaign_id=str(campaign.id)),
+    )
+
+    assert result.deleted_job_ids == ("job-failed-1", "job-failed-2")
+    assert harness.failed_job_cleaner.calls == [(campaign.id, failed_jobs)]
+    assert harness.jobs.items == {pending_job.id: pending_job}
+
+    repeated = harness.clear_failed_jobs_use_case().execute(
+        ClearFailedJobsForCampaignCommand(campaign_id=str(campaign.id)),
+    )
+    assert repeated.deleted_job_ids == ()
+    assert len(harness.failed_job_cleaner.calls) == 1
+
+
+def test_clear_failed_jobs_keeps_jobs_when_cleaner_fails() -> None:
+    harness = Harness()
+    campaign = harness.ready_campaign("Alice")
+    failed_job = ProcessingJob(
+        id=ProcessingJobId("job-failed"),
+        campaign_id=campaign.id,
+        audio_track_id=AudioTrackId("audio-track-1"),
+        status=JobStatus.FAILED,
+        created_at=harness.clock.now(),
+        updated_at=harness.clock.now(),
+        error_message="failed",
+    )
+    harness.jobs.save(failed_job)
+    harness.failed_job_cleaner.error = InfrastructureError("cleanup failed")
+
+    with pytest.raises(InfrastructureError, match="cleanup failed"):
+        harness.clear_failed_jobs_use_case().execute(
+            ClearFailedJobsForCampaignCommand(campaign_id=str(campaign.id)),
+        )
+
+    assert harness.jobs.get(failed_job.id) == failed_job
 
 
 def test_run_processing_job_completes_clean_mapping_flow() -> None:

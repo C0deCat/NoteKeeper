@@ -7,6 +7,8 @@ from textual.coordinate import Coordinate
 from textual.widgets import Button, DataTable, Input, Static
 
 from notekeeper.application import (
+    ClearFailedJobsForCampaignCommand,
+    ClearFailedJobsForCampaignResult,
     CreateProcessingJobForAudioTrackCommand,
     CreateProcessingJobForAudioTrackResult,
     CreateCampaignResult,
@@ -44,7 +46,9 @@ from notekeeper.domain import (
 from notekeeper.interfaces import RuntimeDiagnostics, Stage1UseCases
 from notekeeper.interfaces.tui import NoteKeeperTui, RecordingScreen, VoiceSampleScreen
 from notekeeper.interfaces.tui.campaign_management_screen import ManageCampaignsScreen
+from notekeeper.interfaces.tui.clear_failed_jobs_screen import ClearFailedJobsScreen
 from notekeeper.interfaces.tui.identifier_data_table import compact_identifier
+from notekeeper.interfaces.tui.review_app import ReviewMappingsScreen
 from notekeeper.interfaces.tui.tui import DashboardWarning
 
 
@@ -70,6 +74,32 @@ class FakeRestartUseCase(FakeUseCase):
             jobs=(*existing_jobs, result.job),
         )
         return result
+
+
+class FakeClearFailedJobsUseCase:
+    def __init__(self, list_jobs_use_case: FakeUseCase) -> None:
+        self.list_jobs_use_case = list_jobs_use_case
+        self.commands = []
+
+    def execute(self, command):
+        self.commands.append(command)
+        jobs = self.list_jobs_use_case.result.jobs
+        deleted_job_ids = tuple(
+            str(job.id)
+            for job in jobs
+            if str(job.campaign_id) == command.campaign_id
+            and job.status is JobStatus.FAILED
+        )
+        self.list_jobs_use_case.result = ListJobsForCampaignResult(
+            jobs=tuple(
+                job
+                for job in jobs
+                if str(job.id) not in deleted_job_ids
+            ),
+        )
+        return ClearFailedJobsForCampaignResult(
+            deleted_job_ids=deleted_job_ids,
+        )
 
 
 class FakeJobStatusUseCase:
@@ -229,6 +259,7 @@ class FakeRuntime:
                 ),
                 list_jobs,
             ),
+            clear_failed_jobs_for_campaign=FakeClearFailedJobsUseCase(list_jobs),
             list_jobs_for_campaign=list_jobs,
             get_job_status=FakeJobStatusUseCase((job, second_job, restarted_job)),
             review_speaker_mappings=FakeUseCase(GetJobStatusResult(job=job)),
@@ -427,16 +458,20 @@ def test_tui_action_buttons_follow_current_dashboard_context() -> None:
             assert app.query_one("#add-sample", Button).disabled is False
             assert app.query_one("#submit-recording", Button).disabled is True
             assert app.query_one("#create-job", Button).display is False
-            assert app.query_one("#run-job", Button).display is True
-            assert app.query_one("#run-job", Button).disabled is True
-            assert app.query_one("#restart-job", Button).disabled is True
+            action_button = app.query_one("#job-action", Button)
+            assert action_button.display is True
+            assert action_button.disabled is True
+            assert str(action_button.label) == "Restart"
+            assert action_button.variant == "success"
+            assert app.query_one("#clear-failed-jobs", Button).disabled is False
 
             jobs_table = app.query_one("#jobs-table", DataTable)
             app._select_table_row(jobs_table, "job-1")
             await pilot.pause()
             assert isinstance(app._selected_object, ProcessingJob)
             assert str(app._selected_object.id) == "job-1"
-            assert app.query_one("#run-job", Button).disabled is False
+            assert action_button.disabled is False
+            assert str(action_button.label) == "Run"
 
             campaign = runtime.use_cases.list_campaigns.result.campaigns[0]
             participant = runtime.use_cases.list_participants.result.participants[0]
@@ -465,12 +500,14 @@ def test_tui_action_buttons_follow_current_dashboard_context() -> None:
             await pilot.pause()
             assert app.query_one("#create-job", Button).display is True
             assert app.query_one("#create-job", Button).disabled is False
-            assert app.query_one("#run-job", Button).display is False
+            assert action_button.display is False
 
             jobs_table = app.query_one("#jobs-table", DataTable)
             app._select_table_row(jobs_table, "job-2")
             await pilot.pause()
-            assert app.query_one("#restart-job", Button).disabled is False
+            assert action_button.display is True
+            assert action_button.disabled is False
+            assert str(action_button.label) == "Restart"
 
             waiting_job = replace(
                 runtime.use_cases.list_jobs_for_campaign.result.jobs[1],
@@ -484,7 +521,9 @@ def test_tui_action_buttons_follow_current_dashboard_context() -> None:
             )
             app._selected_object = waiting_job
             app.refresh_dashboard(update_campaigns=False)
-            assert app.query_one("#review-job", Button).disabled is False
+            assert action_button.display is True
+            assert action_button.disabled is False
+            assert str(action_button.label) == "Review and Continue"
             assert app.query_one("#preview-transcript", Button).disabled is False
             assert app.query_one("#export-transcript", Button).disabled is False
             assert app.query_one("#preview-recap", Button).disabled is True
@@ -498,7 +537,7 @@ def test_tui_action_buttons_follow_current_dashboard_context() -> None:
                 jobs=(pending_job, completed_job),
             )
             app.refresh_dashboard(update_campaigns=False)
-            assert app.query_one("#review-job", Button).disabled is True
+            assert action_button.display is False
             assert app.query_one("#preview-recap", Button).disabled is False
             assert app.query_one("#export-recap", Button).disabled is False
 
@@ -544,9 +583,7 @@ def test_tui_players_and_warnings_are_selectable_without_object_actions() -> Non
             }
             object_button_ids = (
                 "create-job",
-                "run-job",
-                "restart-job",
-                "review-job",
+                "job-action",
                 "preview-transcript",
                 "preview-recap",
                 "export-transcript",
@@ -777,9 +814,8 @@ def test_tui_dashboard_loads_without_campaigns() -> None:
             assert app.query_one("#add-sample", Button).disabled is True
             assert app.query_one("#submit-recording", Button).disabled is True
             assert app.query_one("#create-job", Button).display is False
-            assert app.query_one("#run-job", Button).display is False
-            assert app.query_one("#restart-job", Button).display is False
-            assert app.query_one("#review-job", Button).display is False
+            assert app.query_one("#job-action", Button).display is False
+            assert app.query_one("#clear-failed-jobs", Button).disabled is True
             assert app.query_one("#preview-transcript", Button).display is False
             assert app.query_one("#export-transcript", Button).display is False
             assert app.query_one("#preview-recap", Button).display is False
@@ -856,10 +892,12 @@ def test_tui_run_job_button_uses_selected_job() -> None:
             await pilot.pause()
             jobs_table = app.query_one("#jobs-table", DataTable)
             assert jobs_table.cursor_type == "row"
-            app._select_table_row(jobs_table, "job-2")
+            app._select_table_row(jobs_table, "job-1")
             assert isinstance(app._selected_object, ProcessingJob)
-            assert str(app._selected_object.id) == "job-2"
-            app.on_button_pressed(SimpleNamespace(button=SimpleNamespace(id="run-job")))
+            assert str(app._selected_object.id) == "job-1"
+            app.on_button_pressed(
+                SimpleNamespace(button=SimpleNamespace(id="job-action")),
+            )
             for _ in range(20):
                 await pilot.pause()
                 if runtime.use_cases.run_processing_job.commands:
@@ -869,7 +907,7 @@ def test_tui_run_job_button_uses_selected_job() -> None:
 
             command = runtime.use_cases.run_processing_job.commands[0]
             assert isinstance(command, RunProcessingJobCommand)
-            assert command.job_id == "job-2"
+            assert command.job_id == "job-1"
 
     asyncio.run(run())
 
@@ -885,7 +923,7 @@ def test_tui_restart_failed_job_button_uses_selected_failed_job() -> None:
             assert isinstance(app._selected_object, ProcessingJob)
             assert str(app._selected_object.id) == "job-2"
             app.on_button_pressed(
-                SimpleNamespace(button=SimpleNamespace(id="restart-job")),
+                SimpleNamespace(button=SimpleNamespace(id="job-action")),
             )
             await pilot.pause()
 
@@ -900,21 +938,74 @@ def test_tui_restart_failed_job_button_uses_selected_failed_job() -> None:
     asyncio.run(run())
 
 
-def test_tui_restart_failed_job_rejects_non_failed_selection() -> None:
+def test_tui_job_action_opens_review_for_waiting_job() -> None:
     async def run() -> None:
         runtime = FakeRuntime()
+        waiting_job = replace(
+            runtime.use_cases.list_jobs_for_campaign.result.jobs[1],
+            status=JobStatus.WAITING_FOR_REVIEW,
+            transcript_id="transcript-1",
+            error_message=None,
+        )
+        runtime.use_cases.list_jobs_for_campaign.result = ListJobsForCampaignResult(
+            jobs=(
+                runtime.use_cases.list_jobs_for_campaign.result.jobs[0],
+                waiting_job,
+            ),
+        )
         app = NoteKeeperTui(runtime)
         async with app.run_test() as pilot:
             await pilot.pause()
             jobs_table = app.query_one("#jobs-table", DataTable)
-            app._select_table_row(jobs_table, "job-1")
+            app._select_table_row(jobs_table, "job-2")
             app.on_button_pressed(
-                SimpleNamespace(button=SimpleNamespace(id="restart-job")),
+                SimpleNamespace(button=SimpleNamespace(id="job-action")),
             )
             await pilot.pause()
 
-            assert not runtime.use_cases.restart_failed_processing_job.commands
-            assert "Job is not failed" in str(app.query_one("#status", Static).render())
+            assert isinstance(app.screen, ReviewMappingsScreen)
+
+    asyncio.run(run())
+
+
+def test_tui_clear_failed_jobs_confirms_and_refreshes_current_campaign() -> None:
+    async def run() -> None:
+        runtime = FakeRuntime()
+        app = NoteKeeperTui(runtime)
+        async with app.run_test(size=(120, 50)) as pilot:
+            await pilot.pause()
+            clear_button = app.query_one("#clear-failed-jobs", Button)
+            jobs_header = app.query_one("#jobs-header")
+            assert clear_button.parent is jobs_header
+            assert clear_button.disabled is False
+
+            clear_button.press()
+            await pilot.pause()
+            assert isinstance(app.screen, ClearFailedJobsScreen)
+            assert "Clear 1 failed job" in str(
+                app.screen.query_one("Label").render(),
+            )
+
+            app.screen.query_one("#confirm-clear", Button).press()
+            for _ in range(30):
+                await pilot.pause()
+                if runtime.use_cases.clear_failed_jobs_for_campaign.commands:
+                    break
+            for _ in range(30):
+                await pilot.pause()
+                if app.query_one("#jobs-table", DataTable).row_count == 1:
+                    break
+
+            command = runtime.use_cases.clear_failed_jobs_for_campaign.commands[0]
+            assert isinstance(command, ClearFailedJobsForCampaignCommand)
+            assert command.campaign_id == "campaign-1"
+            assert app.query_one("#jobs-table", DataTable).row_count == 1
+            assert isinstance(app._selected_object, ProcessingJob)
+            assert str(app._selected_object.id) == "job-1"
+            assert clear_button.disabled is True
+            assert "Cleared 1 failed jobs" in str(
+                app.query_one("#status", Static).render(),
+            )
 
     asyncio.run(run())
 
