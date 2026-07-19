@@ -1107,6 +1107,153 @@ def test_review_speaker_mappings_completes_job_after_manual_fix() -> None:
     assert harness.speaker_mappings.records[-1].diagnostics == {"warning_count": 0}
 
 
+def test_review_speaker_mappings_completes_with_custom_and_kept_labels() -> None:
+    harness = Harness()
+    harness.ready_campaign("Alice")
+    harness.transcriber.segments = (
+        segment(0, 0, 1, "SPEAKER_00", "Alice speaks"),
+        segment(1, 1, 2, "SPEAKER_01", "A guest speaks"),
+        segment(2, 2, 3, "SPEAKER_02", "Another guest speaks"),
+    )
+    harness.speaker_identifier.mappings = (
+        confirmed_mapping("SPEAKER_00", "Alice", "participant-1"),
+    )
+    submitted = harness.submit_use_case().execute(
+        SubmitRecordingForProcessingCommand(
+            campaign_id="campaign-1",
+            artifact_uri="sessions/session-1.wav",
+        ),
+    )
+    waiting = harness.run_use_case().execute(
+        RunProcessingJobCommand(job_id=submitted.job.id),
+    )
+
+    result = harness.review_use_case().execute(
+        ReviewSpeakerMappingsCommand(
+            job_id=waiting.job.id,
+            mappings=(
+                ManualSpeakerMappingCommand(
+                    anonymous_label="SPEAKER_01",
+                    named_label=" Random Guest ",
+                    confidence=1.0,
+                ),
+                ManualSpeakerMappingCommand(
+                    anonymous_label="SPEAKER_02",
+                    named_label="SPEAKER_02",
+                    confidence=1.0,
+                ),
+            ),
+        ),
+    )
+
+    assert result.job.status is JobStatus.COMPLETED
+    assert result.warnings == ()
+    assert result.recap is not None
+    assert [segment.speaker_label for segment in result.transcript.segments] == [
+        SpeakerLabel.named("Alice"),
+        SpeakerLabel.named("Random Guest"),
+        SpeakerLabel.named("SPEAKER_02"),
+    ]
+    manual_records = harness.speaker_mappings.records[-2:]
+    assert all(record.mapping.participant_id is None for record in manual_records)
+
+
+def test_review_speaker_mappings_partial_review_stays_waiting() -> None:
+    harness = Harness()
+    harness.ready_campaign("Alice")
+    harness.transcriber.segments = (
+        segment(0, 0, 1, "SPEAKER_00", "A guest speaks"),
+        segment(1, 1, 2, "SPEAKER_01", "Another guest speaks"),
+    )
+    submitted = harness.submit_use_case().execute(
+        SubmitRecordingForProcessingCommand(
+            campaign_id="campaign-1",
+            artifact_uri="sessions/session-1.wav",
+        ),
+    )
+    waiting = harness.run_use_case().execute(
+        RunProcessingJobCommand(job_id=submitted.job.id),
+    )
+
+    result = harness.review_use_case().execute(
+        ReviewSpeakerMappingsCommand(
+            job_id=waiting.job.id,
+            mappings=(
+                ManualSpeakerMappingCommand(
+                    anonymous_label="SPEAKER_00",
+                    named_label="Random Guest",
+                    confidence=1.0,
+                ),
+            ),
+        ),
+    )
+
+    assert result.job.status is JobStatus.WAITING_FOR_REVIEW
+    assert result.recap is None
+    assert [segment.speaker_label.value for segment in result.transcript.segments] == [
+        "Random Guest",
+        "SPEAKER_01",
+    ]
+    assert PipelineWarningKind.UNRESOLVED_SPEAKER_LABEL in {
+        warning.kind for warning in result.warnings
+    }
+
+
+@pytest.mark.parametrize(
+    "mappings",
+    (
+        (
+            ManualSpeakerMappingCommand(
+                anonymous_label="SPEAKER_00",
+                named_label=" ",
+            ),
+        ),
+        (
+            ManualSpeakerMappingCommand(
+                anonymous_label="SPEAKER_00",
+                participant_id="participant-1",
+                named_label="Guest",
+            ),
+        ),
+        (
+            ManualSpeakerMappingCommand(
+                anonymous_label="SPEAKER_00",
+                participant_id="participant-1",
+            ),
+            ManualSpeakerMappingCommand(
+                anonymous_label="SPEAKER_00",
+                named_label="Guest",
+            ),
+        ),
+    ),
+)
+def test_review_speaker_mappings_rejects_invalid_manual_decisions(
+    mappings: tuple[ManualSpeakerMappingCommand, ...],
+) -> None:
+    harness = Harness()
+    harness.ready_campaign("Alice")
+    harness.transcriber.segments = (
+        segment(0, 0, 1, "SPEAKER_00", "A guest speaks"),
+    )
+    submitted = harness.submit_use_case().execute(
+        SubmitRecordingForProcessingCommand(
+            campaign_id="campaign-1",
+            artifact_uri="sessions/session-1.wav",
+        ),
+    )
+    waiting = harness.run_use_case().execute(
+        RunProcessingJobCommand(job_id=submitted.job.id),
+    )
+
+    with pytest.raises(InvalidOperationError):
+        harness.review_use_case().execute(
+            ReviewSpeakerMappingsCommand(
+                job_id=waiting.job.id,
+                mappings=mappings,
+            ),
+        )
+
+
 def test_generate_recap_and_export_markdown_use_artifact_storage() -> None:
     harness = Harness()
     transcript = Transcript(

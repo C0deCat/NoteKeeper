@@ -1,4 +1,5 @@
 from datetime import datetime
+from types import SimpleNamespace
 
 from typer.testing import CliRunner
 
@@ -14,7 +15,9 @@ from notekeeper.application import (
     ListJobsForCampaignResult,
     ListParticipantsResult,
     ListVoiceSamplesResult,
+    ManualSpeakerMappingCommand,
     MarkdownPreviewResult,
+    ReviewSpeakerMappingsCommand,
     RestartFailedProcessingJobCommand,
     RestartFailedProcessingJobResult,
     SyncCampaignFolderCommand,
@@ -245,6 +248,63 @@ def test_cli_job_restart_uses_failed_restart_use_case() -> None:
     command = runtime.use_cases.restart_failed_processing_job.commands[0]
     assert isinstance(command, RestartFailedProcessingJobCommand)
     assert command.job_id == "job-failed"
+
+
+def test_cli_review_submit_supports_player_custom_and_keep_decisions() -> None:
+    runtime = FakeRuntime()
+    runtime.use_cases.review_speaker_mappings.result = SimpleNamespace(
+        job=runtime.use_cases.get_job_status.result.job,
+        warnings=(),
+    )
+    app = build_app(lambda: runtime, lambda value: None)
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "cli",
+            "review",
+            "submit",
+            "job-1",
+            "--mapping",
+            "SPEAKER_00=participant-1",
+            "--label",
+            "SPEAKER_01=Random Guest",
+            "--keep",
+            "SPEAKER_02",
+        ],
+    )
+
+    assert result.exit_code == 0
+    command = runtime.use_cases.review_speaker_mappings.commands[0]
+    assert isinstance(command, ReviewSpeakerMappingsCommand)
+    assert command.mappings == (
+        ManualSpeakerMappingCommand(
+            anonymous_label="SPEAKER_00",
+            participant_id="participant-1",
+            confidence=1.0,
+        ),
+        ManualSpeakerMappingCommand(
+            anonymous_label="SPEAKER_01",
+            named_label="Random Guest",
+            confidence=1.0,
+        ),
+        ManualSpeakerMappingCommand(
+            anonymous_label="SPEAKER_02",
+            named_label="SPEAKER_02",
+            confidence=1.0,
+        ),
+    )
+
+
+def test_cli_review_submit_requires_at_least_one_decision() -> None:
+    runtime = FakeRuntime()
+    app = build_app(lambda: runtime, lambda value: None)
+
+    result = CliRunner().invoke(app, ["cli", "review", "submit", "job-1"])
+
+    assert result.exit_code == 1
+    assert "at least one --mapping, --label, or --keep is required" in result.output
+    assert runtime.use_cases.review_speaker_mappings.commands == []
 
 
 def test_cli_diagnostics_does_not_print_secret_values() -> None:

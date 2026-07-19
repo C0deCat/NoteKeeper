@@ -4,7 +4,7 @@ from datetime import datetime
 from types import SimpleNamespace
 
 from textual.coordinate import Coordinate
-from textual.widgets import Button, DataTable, Input, Select, Static
+from textual.widgets import Button, DataTable, Input, Select, Static, Switch
 
 from notekeeper.application import (
     ClearFailedJobsForCampaignCommand,
@@ -25,6 +25,7 @@ from notekeeper.application import (
     ListJobsForCampaignResult,
     ListParticipantsResult,
     ListVoiceSamplesResult,
+    ManualSpeakerMappingCommand,
     RestartFailedProcessingJobCommand,
     RestartFailedProcessingJobResult,
     RunProcessingJobCommand,
@@ -46,6 +47,7 @@ from notekeeper.domain import (
     PipelineWarning,
     PipelineWarningKind,
     ProcessingJob,
+    SpeakerLabel,
     VoiceSample,
 )
 from notekeeper.interfaces import RuntimeDiagnostics, Stage1UseCases
@@ -1242,6 +1244,121 @@ def test_tui_job_action_opens_review_for_waiting_job() -> None:
             await pilot.pause()
 
             assert isinstance(app.screen, ReviewMappingsScreen)
+
+    asyncio.run(run())
+
+
+def test_tui_review_screen_collects_player_and_custom_label_decisions() -> None:
+    async def run() -> None:
+        runtime = FakeRuntime()
+        job = runtime.use_cases.list_jobs_for_campaign.result.jobs[0]
+        waiting_job = replace(
+            job,
+            status=JobStatus.WAITING_FOR_REVIEW,
+            transcript_id="transcript-1",
+            warnings=(
+                PipelineWarning(
+                    kind=PipelineWarningKind.UNRESOLVED_SPEAKER_LABEL,
+                    message="SPEAKER_00 is unresolved",
+                    speaker_label=SpeakerLabel.anonymous("SPEAKER_00"),
+                ),
+                PipelineWarning(
+                    kind=PipelineWarningKind.UNRESOLVED_SPEAKER_LABEL,
+                    message="SPEAKER_01 is unresolved",
+                    speaker_label=SpeakerLabel.anonymous("SPEAKER_01"),
+                ),
+            ),
+        )
+        participants = runtime.use_cases.list_participants.result.participants
+        results = []
+        app = NoteKeeperTui(runtime)
+        async with app.run_test() as pilot:
+            app.push_screen(
+                ReviewMappingsScreen(waiting_job, participants),
+                results.append,
+            )
+            await pilot.pause()
+            screen = app.screen
+
+            assert isinstance(screen, ReviewMappingsScreen)
+            assert len(screen.query(".review-mapping")) == 2
+            assert screen.query_one("#review-label-0", Input).value == "SPEAKER_00"
+            assert screen.query_one("#review-label-1", Input).value == "SPEAKER_01"
+            assert screen.query_one("#review-participant-0", Select).display is True
+            assert screen.query_one("#review-label-0", Input).display is False
+
+            screen.query_one("#submit", Button).press()
+            await pilot.pause()
+            assert app.screen is screen
+            assert "Select a player for SPEAKER_00" in str(
+                screen.query_one("#review-error", Static).render(),
+            )
+
+            screen.query_one("#review-participant-0", Select).value = "participant-1"
+            screen.query_one("#review-mode-1", Switch).value = True
+            await pilot.pause()
+            assert screen.query_one("#review-participant-1", Select).display is False
+            assert screen.query_one("#review-label-1", Input).display is True
+            screen.query_one("#review-label-1", Input).value = "Random Guest"
+            screen.query_one("#submit", Button).press()
+            await pilot.pause()
+
+            assert results == [
+                (
+                    ManualSpeakerMappingCommand(
+                        anonymous_label="SPEAKER_00",
+                        participant_id="participant-1",
+                        confidence=1.0,
+                    ),
+                    ManualSpeakerMappingCommand(
+                        anonymous_label="SPEAKER_01",
+                        named_label="Random Guest",
+                        confidence=1.0,
+                    ),
+                ),
+            ]
+
+    asyncio.run(run())
+
+
+def test_tui_review_screen_defaults_to_custom_labels_without_players() -> None:
+    async def run() -> None:
+        runtime = FakeRuntime()
+        job = runtime.use_cases.list_jobs_for_campaign.result.jobs[0]
+        waiting_job = replace(
+            job,
+            status=JobStatus.WAITING_FOR_REVIEW,
+            transcript_id="transcript-1",
+            warnings=(
+                PipelineWarning(
+                    kind=PipelineWarningKind.UNRESOLVED_SPEAKER_LABEL,
+                    message="SPEAKER_00 is unresolved",
+                    speaker_label=SpeakerLabel.anonymous("SPEAKER_00"),
+                ),
+            ),
+        )
+        results = []
+        app = NoteKeeperTui(runtime)
+        async with app.run_test() as pilot:
+            app.push_screen(ReviewMappingsScreen(waiting_job, ()), results.append)
+            await pilot.pause()
+            screen = app.screen
+
+            assert isinstance(screen, ReviewMappingsScreen)
+            assert screen.query_one("#review-mode-0", Switch).value is True
+            assert screen.query_one("#review-label-0", Input).display is True
+            screen.query_one("#submit", Button).press()
+            await pilot.pause()
+
+            assert results == [
+                (
+                    ManualSpeakerMappingCommand(
+                        anonymous_label="SPEAKER_00",
+                        named_label="SPEAKER_00",
+                        confidence=1.0,
+                    ),
+                ),
+            ]
 
     asyncio.run(run())
 

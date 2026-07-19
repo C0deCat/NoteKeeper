@@ -114,6 +114,36 @@ Screen {
     margin-right: 1;
 }
 
+.review-mappings {
+    height: auto;
+    max-height: 32;
+    overflow-y: auto;
+}
+
+.review-mapping {
+    height: auto;
+    border-bottom: solid $secondary;
+    padding: 1 0;
+}
+
+.review-speaker-label {
+    text-style: bold;
+}
+
+.review-mode {
+    height: 3;
+    align: left middle;
+}
+
+.review-mode Switch {
+    margin: 0 1;
+}
+
+.review-error {
+    min-height: 1;
+    color: $error;
+}
+
 #campaigns-table {
     height: 12;
     border: solid $accent;

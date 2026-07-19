@@ -238,6 +238,30 @@ def test_sqlite_speaker_mapping_repository_round_trips_records(
     assert mappings.list_for_job(ProcessingJobId("missing")) == ()
 
 
+def test_sqlite_speaker_mapping_repository_round_trips_standalone_label(
+    tmp_path: Path,
+) -> None:
+    database = _database(tmp_path)
+    mappings = SQLiteSpeakerMappingRepository(database)
+    record = SpeakerMappingRecord(
+        job_id=ProcessingJobId("job-1"),
+        transcript_id=TranscriptId("transcript-1"),
+        mapping=SpeakerMapping(
+            anonymous_label=SpeakerLabel.anonymous("SPEAKER_01"),
+            named_label=SpeakerLabel.named("Random Guest"),
+            participant_id=None,
+            confidence=1.0,
+            source=SpeakerMappingSource.MANUAL,
+            status=SpeakerMappingStatus.CONFIRMED,
+        ),
+        diagnostics={"warning_count": 0},
+    )
+
+    mappings.save_many((record,))
+
+    assert mappings.list_for_job(ProcessingJobId("job-1")) == (record,)
+
+
 def _database(tmp_path: Path) -> SQLiteDatabase:
     database = SQLiteDatabase(tmp_path / "notekeeper.sqlite3")
     database.initialize()

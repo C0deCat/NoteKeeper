@@ -97,7 +97,10 @@ Label может быть:
 
 ### SpeakerMapping
 
-`SpeakerMapping` описывает решение о сопоставлении анонимного speaker label с конкретным участником campaign.
+`SpeakerMapping` описывает решение о сопоставлении анонимного speaker label с
+конкретным участником campaign либо с самостоятельным именованным label для гостя.
+Подтвержденный ручной mapping может не иметь `participant id`, если `named label`
+задан явно.
 
 Он может хранить:
 

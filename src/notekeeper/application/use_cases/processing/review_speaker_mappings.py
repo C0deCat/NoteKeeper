@@ -138,31 +138,72 @@ def _build_manual_mappings(
     campaign: Campaign,
     commands: tuple[ManualSpeakerMappingCommand, ...],
 ) -> tuple[SpeakerMapping, ...]:
-    participants = {participant.id: participant for participant in campaign.participants}
+    participants = {
+        participant.id: participant for participant in campaign.participants
+    }
     mappings: list[SpeakerMapping] = []
+    reviewed_labels: set[SpeakerLabel] = set()
     for command in commands:
-        participant_id = ParticipantId(command.participant_id)
-        participant = participants.get(participant_id)
-        if participant is None:
-            raise NotFoundError(f"participant {participant_id} was not found")
+        anonymous_label = SpeakerLabel.anonymous(command.anonymous_label)
+        if anonymous_label in reviewed_labels:
+            raise InvalidOperationError(
+                f"speaker label {anonymous_label.value} has multiple review decisions",
+            )
+        reviewed_labels.add(anonymous_label)
 
-        mappings.append(_manual_mapping(command, participant))
+        participant_id = _optional_text(command.participant_id)
+        named_label = _optional_text(command.named_label)
+        if (participant_id is None) == (named_label is None):
+            raise InvalidOperationError(
+                "manual speaker mapping must include exactly one of "
+                "participant_id or named_label",
+            )
+
+        participant = None
+        if participant_id is not None:
+            participant_key = ParticipantId(participant_id)
+            participant = participants.get(participant_key)
+            if participant is None:
+                raise NotFoundError(f"participant {participant_key} was not found")
+
+        mappings.append(
+            _manual_mapping(
+                command,
+                anonymous_label=anonymous_label,
+                participant=participant,
+                named_label=named_label,
+            ),
+        )
 
     return tuple(mappings)
 
 
 def _manual_mapping(
     command: ManualSpeakerMappingCommand,
-    participant: Participant,
+    *,
+    anonymous_label: SpeakerLabel,
+    participant: Participant | None,
+    named_label: str | None,
 ) -> SpeakerMapping:
+    resolved_label = participant.display_name if participant is not None else named_label
+    if resolved_label is None:
+        raise InvalidOperationError("manual speaker mapping has no resolved label")
+
     return SpeakerMapping(
-        anonymous_label=SpeakerLabel.anonymous(command.anonymous_label),
-        named_label=SpeakerLabel.named(participant.display_name),
-        participant_id=participant.id,
+        anonymous_label=anonymous_label,
+        named_label=SpeakerLabel.named(resolved_label),
+        participant_id=participant.id if participant is not None else None,
         confidence=command.confidence,
         source=SpeakerMappingSource.MANUAL,
         status=SpeakerMappingStatus.CONFIRMED,
     )
+
+
+def _optional_text(value: str | None) -> str | None:
+    if value is None:
+        return None
+    stripped = value.strip()
+    return stripped or None
 
 
 def _mapping_records(

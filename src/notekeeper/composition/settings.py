@@ -51,7 +51,7 @@ class NoteKeeperSettings(BaseSettings):
     deepseek_api_key: str | None = Field(default=None, repr=False)
     deepseek_base_url: str = "https://api.deepseek.com"
     deepseek_model_name: str = "deepseek-v4-pro"
-    deepseek_temperature: float = 0.2
+    deepseek_temperature: float = 0.7
     deepseek_timeout_seconds: float = 120.0
     deepseek_retry_count: int = 2
     deepseek_retry_backoff_seconds: float = 1.0

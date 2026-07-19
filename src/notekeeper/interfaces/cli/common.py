@@ -40,21 +40,59 @@ def inspect_audio(
 
 
 def parse_mapping(value: str) -> ManualSpeakerMappingCommand:
-    try:
-        anonymous_label, participant_id = value.split("=", 1)
-    except ValueError as exc:
-        raise ValueError("mapping must use SPEAKER_00=participant-id form") from exc
-
-    anonymous_label = anonymous_label.strip()
-    participant_id = participant_id.strip()
-    if not anonymous_label or not participant_id:
-        raise ValueError("mapping must include speaker label and participant id")
+    anonymous_label, participant_id = _split_review_value(
+        value,
+        expected="SPEAKER_00=participant-id",
+        target="participant id",
+    )
 
     return ManualSpeakerMappingCommand(
         anonymous_label=anonymous_label,
         participant_id=participant_id,
         confidence=1.0,
     )
+
+
+def parse_label_mapping(value: str) -> ManualSpeakerMappingCommand:
+    anonymous_label, named_label = _split_review_value(
+        value,
+        expected="SPEAKER_00=label",
+        target="label",
+    )
+    return ManualSpeakerMappingCommand(
+        anonymous_label=anonymous_label,
+        named_label=named_label,
+        confidence=1.0,
+    )
+
+
+def parse_keep_mapping(value: str) -> ManualSpeakerMappingCommand:
+    anonymous_label = value.strip()
+    if not anonymous_label:
+        raise ValueError("keep must include a speaker label")
+    return ManualSpeakerMappingCommand(
+        anonymous_label=anonymous_label,
+        named_label=anonymous_label,
+        confidence=1.0,
+    )
+
+
+def _split_review_value(
+    value: str,
+    *,
+    expected: str,
+    target: str,
+) -> tuple[str, str]:
+    try:
+        anonymous_label, resolved_value = value.split("=", 1)
+    except ValueError as exc:
+        raise ValueError(f"mapping must use {expected} form") from exc
+
+    anonymous_label = anonymous_label.strip()
+    resolved_value = resolved_value.strip()
+    if not anonymous_label or not resolved_value:
+        raise ValueError(f"mapping must include speaker label and {target}")
+    return anonymous_label, resolved_value
 
 
 def echo_campaign(campaign) -> None:

@@ -67,7 +67,10 @@ known, and any metadata-reading errors that prevent the use case from running.
 
 Speaker mapping review is a first-class TUI flow. For jobs waiting for review, the TUI
 should show unresolved anonymous speaker labels, candidate players, warnings, and a
-confirmation action that submits manual mappings through the application layer.
+confirmation action that submits manual mappings through the application layer. Each
+unresolved label can be assigned to an existing player or resolved to any non-empty
+label. Keeping the prefilled technical label marks that speaker as reviewed without
+changing the displayed label.
 
 ## Diagnostics and settings
 

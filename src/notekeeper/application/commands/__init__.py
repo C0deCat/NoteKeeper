@@ -164,8 +164,9 @@ RestartFailedProcessingJobCommand = RestartProcessingJobCommand
 @dataclass(frozen=True, slots=True)
 class ManualSpeakerMappingCommand:
     anonymous_label: str
-    participant_id: str
+    participant_id: str | None = None
     confidence: float | None = None
+    named_label: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
