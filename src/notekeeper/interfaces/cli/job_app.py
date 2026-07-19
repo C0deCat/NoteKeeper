@@ -4,6 +4,7 @@ import typer
 
 from notekeeper.application import (
     CreateProcessingJobForAudioTrackCommand,
+    GenerateRecapCommand,
     GetJobStatusCommand,
     ListJobsForCampaignCommand,
     RestartFailedProcessingJobCommand,
@@ -79,6 +80,18 @@ def create_app(runtime_factory: RuntimeFactory) -> typer.Typer:
             )
             typer.echo(f"restarted_from={result.source_job.id}")
             echo_audio_track(result.audio_track)
+            echo_job(result.job)
+
+        run(action)
+
+    @app.command("recreate-recap")
+    def recreate_recap(job_id: str) -> None:
+        runtime = runtime_factory()
+
+        def action() -> None:
+            result = runtime.use_cases.generate_recap.execute(
+                GenerateRecapCommand(job_id=job_id),
+            )
             echo_job(result.job)
 
         run(action)

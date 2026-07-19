@@ -86,6 +86,7 @@ class NoteKeeperTui(App[None]):
         self._clear_failed_jobs_in_progress = False
         self._job_delete_in_progress = False
         self._job_cancel_in_progress = False
+        self._recap_generation_in_progress = False
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -119,6 +120,7 @@ class NoteKeeperTui(App[None]):
                 yield Button("Run", id="job-action", variant="success")
                 yield Button("Delete", id="delete-job", variant="error")
                 yield Button("Cancel", id="cancel-job", variant="warning")
+                yield Button("Recreate Recap", id="recreate-recap")
                 yield Button("Preview Transcript", id="preview-transcript")
                 yield Button("Preview Recap", id="preview-recap")
                 yield Button("Export Transcript", id="export-transcript")
@@ -234,6 +236,8 @@ class NoteKeeperTui(App[None]):
             job_app.confirm_cancel_selected_job(self)
         elif button_id == "clear-failed-jobs":
             self._confirm_clear_failed_jobs()
+        elif button_id == "recreate-recap":
+            self._recreate_recap()
         elif button_id == "preview-transcript":
             self._preview_transcript()
         elif button_id == "preview-recap":
@@ -247,7 +251,13 @@ class NoteKeeperTui(App[None]):
 
     def on_worker_state_changed(self, event: Worker.StateChanged) -> None:
         if event.worker.group not in {
-            "cleanup", "job", "job-delete", "job-cancel", "review", "sync"
+            "cleanup",
+            "job",
+            "job-delete",
+            "job-cancel",
+            "recap",
+            "review",
+            "sync",
         }:
             return
 
@@ -261,6 +271,8 @@ class NoteKeeperTui(App[None]):
                 self._set_status("Deleting job")
             elif event.worker.group == "job-cancel":
                 self._set_status("Canceling job")
+            elif event.worker.group == "recap":
+                self._set_status("Recreating recap")
             else:
                 self._set_status("Running")
                 if event.worker.group == "job":
@@ -294,6 +306,12 @@ class NoteKeeperTui(App[None]):
                 message = f"Canceled job {event.worker.result.job.id}"
                 self._set_status(message)
                 self.notify(message)
+            elif event.worker.group == "recap":
+                self._recap_generation_in_progress = False
+                self.refresh_dashboard(update_campaigns=False)
+                message = f"Recreated recap {event.worker.result.recap.id}"
+                self._set_status(message)
+                self.notify(message)
             else:
                 self._set_status("Done")
                 self.refresh_dashboard(update_campaigns=False)
@@ -308,6 +326,9 @@ class NoteKeeperTui(App[None]):
             elif event.worker.group == "job-cancel":
                 self._job_cancel_in_progress = False
                 self._update_action_buttons()
+            elif event.worker.group == "recap":
+                self._recap_generation_in_progress = False
+                self._update_action_buttons()
             message = str(event.worker.error) if event.worker.error else "worker failed"
             self._set_status(message)
             self.notify(message, severity="error")
@@ -321,6 +342,9 @@ class NoteKeeperTui(App[None]):
                 self._update_action_buttons()
             elif event.worker.group == "job-cancel":
                 self._job_cancel_in_progress = False
+                self._update_action_buttons()
+            elif event.worker.group == "recap":
+                self._recap_generation_in_progress = False
                 self._update_action_buttons()
 
     def refresh_dashboard(self, *, update_campaigns: bool = True) -> None:
@@ -660,6 +684,7 @@ class NoteKeeperTui(App[None]):
             or str(selected_participant.id) not in self._participant_ids_with_samples,
         )
         for button_id in (
+            "recreate-recap",
             "preview-transcript",
             "export-transcript",
             "preview-recap",
@@ -704,6 +729,12 @@ class NoteKeeperTui(App[None]):
             or selected_job.status is not JobStatus.RUNNING
             or self._job_cancel_in_progress
             or self._job_delete_in_progress,
+        )
+        self._set_button_disabled(
+            "recreate-recap",
+            selected_job is None
+            or selected_job.transcript_id is None
+            or self._recap_generation_in_progress,
         )
         self._set_button_disabled(
             "preview-transcript",
@@ -878,6 +909,9 @@ class NoteKeeperTui(App[None]):
 
     def _preview_transcript(self) -> None:
         transcript_app.preview_transcript(self)
+
+    def _recreate_recap(self) -> None:
+        recap_app.recreate_recap(self)
 
     def _preview_recap(self) -> None:
         recap_app.preview_recap(self)

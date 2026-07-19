@@ -51,16 +51,16 @@ def test_export_recap_includes_ordered_chunks_before_overall_recap() -> None:
     storage = _export(recap)
 
     assert storage.content == (
-        "# Chunk Recaps\n\n"
-        "## Chunk 1\n\n"
+        "# Chunk 1\n\n"
         "**Time range:** 00:00:05 - 00:01:05\n\n"
         "## First Part\n\nFirst chunk recap.\n\n"
-        "## Chunk 2\n\n"
+        "# Chunk 2\n\n"
         "**Time range:** 00:01:05 - 01:01:05\n\n"
         "## Second Part\n\nSecond chunk recap.\n\n"
         "# Overall Recap\n\n"
         "# Session Recap\n\nOverall summary.\n"
     )
+    assert "# Chunk Recaps" not in storage.content
     assert "source_segment_indexes" not in storage.content
     assert storage.suggested_name == "recap-recap-1.md"
     assert storage.media_type == "text/markdown"
@@ -77,8 +77,7 @@ def test_export_recap_omits_missing_chunk_time_range() -> None:
     storage = _export(recap)
 
     assert storage.content == (
-        "# Chunk Recaps\n\n"
-        "## Chunk 1\n\n"
+        "# Chunk 1\n\n"
         "Chunk without a time range.\n\n"
         "# Overall Recap\n\n"
         "Overall summary.\n"

@@ -8,6 +8,7 @@ from notekeeper.application import (
     CreateProcessingJobForAudioTrack,
     DeleteCampaign,
     DeleteProcessingJob,
+    GenerateRecap,
     RestartFailedProcessingJob,
     UpdateCampaign,
 )
@@ -59,6 +60,7 @@ def test_build_runtime_assembles_stage1_use_cases_and_diagnostics(
     )
     assert isinstance(runtime.use_cases.delete_processing_job, DeleteProcessingJob)
     assert isinstance(runtime.use_cases.cancel_processing_job, CancelProcessingJob)
+    assert isinstance(runtime.use_cases.generate_recap, GenerateRecap)
     assert diagnostics.deepseek_configured is True
     assert diagnostics.huggingface_configured is True
     assert diagnostics.whisperx_vad_method == "pyannote"

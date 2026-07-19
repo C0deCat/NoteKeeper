@@ -1270,14 +1270,33 @@ def test_generate_recap_and_export_markdown_use_artifact_storage() -> None:
         ),
     )
     harness.transcripts.save(transcript)
+    old_recap = Recap(
+        id="recap-old",
+        transcript_id=transcript.id,
+        markdown="# Old recap",
+    )
+    harness.recaps.save(old_recap)
+    job = ProcessingJob(
+        id="job-1",
+        campaign_id=transcript.campaign_id,
+        audio_track_id=transcript.audio_track_id,
+        status=JobStatus.COMPLETED,
+        created_at=datetime(2026, 1, 1, 10, 0, 0),
+        updated_at=datetime(2026, 1, 1, 11, 0, 0),
+        transcript_id=transcript.id,
+        recap_id=old_recap.id,
+    )
+    harness.jobs.save(job)
 
     recap_result = GenerateRecap(
+        harness.jobs,
         harness.transcripts,
         harness.recaps,
         harness.tokenizer,
         harness.recap_generator,
+        harness.clock,
         harness.ids,
-    ).execute(GenerateRecapCommand(transcript_id=transcript.id))
+    ).execute(GenerateRecapCommand(job_id=job.id))
     transcript_export = ExportTranscriptMarkdown(
         harness.transcripts,
         harness.artifact_storage,
@@ -1289,15 +1308,94 @@ def test_generate_recap_and_export_markdown_use_artifact_storage() -> None:
 
     assert transcript_export.artifact.uri == "memory://transcript-transcript-1.md"
     assert recap_export.artifact.uri == "memory://recap-recap-1.md"
+    assert recap_result.job.recap_id == recap_result.recap.id
+    assert recap_result.job.transcript_id == transcript.id
+    assert recap_result.job.status is JobStatus.COMPLETED
+    assert recap_result.job.updated_at == datetime(2026, 1, 1, 12, 0, 0)
+    assert harness.jobs.get(job.id) == recap_result.job
+    assert harness.recaps.get(old_recap.id) == old_recap
+    assert harness.transcripts.get(transcript.id) == transcript
     assert (
         harness.recap_generator.generated_contexts[0].recap_id
         == recap_result.recap.id
     )
-    assert harness.recap_generator.generated_contexts[0].job_id is None
+    assert harness.recap_generator.generated_contexts[0].job_id == job.id
     transcript_content = harness.artifact_storage.saved["transcript-transcript-1.md"][0]
     recap_content = harness.artifact_storage.saved["recap-recap-1.md"][0]
     assert "[00:00:00 - 00:00:05] **Alice:** We enter the crypt." in transcript_content
     assert "## Summary" in recap_content
+
+
+def test_generate_recap_rejects_job_without_transcript() -> None:
+    harness = Harness()
+    job = ProcessingJob(
+        id="job-1",
+        campaign_id="campaign-1",
+        audio_track_id="audio-track-1",
+        status=JobStatus.PENDING,
+        created_at=datetime(2026, 1, 1),
+        updated_at=datetime(2026, 1, 1),
+    )
+    harness.jobs.save(job)
+
+    with pytest.raises(InvalidOperationError, match="has no transcript"):
+        GenerateRecap(
+            harness.jobs,
+            harness.transcripts,
+            harness.recaps,
+            harness.tokenizer,
+            harness.recap_generator,
+            harness.clock,
+            harness.ids,
+        ).execute(GenerateRecapCommand(job_id=job.id))
+
+    assert harness.jobs.get(job.id) == job
+    assert harness.recaps.items == {}
+
+
+def test_generate_recap_failure_preserves_existing_job_recap() -> None:
+    harness = Harness()
+    transcript = Transcript(
+        id="transcript-1",
+        campaign_id="campaign-1",
+        audio_track_id="audio-track-1",
+        segments=(
+            TranscriptSegment(
+                index=0,
+                time_range=TimeRange(0, 5),
+                speaker_label=SpeakerLabel.named("Alice"),
+                text="We enter the crypt.",
+            ),
+        ),
+    )
+    job = ProcessingJob(
+        id="job-1",
+        campaign_id="campaign-1",
+        audio_track_id="audio-track-1",
+        status=JobStatus.COMPLETED,
+        created_at=datetime(2026, 1, 1),
+        updated_at=datetime(2026, 1, 1),
+        transcript_id=transcript.id,
+        recap_id="recap-old",
+    )
+    harness.transcripts.save(transcript)
+    harness.jobs.save(job)
+    harness.recap_generator.generate_error = PortExecutionError("DeepSeek failed")
+
+    with pytest.raises(PortExecutionError, match="DeepSeek failed"):
+        GenerateRecap(
+            harness.jobs,
+            harness.transcripts,
+            harness.recaps,
+            harness.tokenizer,
+            harness.recap_generator,
+            harness.clock,
+            harness.ids,
+        ).execute(GenerateRecapCommand(job_id=job.id))
+
+    assert harness.jobs.get(job.id) == job
+    assert harness.recaps.items == {}
+    assert harness.transcripts.get(transcript.id) == transcript
 
 
 def test_get_job_status_returns_saved_job() -> None:

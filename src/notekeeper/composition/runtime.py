@@ -203,10 +203,12 @@ def build_stage1_use_cases(infrastructure: InfrastructureBundle) -> Stage1UseCas
             infrastructure.id_generator,
         ),
         generate_recap=GenerateRecap(
+            infrastructure.job_repository,
             infrastructure.transcript_repository,
             infrastructure.recap_repository,
             infrastructure.tokenizer,
             infrastructure.recap_generator,
+            infrastructure.clock,
             infrastructure.id_generator,
         ),
         export_transcript_markdown=ExportTranscriptMarkdown(

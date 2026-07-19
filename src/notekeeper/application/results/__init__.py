@@ -271,6 +271,7 @@ class ReviewSpeakerMappingsResult:
 
 @dataclass(frozen=True, slots=True)
 class GenerateRecapResult:
+    job: ProcessingJob
     recap: Recap
 
 

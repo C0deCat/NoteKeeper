@@ -1,3 +1,4 @@
+from dataclasses import replace
 from datetime import datetime
 from types import SimpleNamespace
 
@@ -7,6 +8,8 @@ from notekeeper.application import (
     CreateProcessingJobForAudioTrackCommand,
     CreateProcessingJobForAudioTrackResult,
     ExportMarkdownResult,
+    GenerateRecapCommand,
+    GenerateRecapResult,
     GetJobStatusResult,
     InspectAudioMetadataResult,
     ListAudioTracksResult,
@@ -33,6 +36,7 @@ from notekeeper.domain import (
     Participant,
     ParticipantId,
     ProcessingJob,
+    Recap,
 )
 from notekeeper.interfaces import RuntimeDiagnostics, Stage1UseCases
 from notekeeper.interfaces.cli import build_app
@@ -248,6 +252,38 @@ def test_cli_job_restart_uses_failed_restart_use_case() -> None:
     command = runtime.use_cases.restart_failed_processing_job.commands[0]
     assert isinstance(command, RestartFailedProcessingJobCommand)
     assert command.job_id == "job-failed"
+
+
+def test_cli_job_recreate_recap_uses_existing_generate_recap_use_case() -> None:
+    runtime = FakeRuntime()
+    job = replace(
+        runtime.use_cases.get_job_status.result.job,
+        transcript_id="transcript-1",
+        recap_id="recap-new",
+    )
+    recap = Recap(
+        id="recap-new",
+        transcript_id="transcript-1",
+        markdown="# Recap",
+    )
+    runtime.use_cases.generate_recap.result = GenerateRecapResult(
+        job=job,
+        recap=recap,
+    )
+    app = build_app(lambda: runtime, lambda value: None)
+
+    result = CliRunner().invoke(
+        app,
+        ["cli", "job", "recreate-recap", "job-1"],
+    )
+
+    assert result.exit_code == 0
+    assert "job id=job-1" in result.output
+    assert "transcript=transcript-1" in result.output
+    assert "recap=recap-new" in result.output
+    command = runtime.use_cases.generate_recap.commands[0]
+    assert isinstance(command, GenerateRecapCommand)
+    assert command.job_id == "job-1"
 
 
 def test_cli_review_submit_supports_player_custom_and_keep_decisions() -> None:

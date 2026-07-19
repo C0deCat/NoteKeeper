@@ -7,9 +7,8 @@ def render_recap_markdown(recap: Recap) -> str:
     sections: list[str] = []
 
     if recap.chunks:
-        sections.append("# Chunk Recaps")
         for index, chunk in enumerate(recap.chunks, start=1):
-            chunk_lines = [f"## Chunk {index}"]
+            chunk_lines = [f"# Chunk {index}"]
             if chunk.time_range is not None:
                 start = format_seconds(chunk.time_range.start_seconds)
                 end = format_seconds(chunk.time_range.end_seconds)

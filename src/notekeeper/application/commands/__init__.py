@@ -180,7 +180,7 @@ class ReviewSpeakerMappingsCommand:
 
 @dataclass(frozen=True, slots=True)
 class GenerateRecapCommand:
-    transcript_id: str
+    job_id: str
 
 
 @dataclass(frozen=True, slots=True)

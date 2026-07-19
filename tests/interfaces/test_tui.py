@@ -16,6 +16,8 @@ from notekeeper.application import (
     DeleteCampaignResult,
     DeleteParticipantCommand,
     DeleteVoiceSampleCommand,
+    GenerateRecapCommand,
+    GenerateRecapResult,
     GetCampaignCommand,
     GetCampaignResult,
     GetJobStatusResult,
@@ -47,6 +49,7 @@ from notekeeper.domain import (
     PipelineWarning,
     PipelineWarningKind,
     ProcessingJob,
+    Recap,
     SpeakerLabel,
     VoiceSample,
 )
@@ -117,6 +120,22 @@ class FakeClearFailedJobsUseCase:
         return ClearFailedJobsForCampaignResult(
             deleted_job_ids=deleted_job_ids,
         )
+
+
+class FakeGenerateRecapUseCase(FakeUseCase):
+    def __init__(self, list_jobs_use_case: FakeUseCase) -> None:
+        super().__init__(None)
+        self.list_jobs_use_case = list_jobs_use_case
+
+    def execute(self, command):
+        result = super().execute(command)
+        self.list_jobs_use_case.result = ListJobsForCampaignResult(
+            jobs=tuple(
+                result.job if str(job.id) == str(result.job.id) else job
+                for job in self.list_jobs_use_case.result.jobs
+            ),
+        )
+        return result
 
 
 class FakeJobStatusUseCase:
@@ -285,7 +304,7 @@ class FakeRuntime:
             list_jobs_for_campaign=list_jobs,
             get_job_status=FakeJobStatusUseCase((job, second_job, restarted_job)),
             review_speaker_mappings=FakeUseCase(GetJobStatusResult(job=job)),
-            generate_recap=FakeUseCase(None),
+            generate_recap=FakeGenerateRecapUseCase(list_jobs),
             export_transcript_markdown=FakeUseCase(None),
             export_recap_markdown=FakeUseCase(None),
             preview_transcript_markdown=FakeUseCase(None),
@@ -486,6 +505,9 @@ def test_tui_action_buttons_follow_current_dashboard_context() -> None:
             assert str(action_button.label) == "Restart"
             assert action_button.variant == "success"
             assert app.query_one("#clear-failed-jobs", Button).disabled is False
+            recreate_button = app.query_one("#recreate-recap", Button)
+            assert recreate_button.display is True
+            assert recreate_button.disabled is True
 
             jobs_table = app.query_one("#jobs-table", DataTable)
             app._select_table_row(jobs_table, "job-1")
@@ -523,6 +545,7 @@ def test_tui_action_buttons_follow_current_dashboard_context() -> None:
             assert app.query_one("#create-job", Button).display is True
             assert app.query_one("#create-job", Button).disabled is False
             assert action_button.display is False
+            assert recreate_button.display is False
 
             jobs_table = app.query_one("#jobs-table", DataTable)
             app._select_table_row(jobs_table, "job-2")
@@ -549,6 +572,15 @@ def test_tui_action_buttons_follow_current_dashboard_context() -> None:
             assert app.query_one("#preview-transcript", Button).disabled is False
             assert app.query_one("#export-transcript", Button).disabled is False
             assert app.query_one("#preview-recap", Button).disabled is True
+            assert recreate_button.display is True
+            assert recreate_button.disabled is False
+
+            app._recap_generation_in_progress = True
+            app._update_action_buttons()
+            assert recreate_button.disabled is True
+            app._recap_generation_in_progress = False
+            app._update_action_buttons()
+            assert recreate_button.disabled is False
 
             completed_job = replace(
                 waiting_job,
@@ -562,6 +594,57 @@ def test_tui_action_buttons_follow_current_dashboard_context() -> None:
             assert action_button.display is False
             assert app.query_one("#preview-recap", Button).disabled is False
             assert app.query_one("#export-recap", Button).disabled is False
+
+    asyncio.run(run())
+
+
+def test_tui_recreate_recap_runs_worker_and_refreshes_selected_job() -> None:
+    async def run() -> None:
+        runtime = FakeRuntime()
+        pending_job, failed_job = runtime.use_cases.list_jobs_for_campaign.result.jobs
+        job_with_transcript = replace(
+            failed_job,
+            status=JobStatus.COMPLETED,
+            transcript_id="transcript-1",
+            recap_id="recap-old",
+            error_message=None,
+        )
+        runtime.use_cases.list_jobs_for_campaign.result = ListJobsForCampaignResult(
+            jobs=(pending_job, job_with_transcript),
+        )
+        new_recap = Recap(
+            id="recap-new",
+            transcript_id="transcript-1",
+            markdown="# New recap",
+        )
+        updated_job = replace(job_with_transcript, recap_id=new_recap.id)
+        runtime.use_cases.generate_recap.result = GenerateRecapResult(
+            job=updated_job,
+            recap=new_recap,
+        )
+        app = NoteKeeperTui(runtime)
+
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            recreate_button = app.query_one("#recreate-recap", Button)
+            assert recreate_button.display is True
+            assert recreate_button.disabled is False
+
+            await pilot.click("#recreate-recap")
+            await pilot.pause()
+
+            command = runtime.use_cases.generate_recap.commands[-1]
+            assert isinstance(command, GenerateRecapCommand)
+            assert command.job_id == "job-2"
+            assert isinstance(app._selected_object, ProcessingJob)
+            assert app._selected_object.recap_id == new_recap.id
+            assert app.query_one("#jobs-table", DataTable).get_row_at(0)[3] == (
+                compact_identifier("recap-new")
+            )
+            assert "Recreated recap recap-new" in str(
+                app.query_one("#status", Static).render(),
+            )
+            assert app._recap_generation_in_progress is False
 
     asyncio.run(run())
 
@@ -646,6 +729,7 @@ def test_tui_players_and_warnings_are_selectable_without_object_actions() -> Non
             object_button_ids = (
                 "create-job",
                 "job-action",
+                "recreate-recap",
                 "preview-transcript",
                 "preview-recap",
                 "export-transcript",
@@ -1096,6 +1180,7 @@ def test_tui_dashboard_loads_without_campaigns() -> None:
             assert app.query_one("#create-job", Button).display is False
             assert app.query_one("#job-action", Button).display is False
             assert app.query_one("#clear-failed-jobs", Button).disabled is True
+            assert app.query_one("#recreate-recap", Button).display is False
             assert app.query_one("#preview-transcript", Button).display is False
             assert app.query_one("#export-transcript", Button).display is False
             assert app.query_one("#preview-recap", Button).display is False
