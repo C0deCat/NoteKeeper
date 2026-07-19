@@ -10,12 +10,15 @@ from textual.widgets import Button, Input, Label, Select, Static
 from notekeeper.application import (
     AddVoiceSampleCommand,
     ApplicationError,
+    DeleteVoiceSampleCommand,
     InspectAudioMetadataCommand,
     ListParticipantsCommand,
+    ListVoiceSamplesCommand,
 )
-from notekeeper.domain import DomainError
+from notekeeper.domain import DomainError, Participant
 
 from .common import metadata_text
+from .remove_voice_sample_screen import RemoveVoiceSampleScreen
 
 
 class VoiceSampleScreen(ModalScreen[bool]):
@@ -98,3 +101,44 @@ def open_add_sample(app, campaign_id: str) -> None:
             app.refresh_dashboard(update_campaigns=False) if completed else None
         ),
     )
+
+
+def open_remove_sample(app, participant: Participant) -> None:
+    try:
+        samples = app.runtime.use_cases.list_voice_samples.execute(
+            ListVoiceSamplesCommand(
+                campaign_id=str(participant.campaign_id),
+                participant_id=str(participant.id),
+            ),
+        ).voice_samples
+    except (ApplicationError, DomainError, ValueError) as exc:
+        app._set_status(str(exc))
+        return
+
+    if not samples:
+        app._set_status(f"Player {participant.display_name} has no voice samples")
+        app._update_action_buttons()
+        return
+    app.push_screen(
+        RemoveVoiceSampleScreen(samples),
+        lambda sample_id: _remove_sample(app, participant, sample_id),
+    )
+
+
+def _remove_sample(
+    app,
+    participant: Participant,
+    sample_id: str | None,
+) -> None:
+    if sample_id is None:
+        return
+    try:
+        app.runtime.use_cases.delete_voice_sample.execute(
+            DeleteVoiceSampleCommand(
+                campaign_id=str(participant.campaign_id),
+                voice_sample_id=sample_id,
+            ),
+        )
+        app.refresh_dashboard(update_campaigns=False)
+    except (ApplicationError, DomainError, ValueError) as exc:
+        app._set_status(str(exc))

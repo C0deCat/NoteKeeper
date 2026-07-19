@@ -88,12 +88,17 @@ class FakeRuntime:
             list_participants=FakeUseCase(
                 ListParticipantsResult(participants=(participant,)),
             ),
+            update_participant=FakeUseCase(None),
+            delete_participant=FakeUseCase(None),
             add_voice_sample=FakeUseCase(None),
             list_voice_samples=FakeUseCase(ListVoiceSamplesResult(voice_samples=())),
+            delete_voice_sample=FakeUseCase(None),
             register_audio_track=FakeUseCase(None),
             list_audio_tracks=FakeUseCase(
                 ListAudioTracksResult(audio_tracks=(audio_track,)),
             ),
+            update_audio_track=FakeUseCase(None),
+            delete_audio_track=FakeUseCase(None),
             create_processing_job_for_audio_track=FakeUseCase(
                 CreateProcessingJobForAudioTrackResult(
                     campaign=campaign,

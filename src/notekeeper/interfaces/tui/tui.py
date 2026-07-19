@@ -79,6 +79,7 @@ class NoteKeeperTui(App[None]):
         self._dashboard_audio_tracks: dict[str, AudioTrack] = {}
         self._dashboard_participants: dict[str, Participant] = {}
         self._dashboard_warnings: dict[str, DashboardWarning] = {}
+        self._participant_ids_with_samples: set[str] = set()
         self._campaign_has_participants = False
         self._campaign_is_processing_ready = False
         self._failed_job_count = 0
@@ -106,6 +107,15 @@ class NoteKeeperTui(App[None]):
         with Horizontal(id="dashboard"):
             with VerticalScroll(id="actions"):
                 yield Button("Create Job", id="create-job")
+                yield Button("Rename Recording", id="rename-recording")
+                yield Button("Remove Recording", id="remove-recording", variant="error")
+                yield Button("Rename Player", id="rename-player")
+                yield Button("Remove Player", id="remove-player", variant="error")
+                yield Button(
+                    "Remove Voice Sample",
+                    id="remove-voice-sample",
+                    variant="error",
+                )
                 yield Button("Run", id="job-action", variant="success")
                 yield Button("Delete", id="delete-job", variant="error")
                 yield Button("Cancel", id="cancel-job", variant="warning")
@@ -201,6 +211,21 @@ class NoteKeeperTui(App[None]):
             self._with_campaign(self._open_submit_recording)
         elif button_id == "create-job":
             self._create_job_for_selected_audio_track()
+        elif button_id == "rename-recording":
+            if isinstance(self._selected_object, AudioTrack):
+                recording_app.open_rename_recording(self, self._selected_object)
+        elif button_id == "remove-recording":
+            if isinstance(self._selected_object, AudioTrack):
+                recording_app.confirm_remove_recording(self, self._selected_object)
+        elif button_id == "rename-player":
+            if isinstance(self._selected_object, Participant):
+                participant_app.open_rename_participant(self, self._selected_object)
+        elif button_id == "remove-player":
+            if isinstance(self._selected_object, Participant):
+                participant_app.confirm_remove_participant(self, self._selected_object)
+        elif button_id == "remove-voice-sample":
+            if isinstance(self._selected_object, Participant):
+                sample_app.open_remove_sample(self, self._selected_object)
         elif button_id == "job-action":
             self._perform_selected_job_action()
         elif button_id == "delete-job":
@@ -343,6 +368,7 @@ class NoteKeeperTui(App[None]):
             self._dashboard_audio_tracks = {}
             self._dashboard_participants = {}
             self._dashboard_warnings = {}
+            self._participant_ids_with_samples = set()
             self._campaign_has_participants = False
             self._campaign_is_processing_ready = False
             self._failed_job_count = 0
@@ -377,6 +403,7 @@ class NoteKeeperTui(App[None]):
         ordered_audio_tracks = tuple(reversed(audio_tracks))
         ordered_participants = tuple(reversed(participants))
         sample_participants = {str(sample.participant_id) for sample in voice_samples}
+        self._participant_ids_with_samples = sample_participants
         jobs_by_track: dict[str, list[ProcessingJob]] = {}
         for job in ordered_jobs:
             jobs_by_track.setdefault(str(job.audio_track_id), []).append(job)
@@ -587,6 +614,11 @@ class NoteKeeperTui(App[None]):
             if isinstance(self._selected_object, AudioTrack)
             else None
         )
+        selected_participant = (
+            self._selected_object
+            if isinstance(self._selected_object, Participant)
+            else None
+        )
         processing_ready = campaign_selected and self._campaign_is_processing_ready
 
         self._set_button_disabled("refresh", False)
@@ -610,6 +642,22 @@ class NoteKeeperTui(App[None]):
         self._set_button_disabled(
             "create-job",
             not processing_ready or selected_audio_track is None,
+        )
+        for button_id in ("rename-recording", "remove-recording"):
+            self._set_button_display(button_id, selected_audio_track is not None)
+            self._set_button_disabled(button_id, selected_audio_track is None)
+        for button_id in (
+            "rename-player",
+            "remove-player",
+            "remove-voice-sample",
+        ):
+            self._set_button_display(button_id, selected_participant is not None)
+        self._set_button_disabled("rename-player", selected_participant is None)
+        self._set_button_disabled("remove-player", selected_participant is None)
+        self._set_button_disabled(
+            "remove-voice-sample",
+            selected_participant is None
+            or str(selected_participant.id) not in self._participant_ids_with_samples,
         )
         for button_id in (
             "preview-transcript",

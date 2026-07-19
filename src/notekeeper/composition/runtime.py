@@ -12,8 +12,11 @@ from notekeeper.application import (
     ClearFailedJobsForCampaign,
     CreateCampaign,
     CreateProcessingJobForAudioTrack,
+    DeleteAudioTrack,
     DeleteCampaign,
+    DeleteParticipant,
     DeleteProcessingJob,
+    DeleteVoiceSample,
     ExportRecapMarkdown,
     ExportTranscriptMarkdown,
     GenerateRecap,
@@ -35,7 +38,9 @@ from notekeeper.application import (
     RunProcessingJob,
     SubmitRecordingForProcessing,
     SyncCampaignFolder,
+    UpdateAudioTrack,
     UpdateCampaign,
+    UpdateParticipant,
 )
 from notekeeper.application.errors import ApplicationError
 from notekeeper.domain import ArtifactRef
@@ -124,18 +129,29 @@ def build_stage1_use_cases(infrastructure: InfrastructureBundle) -> Stage1UseCas
             infrastructure.id_generator,
         ),
         list_participants=ListParticipants(infrastructure.campaign_repository),
+        update_participant=UpdateParticipant(infrastructure.campaign_repository),
+        delete_participant=DeleteParticipant(infrastructure.campaign_repository),
         add_voice_sample=AddVoiceSample(
             infrastructure.campaign_repository,
             infrastructure.metadata_reader,
             infrastructure.id_generator,
         ),
         list_voice_samples=ListVoiceSamples(infrastructure.campaign_repository),
+        delete_voice_sample=DeleteVoiceSample(infrastructure.campaign_repository),
         register_audio_track=RegisterAudioTrack(
             infrastructure.campaign_repository,
             infrastructure.metadata_reader,
             infrastructure.id_generator,
         ),
         list_audio_tracks=ListAudioTracks(infrastructure.campaign_repository),
+        update_audio_track=UpdateAudioTrack(
+            infrastructure.campaign_repository,
+            infrastructure.metadata_reader,
+        ),
+        delete_audio_track=DeleteAudioTrack(
+            infrastructure.campaign_repository,
+            infrastructure.job_repository,
+        ),
         create_processing_job_for_audio_track=CreateProcessingJobForAudioTrack(
             infrastructure.campaign_repository,
             infrastructure.audio_track_repository,

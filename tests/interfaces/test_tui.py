@@ -4,7 +4,7 @@ from datetime import datetime
 from types import SimpleNamespace
 
 from textual.coordinate import Coordinate
-from textual.widgets import Button, DataTable, Input, Static
+from textual.widgets import Button, DataTable, Input, Select, Static
 
 from notekeeper.application import (
     ClearFailedJobsForCampaignCommand,
@@ -12,7 +12,10 @@ from notekeeper.application import (
     CreateProcessingJobForAudioTrackCommand,
     CreateProcessingJobForAudioTrackResult,
     CreateCampaignResult,
+    DeleteAudioTrackCommand,
     DeleteCampaignResult,
+    DeleteParticipantCommand,
+    DeleteVoiceSampleCommand,
     GetCampaignCommand,
     GetCampaignResult,
     GetJobStatusResult,
@@ -27,7 +30,9 @@ from notekeeper.application import (
     RunProcessingJobCommand,
     SyncCampaignFolderCommand,
     SyncCampaignFolderResult,
+    UpdateAudioTrackCommand,
     UpdateCampaignResult,
+    UpdateParticipantCommand,
 )
 from notekeeper.domain import (
     ArtifactRef,
@@ -51,6 +56,13 @@ from notekeeper.interfaces.tui.identifier_data_table import compact_identifier
 from notekeeper.interfaces.tui.job_action_confirmation_screen import (
     JobActionConfirmationScreen,
 )
+from notekeeper.interfaces.tui.object_action_confirmation_screen import (
+    ObjectActionConfirmationScreen,
+)
+from notekeeper.interfaces.tui.remove_voice_sample_screen import (
+    RemoveVoiceSampleScreen,
+)
+from notekeeper.interfaces.tui.rename_screen import RenameScreen
 from notekeeper.interfaces.tui.review_app import ReviewMappingsScreen
 from notekeeper.interfaces.tui.tui import DashboardWarning
 
@@ -236,14 +248,19 @@ class FakeRuntime:
             list_participants=FakeUseCase(
                 ListParticipantsResult(participants=participants),
             ),
+            update_participant=FakeUseCase(None),
+            delete_participant=FakeUseCase(None),
             add_voice_sample=FakeUseCase(None),
             list_voice_samples=FakeUseCase(ListVoiceSamplesResult(voice_samples=())),
+            delete_voice_sample=FakeUseCase(None),
             register_audio_track=FakeUseCase(None),
             list_audio_tracks=FakeUseCase(
                 ListAudioTracksResult(
                     audio_tracks=(audio_track,) if has_campaigns else (),
                 ),
             ),
+            update_audio_track=FakeUseCase(None),
+            delete_audio_track=FakeUseCase(None),
             create_processing_job_for_audio_track=FakeUseCase(
                 CreateProcessingJobForAudioTrackResult(
                     campaign=campaign,
@@ -688,6 +705,224 @@ def test_tui_players_and_warnings_are_selectable_without_object_actions() -> Non
             assert app._selected_object.key == "job-2:error"
             assert tables["warnings-table"].show_cursor is True
             assert sum(table.show_cursor for table in tables.values()) == 1
+
+    asyncio.run(run())
+
+
+def test_tui_recording_and_player_actions_follow_selection_and_sample_state() -> None:
+    async def run() -> None:
+        runtime = FakeRuntime()
+        app = NoteKeeperTui(runtime)
+        async with app.run_test(size=(160, 80)) as pilot:
+            await pilot.pause()
+            recording_action_ids = ("rename-recording", "remove-recording")
+            player_action_ids = (
+                "rename-player",
+                "remove-player",
+                "remove-voice-sample",
+            )
+            assert all(
+                app.query_one(f"#{button_id}", Button).display is False
+                for button_id in (*recording_action_ids, *player_action_ids)
+            )
+
+            app._select_table_row(
+                app.query_one("#recordings-table", DataTable),
+                "audio-track-1",
+            )
+            assert all(
+                app.query_one(f"#{button_id}", Button).display is True
+                for button_id in recording_action_ids
+            )
+            assert all(
+                app.query_one(f"#{button_id}", Button).display is False
+                for button_id in player_action_ids
+            )
+
+            app._select_table_row(
+                app.query_one("#players-table", DataTable),
+                "participant-1",
+            )
+            assert all(
+                app.query_one(f"#{button_id}", Button).display is True
+                for button_id in player_action_ids
+            )
+            assert app.query_one("#remove-voice-sample", Button).disabled is True
+
+            campaign = runtime.use_cases.get_campaign.result.campaign
+            sample = VoiceSample(
+                id="sample-1",
+                campaign_id=campaign.id,
+                participant_id="participant-1",
+                artifact=ArtifactRef(uri="players/Alice/sample.wav"),
+                metadata=AudioMetadata(duration_seconds=10, format="wav"),
+            )
+            runtime.use_cases.get_campaign.result = GetCampaignResult(
+                campaign=replace(campaign, voice_samples=(sample,)),
+            )
+            app.refresh_dashboard(update_campaigns=False)
+            assert isinstance(app._selected_object, Participant)
+            assert app.query_one("#remove-voice-sample", Button).disabled is False
+
+    asyncio.run(run())
+
+
+def test_tui_rename_recording_and_player_use_existing_update_use_cases() -> None:
+    async def run() -> None:
+        runtime = FakeRuntime()
+        app = NoteKeeperTui(runtime)
+        async with app.run_test(size=(160, 80)) as pilot:
+            await pilot.pause()
+            app._select_table_row(
+                app.query_one("#recordings-table", DataTable),
+                "audio-track-1",
+            )
+            await pilot.pause()
+            await pilot.click("#rename-recording")
+            await pilot.pause()
+            assert isinstance(app.screen, RenameScreen)
+            name_input = app.screen.query_one("#new-name", Input)
+            assert name_input.value == "Session 1"
+            name_input.value = "Renamed Session"
+            await pilot.click("#rename")
+            await pilot.pause()
+
+            recording_command = runtime.use_cases.update_audio_track.commands[-1]
+            assert isinstance(recording_command, UpdateAudioTrackCommand)
+            assert recording_command.campaign_id == "campaign-1"
+            assert recording_command.audio_track_id == "audio-track-1"
+            assert recording_command.artifact_uri == "sessions/session-1.wav"
+            assert recording_command.artifact_kind == "file"
+            assert recording_command.title == "Renamed Session"
+            assert isinstance(app._selected_object, AudioTrack)
+
+            app._select_table_row(
+                app.query_one("#players-table", DataTable),
+                "participant-1",
+            )
+            await pilot.pause()
+            await pilot.click("#rename-player")
+            await pilot.pause()
+            assert isinstance(app.screen, RenameScreen)
+            name_input = app.screen.query_one("#new-name", Input)
+            assert name_input.value == "Alice"
+            name_input.value = "Alicia"
+            await pilot.click("#rename")
+            await pilot.pause()
+
+            participant_command = runtime.use_cases.update_participant.commands[-1]
+            assert isinstance(participant_command, UpdateParticipantCommand)
+            assert participant_command.campaign_id == "campaign-1"
+            assert participant_command.participant_id == "participant-1"
+            assert participant_command.display_name == "Alicia"
+            assert isinstance(app._selected_object, Participant)
+
+    asyncio.run(run())
+
+
+def test_tui_remove_recording_and_player_require_confirmation() -> None:
+    async def run() -> None:
+        runtime = FakeRuntime()
+        app = NoteKeeperTui(runtime)
+        async with app.run_test(size=(160, 80)) as pilot:
+            await pilot.pause()
+            app._select_table_row(
+                app.query_one("#recordings-table", DataTable),
+                "audio-track-1",
+            )
+            await pilot.pause()
+            await pilot.click("#remove-recording")
+            await pilot.pause()
+            assert isinstance(app.screen, ObjectActionConfirmationScreen)
+            await pilot.click("#back")
+            await pilot.pause()
+            assert runtime.use_cases.delete_audio_track.commands == []
+
+            await pilot.click("#remove-recording")
+            await pilot.pause()
+            campaign = runtime.use_cases.get_campaign.result.campaign
+            runtime.use_cases.get_campaign.result = GetCampaignResult(
+                campaign=replace(campaign, audio_tracks=()),
+            )
+            await pilot.click("#confirm")
+            await pilot.pause()
+            recording_command = runtime.use_cases.delete_audio_track.commands[-1]
+            assert isinstance(recording_command, DeleteAudioTrackCommand)
+            assert recording_command.audio_track_id == "audio-track-1"
+            assert isinstance(app._selected_object, ProcessingJob)
+
+            campaign = runtime.use_cases.get_campaign.result.campaign
+            app._select_table_row(
+                app.query_one("#players-table", DataTable),
+                "participant-1",
+            )
+            await pilot.pause()
+            await pilot.click("#remove-player")
+            await pilot.pause()
+            assert isinstance(app.screen, ObjectActionConfirmationScreen)
+            modal_text = " ".join(
+                str(label.render()) for label in app.screen.query("Label")
+            )
+            assert "voice samples" in modal_text
+            runtime.use_cases.get_campaign.result = GetCampaignResult(
+                campaign=replace(campaign, participants=()),
+            )
+            await pilot.click("#confirm")
+            await pilot.pause()
+            participant_command = runtime.use_cases.delete_participant.commands[-1]
+            assert isinstance(participant_command, DeleteParticipantCommand)
+            assert participant_command.participant_id == "participant-1"
+            assert isinstance(app._selected_object, ProcessingJob)
+
+    asyncio.run(run())
+
+
+def test_tui_remove_voice_sample_selects_one_sample_and_keeps_player_selected() -> None:
+    async def run() -> None:
+        runtime = FakeRuntime()
+        campaign = runtime.use_cases.get_campaign.result.campaign
+        samples = tuple(
+            VoiceSample(
+                id=f"sample-{index}",
+                campaign_id=campaign.id,
+                participant_id="participant-1",
+                artifact=ArtifactRef(uri=f"players/Alice/sample-{index}.wav"),
+                metadata=AudioMetadata(duration_seconds=10, format="wav"),
+            )
+            for index in (1, 2)
+        )
+        runtime.use_cases.get_campaign.result = GetCampaignResult(
+            campaign=replace(campaign, voice_samples=samples),
+        )
+        runtime.use_cases.list_voice_samples.result = ListVoiceSamplesResult(
+            voice_samples=samples,
+        )
+        app = NoteKeeperTui(runtime)
+        async with app.run_test(size=(160, 80)) as pilot:
+            await pilot.pause()
+            app._select_table_row(
+                app.query_one("#players-table", DataTable),
+                "participant-1",
+            )
+            await pilot.pause()
+            await pilot.click("#remove-voice-sample")
+            await pilot.pause()
+            assert isinstance(app.screen, RemoveVoiceSampleScreen)
+            list_command = runtime.use_cases.list_voice_samples.commands[-1]
+            assert list_command.campaign_id == "campaign-1"
+            assert list_command.participant_id == "participant-1"
+
+            sample_select = app.screen.query_one("#voice-sample", Select)
+            sample_select.value = "sample-2"
+            await pilot.pause()
+            await pilot.click("#remove")
+            await pilot.pause()
+            delete_command = runtime.use_cases.delete_voice_sample.commands[-1]
+            assert isinstance(delete_command, DeleteVoiceSampleCommand)
+            assert delete_command.campaign_id == "campaign-1"
+            assert delete_command.voice_sample_id == "sample-2"
+            assert isinstance(app._selected_object, Participant)
+            assert str(app._selected_object.id) == "participant-1"
 
     asyncio.run(run())
 

@@ -12,8 +12,11 @@ from notekeeper.application import (
     ClearFailedJobsForCampaign,
     CreateCampaign,
     CreateProcessingJobForAudioTrack,
+    DeleteAudioTrack,
     DeleteCampaign,
+    DeleteParticipant,
     DeleteProcessingJob,
+    DeleteVoiceSample,
     ExportRecapMarkdown,
     ExportTranscriptMarkdown,
     GenerateRecap,
@@ -34,7 +37,9 @@ from notekeeper.application import (
     RunProcessingJob,
     SubmitRecordingForProcessing,
     SyncCampaignFolder,
+    UpdateAudioTrack,
     UpdateCampaign,
+    UpdateParticipant,
 )
 from notekeeper.domain import ArtifactRef
 
@@ -48,10 +53,15 @@ class Stage1UseCases:
     delete_campaign: DeleteCampaign
     add_participant: AddParticipantToCampaign
     list_participants: ListParticipants
+    update_participant: UpdateParticipant
+    delete_participant: DeleteParticipant
     add_voice_sample: AddVoiceSample
     list_voice_samples: ListVoiceSamples
+    delete_voice_sample: DeleteVoiceSample
     register_audio_track: RegisterAudioTrack
     list_audio_tracks: ListAudioTracks
+    update_audio_track: UpdateAudioTrack
+    delete_audio_track: DeleteAudioTrack
     create_processing_job_for_audio_track: CreateProcessingJobForAudioTrack
     submit_recording_for_processing: SubmitRecordingForProcessing
     run_processing_job: RunProcessingJob

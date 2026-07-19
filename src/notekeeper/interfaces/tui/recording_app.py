@@ -9,12 +9,16 @@ from textual.widgets import Button, Input, Label, Static
 
 from notekeeper.application import (
     ApplicationError,
+    DeleteAudioTrackCommand,
     InspectAudioMetadataCommand,
     SubmitRecordingForProcessingCommand,
+    UpdateAudioTrackCommand,
 )
-from notekeeper.domain import DomainError
+from notekeeper.domain import AudioTrack, DomainError
 
 from .common import metadata_text
+from .object_action_confirmation_screen import ObjectActionConfirmationScreen
+from .rename_screen import RenameScreen
 
 
 class RecordingScreen(ModalScreen[bool]):
@@ -81,3 +85,60 @@ def open_submit_recording(app, campaign_id: str) -> None:
             app.refresh_dashboard(update_campaigns=False) if completed else None
         ),
     )
+
+
+def open_rename_recording(app, audio_track: AudioTrack) -> None:
+    current_name = audio_track.title or audio_track.artifact.uri
+    app.push_screen(
+        RenameScreen("Rename Recording", current_name),
+        lambda name: _rename_recording(app, audio_track, name),
+    )
+
+
+def _rename_recording(
+    app,
+    audio_track: AudioTrack,
+    name: str | None,
+) -> None:
+    if not name:
+        return
+    try:
+        app.runtime.use_cases.update_audio_track.execute(
+            UpdateAudioTrackCommand(
+                campaign_id=str(audio_track.campaign_id),
+                audio_track_id=str(audio_track.id),
+                artifact_uri=audio_track.artifact.uri,
+                artifact_kind=audio_track.artifact.kind,
+                title=name,
+            ),
+        )
+        app.refresh_dashboard(update_campaigns=False)
+    except (ApplicationError, DomainError, ValueError) as exc:
+        app._set_status(str(exc))
+
+
+def confirm_remove_recording(app, audio_track: AudioTrack) -> None:
+    name = audio_track.title or audio_track.artifact.uri
+    app.push_screen(
+        ObjectActionConfirmationScreen("recording", name),
+        lambda confirmed: _remove_recording(app, audio_track, confirmed),
+    )
+
+
+def _remove_recording(
+    app,
+    audio_track: AudioTrack,
+    confirmed: bool,
+) -> None:
+    if not confirmed:
+        return
+    try:
+        app.runtime.use_cases.delete_audio_track.execute(
+            DeleteAudioTrackCommand(
+                campaign_id=str(audio_track.campaign_id),
+                audio_track_id=str(audio_track.id),
+            ),
+        )
+        app.refresh_dashboard(update_campaigns=False)
+    except (ApplicationError, DomainError, ValueError) as exc:
+        app._set_status(str(exc))
