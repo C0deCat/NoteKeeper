@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from notekeeper.application.ports import Transcriber
+from notekeeper.application.ports import ProgressTracker, Transcriber
 from notekeeper.domain import (
     ArtifactRef,
     AudioTrackId,
@@ -86,9 +86,10 @@ class WhisperXTranscriber(Transcriber):
         transcript_id: TranscriptId,
         campaign_id: CampaignId,
         audio_track_id: AudioTrackId,
+        progress: ProgressTracker | None = None,
     ) -> Transcript:
         audio_path = self._require_audio_path(audio)
-        payload = self._run_whisperx(audio_path)
+        payload = self._run_whisperx(audio_path, progress=progress)
         payload_artifact = self._save_payload(
             audio=audio,
             transcript_id=transcript_id,
@@ -116,8 +117,14 @@ class WhisperXTranscriber(Transcriber):
                 f"could not convert WhisperX payload {payload_artifact.uri}: {exc}",
             ) from exc
 
-    def _run_whisperx(self, audio_path: Path) -> dict[str, Any]:
+    def _run_whisperx(
+        self,
+        audio_path: Path,
+        *,
+        progress: ProgressTracker | None,
+    ) -> dict[str, Any]:
         try:
+            progress_argument = {"progress": progress} if progress is not None else {}
             payload = self._runner.run(
                 audio_path,
                 model_name=self._model_name,
@@ -135,6 +142,7 @@ class WhisperXTranscriber(Transcriber):
                 diarization_cache_dir=self._diarization_cache_dir,
                 hf_token=self._hf_token,
                 fill_nearest=self._fill_nearest,
+                **progress_argument,
             )
         except InfrastructureError:
             raise

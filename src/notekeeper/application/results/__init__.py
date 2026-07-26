@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from enum import Enum
 from typing import Any
 
 from notekeeper.domain import (
@@ -14,6 +15,7 @@ from notekeeper.domain import (
     Participant,
     ParticipantId,
     PipelineWarning,
+    ProgressBar,
     ProcessingJob,
     ProcessingJobId,
     Recap,
@@ -26,6 +28,49 @@ from notekeeper.domain import (
     VoiceSample,
     VoiceSampleId,
 )
+
+
+class ProgressEventKind(str, Enum):
+    STARTED = "started"
+    UPDATED = "updated"
+    STAGE_COMPLETED = "stage_completed"
+    COMPLETED = "completed"
+    PAUSED = "paused"
+    FAILED = "failed"
+    CANCELED = "canceled"
+
+    @property
+    def is_terminal(self) -> bool:
+        return self in {
+            self.COMPLETED,
+            self.PAUSED,
+            self.FAILED,
+            self.CANCELED,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class ProgressEvent:
+    operation_id: str
+    stage_index: int
+    stage_count: int
+    timing_available: bool
+    kind: ProgressEventKind
+    progress: ProgressBar
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.operation_id, str) or not self.operation_id.strip():
+            raise ValueError("operation_id must not be empty")
+        if isinstance(self.stage_count, bool) or not isinstance(
+            self.stage_count,
+            int,
+        ) or self.stage_count < 1:
+            raise ValueError("stage_count must be positive")
+        if isinstance(self.stage_index, bool) or not isinstance(
+            self.stage_index,
+            int,
+        ) or not 1 <= self.stage_index <= self.stage_count:
+            raise ValueError("stage_index must be within stage_count")
 
 
 @dataclass(frozen=True, slots=True)
@@ -191,6 +236,24 @@ class ListJobsForCampaignResult:
 
 
 @dataclass(frozen=True, slots=True)
+class ClearFailedJobsForCampaignResult:
+    deleted_job_ids: tuple[str, ...]
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "deleted_job_ids", tuple(self.deleted_job_ids))
+
+
+@dataclass(frozen=True, slots=True)
+class DeleteProcessingJobResult:
+    job_id: str
+
+
+@dataclass(frozen=True, slots=True)
+class CancelProcessingJobResult:
+    job: ProcessingJob
+
+
+@dataclass(frozen=True, slots=True)
 class UpdateAudioTrackResult:
     campaign: Campaign
     audio_track: AudioTrack
@@ -228,11 +291,14 @@ class RunProcessingJobResult:
 
 
 @dataclass(frozen=True, slots=True)
-class RestartFailedProcessingJobResult:
+class RestartProcessingJobResult:
     campaign: Campaign
     audio_track: AudioTrack
     source_job: ProcessingJob
     job: ProcessingJob
+
+
+RestartFailedProcessingJobResult = RestartProcessingJobResult
 
 
 @dataclass(frozen=True, slots=True)
@@ -250,6 +316,7 @@ class ReviewSpeakerMappingsResult:
 
 @dataclass(frozen=True, slots=True)
 class GenerateRecapResult:
+    job: ProcessingJob
     recap: Recap
 
 
@@ -313,12 +380,15 @@ class SyncCampaignFolderResult:
 __all__ = [
     "AddParticipantToCampaignResult",
     "AddVoiceSampleResult",
+    "CancelProcessingJobResult",
     "CampaignFolderSnapshot",
+    "ClearFailedJobsForCampaignResult",
     "CreateCampaignResult",
     "CreateProcessingJobForAudioTrackResult",
     "DeleteAudioTrackResult",
     "DeleteCampaignResult",
     "DeleteParticipantResult",
+    "DeleteProcessingJobResult",
     "DeleteVoiceSampleResult",
     "ExportMarkdownResult",
     "GenerateRecapResult",
@@ -333,10 +403,13 @@ __all__ = [
     "MarkdownPreviewResult",
     "PreparedAudioResult",
     "PreparedVoiceSampleRange",
+    "ProgressEvent",
+    "ProgressEventKind",
     "RecapGenerationContext",
     "RegisterAudioTrackResult",
     "ReviewSpeakerMappingsResult",
     "RestartFailedProcessingJobResult",
+    "RestartProcessingJobResult",
     "RunProcessingJobResult",
     "ScannedAudioTrackArtifact",
     "ScannedVoiceSampleArtifact",

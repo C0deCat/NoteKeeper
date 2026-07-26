@@ -2,15 +2,18 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import datetime
 from typing import Any, Protocol
 
 from notekeeper.application.results import (
     CampaignFolderSnapshot,
     PreparedAudioResult,
+    ProgressEvent,
     RecapGenerationContext,
     SpeakerMappingRecord,
     TranscriptChunk,
+    RunProcessingJobResult,
 )
 from notekeeper.domain import (
     ArtifactRef,
@@ -19,11 +22,12 @@ from notekeeper.domain import (
     AudioTrackId,
     Campaign,
     CampaignId,
+    JobStatus,
     Participant,
     ParticipantId,
-    VoiceSampleId,
     ProcessingJob,
     ProcessingJobId,
+    ProcessingStage,
     Recap,
     RecapChunk,
     RecapId,
@@ -31,7 +35,62 @@ from notekeeper.domain import (
     Transcript,
     TranscriptId,
     VoiceSample,
+    VoiceSampleId,
 )
+
+ProgressEventListener = Callable[[ProgressEvent], None]
+Unsubscribe = Callable[[], None]
+
+
+class ProgressEventPublisher(Protocol):
+    def publish(self, event: ProgressEvent) -> None: ...
+
+
+class ProgressEventStream(Protocol):
+    def subscribe(
+        self,
+        operation_id: str,
+        listener: ProgressEventListener,
+        *,
+        replay_latest: bool = True,
+    ) -> Unsubscribe: ...
+
+    def latest(self, operation_id: str) -> ProgressEvent | None: ...
+
+
+class ProgressEventHub(ProgressEventPublisher, ProgressEventStream, Protocol):
+    pass
+
+
+class ProgressTracker(Protocol):
+    def start_stage(
+        self,
+        stage: ProcessingStage,
+        *,
+        timing_available: bool,
+    ) -> None: ...
+
+    def update_fraction(self, fraction: float) -> None: ...
+
+    def complete_stage(self) -> None: ...
+
+    def complete(self) -> None: ...
+
+    def pause(self) -> None: ...
+
+    def fail(self) -> None: ...
+
+    def cancel(self) -> None: ...
+
+    def close(self) -> None: ...
+
+
+class ProgressTrackerFactory(Protocol):
+    def create(
+        self,
+        operation_id: str,
+        stages: tuple[ProcessingStage, ...],
+    ) -> ProgressTracker: ...
 
 
 class CampaignRepository(Protocol):
@@ -123,7 +182,32 @@ class JobRepository(Protocol):
 
     def save(self, job: ProcessingJob) -> None: ...
 
+    def save_if_status(
+        self,
+        job: ProcessingJob,
+        expected_status: JobStatus,
+    ) -> bool: ...
+
     def delete(self, job_id: ProcessingJobId) -> None: ...
+
+
+class JobCleaner(Protocol):
+    def clean(
+        self,
+        campaign_id: CampaignId,
+        jobs: tuple[ProcessingJob, ...],
+    ) -> tuple[ProcessingJobId, ...]: ...
+
+
+FailedJobCleaner = JobCleaner
+
+
+class JobExecutionController(Protocol):
+    def cancel(self, job_id: ProcessingJobId) -> None: ...
+
+
+class JobProcessExecutor(JobExecutionController, Protocol):
+    def execute(self, job_id: ProcessingJobId) -> RunProcessingJobResult: ...
 
 
 class AudioMetadataReader(Protocol):
@@ -137,6 +221,7 @@ class AudioProcessor(Protocol):
         voice_samples: tuple[VoiceSample, ...],
         *,
         job_id: ProcessingJobId,
+        progress: ProgressTracker | None = None,
     ) -> PreparedAudioResult: ...
 
 
@@ -148,6 +233,7 @@ class Transcriber(Protocol):
         transcript_id: TranscriptId,
         campaign_id: CampaignId,
         audio_track_id: AudioTrackId,
+        progress: ProgressTracker | None = None,
     ) -> Transcript: ...
 
 
@@ -285,10 +371,20 @@ __all__ = [
     "CampaignFolderScanner",
     "CampaignRepository",
     "Clock",
+    "FailedJobCleaner",
+    "JobCleaner",
+    "JobExecutionController",
+    "JobProcessExecutor",
     "IdGenerator",
     "JobRepository",
     "ParticipantRepository",
     "PreparedAudioManifestStore",
+    "ProgressEventListener",
+    "ProgressEventHub",
+    "ProgressEventPublisher",
+    "ProgressEventStream",
+    "ProgressTracker",
+    "ProgressTrackerFactory",
     "RecapGenerator",
     "RecapRepository",
     "SpeakerIdentifier",
@@ -296,5 +392,6 @@ __all__ = [
     "Tokenizer",
     "Transcriber",
     "TranscriptRepository",
+    "Unsubscribe",
     "VoiceSampleRepository",
 ]

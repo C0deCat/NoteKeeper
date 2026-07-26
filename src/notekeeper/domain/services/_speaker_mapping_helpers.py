@@ -14,7 +14,10 @@ def unambiguous_confirmed_mappings(
     for mapping in mappings:
         if mapping.status is not SpeakerMappingStatus.CONFIRMED:
             continue
-        if mapping.participant_id not in participant_ids:
+        if (
+            mapping.participant_id is not None
+            and mapping.participant_id not in participant_ids
+        ):
             continue
         if mapping.named_label is None:
             continue

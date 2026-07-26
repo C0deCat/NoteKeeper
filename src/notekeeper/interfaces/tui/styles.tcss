@@ -22,6 +22,26 @@ Screen {
     content-align: right middle;
 }
 
+#campaign-actions {
+    width: 100%;
+    height: auto;
+    min-height: 1;
+    margin-top: 1;
+    padding: 0 1;
+    grid-columns: auto;
+    grid-rows: 1;
+    grid-gutter: 0 1;
+    background: $panel;
+}
+
+#campaign-actions Button {
+    width: auto;
+    height: 1;
+    min-width: 0;
+    border: none;
+    padding: 0 1;
+}
+
 #dashboard {
     height: 1fr;
     overflow-y: auto;
@@ -45,6 +65,29 @@ Screen {
     padding: 1;
     overflow-y: auto;
     overflow-x: auto;
+}
+
+#content Button {
+    width: auto;
+    height: 1;
+    min-width: 0;
+    border: none;
+    padding: 0 1;
+}
+
+#jobs-header {
+    height: 1;
+    align: left middle;
+}
+
+#jobs-header Label {
+    width: 1fr;
+    content-align: left middle;
+}
+
+#clear-failed-jobs {
+    width: auto;
+    min-width: 20;
 }
 
 .panel {
@@ -71,6 +114,36 @@ Screen {
     margin-right: 1;
 }
 
+.review-mappings {
+    height: auto;
+    max-height: 32;
+    overflow-y: auto;
+}
+
+.review-mapping {
+    height: auto;
+    border-bottom: solid $secondary;
+    padding: 1 0;
+}
+
+.review-speaker-label {
+    text-style: bold;
+}
+
+.review-mode {
+    height: 3;
+    align: left middle;
+}
+
+.review-mode Switch {
+    margin: 0 1;
+}
+
+.review-error {
+    min-height: 1;
+    color: $error;
+}
+
 #campaigns-table {
     height: 12;
     border: solid $accent;
@@ -93,4 +166,23 @@ Screen {
     height: 28;
     border: solid $accent;
     padding: 1;
+}
+
+#progress-panel {
+    height: auto;
+    margin-top: 1;
+}
+
+#progress-stage {
+    height: 1;
+    text-style: bold;
+}
+
+#job-progress {
+    height: 1;
+}
+
+#progress-time {
+    height: 1;
+    color: $text-muted;
 }

@@ -1,4 +1,6 @@
+from dataclasses import replace
 from datetime import datetime
+from types import SimpleNamespace
 
 from typer.testing import CliRunner
 
@@ -6,6 +8,8 @@ from notekeeper.application import (
     CreateProcessingJobForAudioTrackCommand,
     CreateProcessingJobForAudioTrackResult,
     ExportMarkdownResult,
+    GenerateRecapCommand,
+    GenerateRecapResult,
     GetJobStatusResult,
     InspectAudioMetadataResult,
     ListAudioTracksResult,
@@ -14,7 +18,9 @@ from notekeeper.application import (
     ListJobsForCampaignResult,
     ListParticipantsResult,
     ListVoiceSamplesResult,
+    ManualSpeakerMappingCommand,
     MarkdownPreviewResult,
+    ReviewSpeakerMappingsCommand,
     RestartFailedProcessingJobCommand,
     RestartFailedProcessingJobResult,
     SyncCampaignFolderCommand,
@@ -30,6 +36,7 @@ from notekeeper.domain import (
     Participant,
     ParticipantId,
     ProcessingJob,
+    Recap,
 )
 from notekeeper.interfaces import RuntimeDiagnostics, Stage1UseCases
 from notekeeper.interfaces.cli import build_app
@@ -88,12 +95,17 @@ class FakeRuntime:
             list_participants=FakeUseCase(
                 ListParticipantsResult(participants=(participant,)),
             ),
+            update_participant=FakeUseCase(None),
+            delete_participant=FakeUseCase(None),
             add_voice_sample=FakeUseCase(None),
             list_voice_samples=FakeUseCase(ListVoiceSamplesResult(voice_samples=())),
+            delete_voice_sample=FakeUseCase(None),
             register_audio_track=FakeUseCase(None),
             list_audio_tracks=FakeUseCase(
                 ListAudioTracksResult(audio_tracks=(audio_track,)),
             ),
+            update_audio_track=FakeUseCase(None),
+            delete_audio_track=FakeUseCase(None),
             create_processing_job_for_audio_track=FakeUseCase(
                 CreateProcessingJobForAudioTrackResult(
                     campaign=campaign,
@@ -111,6 +123,7 @@ class FakeRuntime:
                     job=job,
                 ),
             ),
+            clear_failed_jobs_for_campaign=FakeUseCase(None),
             list_jobs_for_campaign=FakeUseCase(ListJobsForCampaignResult(jobs=(job,))),
             get_job_status=FakeUseCase(GetJobStatusResult(job=job)),
             review_speaker_mappings=FakeUseCase(GetJobStatusResult(job=job)),
@@ -239,6 +252,95 @@ def test_cli_job_restart_uses_failed_restart_use_case() -> None:
     command = runtime.use_cases.restart_failed_processing_job.commands[0]
     assert isinstance(command, RestartFailedProcessingJobCommand)
     assert command.job_id == "job-failed"
+
+
+def test_cli_job_recreate_recap_uses_existing_generate_recap_use_case() -> None:
+    runtime = FakeRuntime()
+    job = replace(
+        runtime.use_cases.get_job_status.result.job,
+        transcript_id="transcript-1",
+        recap_id="recap-new",
+    )
+    recap = Recap(
+        id="recap-new",
+        transcript_id="transcript-1",
+        markdown="# Recap",
+    )
+    runtime.use_cases.generate_recap.result = GenerateRecapResult(
+        job=job,
+        recap=recap,
+    )
+    app = build_app(lambda: runtime, lambda value: None)
+
+    result = CliRunner().invoke(
+        app,
+        ["cli", "job", "recreate-recap", "job-1"],
+    )
+
+    assert result.exit_code == 0
+    assert "job id=job-1" in result.output
+    assert "transcript=transcript-1" in result.output
+    assert "recap=recap-new" in result.output
+    command = runtime.use_cases.generate_recap.commands[0]
+    assert isinstance(command, GenerateRecapCommand)
+    assert command.job_id == "job-1"
+
+
+def test_cli_review_submit_supports_player_custom_and_keep_decisions() -> None:
+    runtime = FakeRuntime()
+    runtime.use_cases.review_speaker_mappings.result = SimpleNamespace(
+        job=runtime.use_cases.get_job_status.result.job,
+        warnings=(),
+    )
+    app = build_app(lambda: runtime, lambda value: None)
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "cli",
+            "review",
+            "submit",
+            "job-1",
+            "--mapping",
+            "SPEAKER_00=participant-1",
+            "--label",
+            "SPEAKER_01=Random Guest",
+            "--keep",
+            "SPEAKER_02",
+        ],
+    )
+
+    assert result.exit_code == 0
+    command = runtime.use_cases.review_speaker_mappings.commands[0]
+    assert isinstance(command, ReviewSpeakerMappingsCommand)
+    assert command.mappings == (
+        ManualSpeakerMappingCommand(
+            anonymous_label="SPEAKER_00",
+            participant_id="participant-1",
+            confidence=1.0,
+        ),
+        ManualSpeakerMappingCommand(
+            anonymous_label="SPEAKER_01",
+            named_label="Random Guest",
+            confidence=1.0,
+        ),
+        ManualSpeakerMappingCommand(
+            anonymous_label="SPEAKER_02",
+            named_label="SPEAKER_02",
+            confidence=1.0,
+        ),
+    )
+
+
+def test_cli_review_submit_requires_at_least_one_decision() -> None:
+    runtime = FakeRuntime()
+    app = build_app(lambda: runtime, lambda value: None)
+
+    result = CliRunner().invoke(app, ["cli", "review", "submit", "job-1"])
+
+    assert result.exit_code == 1
+    assert "at least one --mapping, --label, or --keep is required" in result.output
+    assert runtime.use_cases.review_speaker_mappings.commands == []
 
 
 def test_cli_diagnostics_does_not_print_secret_values() -> None:

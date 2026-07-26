@@ -15,6 +15,7 @@ from notekeeper.application.ports import (
     CampaignFolderScanner,
     CampaignRepository,
     Clock,
+    JobCleaner,
     IdGenerator,
     JobRepository,
     ParticipantRepository,
@@ -36,6 +37,7 @@ from notekeeper.composition import (
     build_infrastructure,
 )
 from notekeeper.infrastructure import InfrastructureError
+from notekeeper.infrastructure.cleanup import LocalJobCleaner
 from notekeeper.infrastructure.deepseek import (
     DeepSeekRecapGenerator,
     LocalDeepSeekRequestLogger,
@@ -87,6 +89,7 @@ def test_infrastructure_bundle_uses_port_types_only() -> None:
         "recap_repository": RecapRepository,
         "job_repository": JobRepository,
         "speaker_mapping_repository": SpeakerMappingRepository,
+        "job_cleaner": JobCleaner,
         "clock": Clock,
         "id_generator": IdGenerator,
     }
@@ -97,6 +100,7 @@ def test_infrastructure_bundle_uses_port_types_only() -> None:
         LocalCampaignArtifactStorage,
         LocalCampaignFolderScanner,
         LocalPreparedAudioManifestStore,
+        LocalJobCleaner,
         SampleBasedSpeakerIdentifier,
         TiktokenTranscriptTokenizer,
         DeepSeekRecapGenerator,
@@ -126,6 +130,7 @@ def test_infrastructure_implementations_inherit_ports() -> None:
         SampleBasedSpeakerIdentifier: SpeakerIdentifier,
         TiktokenTranscriptTokenizer: Tokenizer,
         DeepSeekRecapGenerator: RecapGenerator,
+        LocalJobCleaner: JobCleaner,
         SQLiteCampaignRepository: CampaignRepository,
         SQLiteParticipantRepository: ParticipantRepository,
         SQLiteVoiceSampleRepository: VoiceSampleRepository,

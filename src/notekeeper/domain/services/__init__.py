@@ -11,6 +11,11 @@ from .campaign_readiness import ensure_campaign_ready_for_processing
 from .remove_audio_track import remove_audio_track
 from .remove_participant import remove_participant
 from .remove_voice_sample import remove_voice_sample
+from .processing_job_rules import (
+    cancel_processing_job,
+    ensure_processing_job_can_be_deleted,
+    ensure_processing_job_can_be_restarted,
+)
 from .speaker_mapping_issues import find_speaker_mapping_issues
 from .transcript_validation import validate_transcript
 from .update_audio_track import update_audio_track
@@ -23,7 +28,10 @@ __all__ = [
     "add_participant",
     "add_voice_sample",
     "apply_speaker_mappings",
+    "cancel_processing_job",
     "ensure_campaign_ready_for_processing",
+    "ensure_processing_job_can_be_deleted",
+    "ensure_processing_job_can_be_restarted",
     "find_speaker_mapping_issues",
     "remove_audio_track",
     "remove_participant",

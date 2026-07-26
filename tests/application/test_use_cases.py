@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import datetime, timedelta
 
 import pytest
@@ -10,6 +11,8 @@ from notekeeper.application import (
     AddVoiceSample,
     AddVoiceSampleCommand,
     CampaignFolderSnapshot,
+    ClearFailedJobsForCampaign,
+    ClearFailedJobsForCampaignCommand,
     CreateCampaign,
     CreateCampaignCommand,
     CreateProcessingJobForAudioTrack,
@@ -56,6 +59,7 @@ from notekeeper.domain import (
     ArtifactRef,
     AudioMetadata,
     AudioTrack,
+    AudioTrackId,
     Campaign,
     CampaignId,
     CampaignValidationError,
@@ -97,6 +101,13 @@ class InMemoryRepository:
 
     def save(self, item) -> None:
         self.items[item.id] = item
+
+    def save_if_status(self, item, expected_status) -> bool:
+        current = self.items.get(item.id)
+        if current is None or current.status is not expected_status:
+            return False
+        self.items[item.id] = item
+        return True
 
     def delete(self, item_id) -> None:
         self.items.pop(item_id, None)
@@ -267,6 +278,25 @@ class FakeSpeakerMappingRepository:
         )
 
 
+class FakeFailedJobCleaner:
+    def __init__(self, job_repository: InMemoryRepository) -> None:
+        self._job_repository = job_repository
+        self.calls: list[tuple[CampaignId, tuple[ProcessingJob, ...]]] = []
+        self.error: Exception | None = None
+
+    def clean(
+        self,
+        campaign_id: CampaignId,
+        jobs: tuple[ProcessingJob, ...],
+    ) -> tuple[ProcessingJobId, ...]:
+        self.calls.append((campaign_id, jobs))
+        if self.error is not None:
+            raise self.error
+        for job in jobs:
+            self._job_repository.delete(job.id)
+        return tuple(job.id for job in jobs)
+
+
 class FakeTokenizer:
     def __init__(self) -> None:
         self.calls: list[tuple[Transcript, int]] = []
@@ -374,6 +404,7 @@ class Harness:
         self.transcripts = InMemoryRepository()
         self.recaps = InMemoryRepository()
         self.jobs = InMemoryRepository()
+        self.failed_job_cleaner = FakeFailedJobCleaner(self.jobs)
         self.metadata_reader = FakeMetadataReader()
         self.audio_processor = FakeAudioProcessor()
         self.transcriber = FakeTranscriber()
@@ -463,6 +494,13 @@ class Harness:
             self.recap_generator,
             self.clock,
             self.ids,
+        )
+
+    def clear_failed_jobs_use_case(self) -> ClearFailedJobsForCampaign:
+        return ClearFailedJobsForCampaign(
+            self.campaigns,
+            self.jobs,
+            self.failed_job_cleaner,
         )
 
     def sync_use_case(self) -> SyncCampaignFolder:
@@ -743,6 +781,101 @@ def test_restart_failed_processing_job_rejects_non_failed_job() -> None:
     assert harness.jobs.items == {pending.id: pending}
 
 
+def test_restart_canceled_processing_job_creates_new_pending_job() -> None:
+    harness = Harness()
+    campaign = harness.ready_campaign("Alice")
+    audio_track = AudioTrack(
+        id="audio-track-1",
+        campaign_id=campaign.id,
+        artifact=ArtifactRef(uri="sessions/session-1.wav"),
+        metadata=AudioMetadata(duration_seconds=12),
+    )
+    campaign = add_audio_track(campaign, audio_track)
+    harness.campaigns.save(campaign)
+    harness.audio_tracks.save(audio_track)
+    canceled = ProcessingJob(
+        id="job-canceled",
+        campaign_id=campaign.id,
+        audio_track_id=audio_track.id,
+        status=JobStatus.CANCELED,
+        created_at=harness.clock.now(),
+        updated_at=harness.clock.now(),
+    )
+    harness.jobs.save(canceled)
+
+    result = harness.restart_use_case().execute(
+        RestartFailedProcessingJobCommand(job_id=canceled.id),
+    )
+
+    assert result.source_job == canceled
+    assert result.job.status is JobStatus.PENDING
+    assert harness.jobs.get(canceled.id) == canceled
+
+
+def test_clear_failed_jobs_for_campaign_filters_and_deletes_only_failed_jobs() -> None:
+    harness = Harness()
+    campaign = harness.ready_campaign("Alice")
+    failed_jobs = tuple(
+        ProcessingJob(
+            id=ProcessingJobId(f"job-failed-{index}"),
+            campaign_id=campaign.id,
+            audio_track_id=AudioTrackId("audio-track-1"),
+            status=JobStatus.FAILED,
+            created_at=harness.clock.now(),
+            updated_at=harness.clock.now(),
+            error_message="failed",
+        )
+        for index in range(1, 3)
+    )
+    pending_job = ProcessingJob(
+        id=ProcessingJobId("job-pending"),
+        campaign_id=campaign.id,
+        audio_track_id=AudioTrackId("audio-track-1"),
+        status=JobStatus.PENDING,
+        created_at=harness.clock.now(),
+        updated_at=harness.clock.now(),
+    )
+    for job in (*failed_jobs, pending_job):
+        harness.jobs.save(job)
+
+    result = harness.clear_failed_jobs_use_case().execute(
+        ClearFailedJobsForCampaignCommand(campaign_id=str(campaign.id)),
+    )
+
+    assert result.deleted_job_ids == ("job-failed-1", "job-failed-2")
+    assert harness.failed_job_cleaner.calls == [(campaign.id, failed_jobs)]
+    assert harness.jobs.items == {pending_job.id: pending_job}
+
+    repeated = harness.clear_failed_jobs_use_case().execute(
+        ClearFailedJobsForCampaignCommand(campaign_id=str(campaign.id)),
+    )
+    assert repeated.deleted_job_ids == ()
+    assert len(harness.failed_job_cleaner.calls) == 1
+
+
+def test_clear_failed_jobs_keeps_jobs_when_cleaner_fails() -> None:
+    harness = Harness()
+    campaign = harness.ready_campaign("Alice")
+    failed_job = ProcessingJob(
+        id=ProcessingJobId("job-failed"),
+        campaign_id=campaign.id,
+        audio_track_id=AudioTrackId("audio-track-1"),
+        status=JobStatus.FAILED,
+        created_at=harness.clock.now(),
+        updated_at=harness.clock.now(),
+        error_message="failed",
+    )
+    harness.jobs.save(failed_job)
+    harness.failed_job_cleaner.error = InfrastructureError("cleanup failed")
+
+    with pytest.raises(InfrastructureError, match="cleanup failed"):
+        harness.clear_failed_jobs_use_case().execute(
+            ClearFailedJobsForCampaignCommand(campaign_id=str(campaign.id)),
+        )
+
+    assert harness.jobs.get(failed_job.id) == failed_job
+
+
 def test_run_processing_job_completes_clean_mapping_flow() -> None:
     harness = Harness()
     campaign = harness.ready_campaign("Alice")
@@ -790,6 +923,40 @@ def test_run_processing_job_completes_clean_mapping_flow() -> None:
     assert chunk_context.job_id == submitted.job.id
     assert chunk_context.chunk_index == 0
     assert harness.recap_generator.combined_contexts[0].chunk_index is None
+
+
+def test_run_processing_job_does_not_overwrite_concurrent_cancel() -> None:
+    harness = Harness()
+    harness.ready_campaign("Alice")
+    harness.transcriber.segments = (
+        segment(0, 0, 1, "SPEAKER_00", "Hello there"),
+    )
+    harness.speaker_identifier.mappings = (
+        confirmed_mapping("SPEAKER_00", "Alice", "participant-1"),
+    )
+    submitted = harness.submit_use_case().execute(
+        SubmitRecordingForProcessingCommand(
+            campaign_id="campaign-1",
+            artifact_uri="sessions/session-1.wav",
+        ),
+    )
+    original_save_if_status = harness.jobs.save_if_status
+
+    def cancel_before_terminal_save(job, expected_status):
+        if expected_status is JobStatus.RUNNING:
+            current = harness.jobs.get(job.id)
+            harness.jobs.save(replace(current, status=JobStatus.CANCELED))
+            return False
+        return original_save_if_status(job, expected_status)
+
+    harness.jobs.save_if_status = cancel_before_terminal_save
+
+    result = harness.run_use_case().execute(
+        RunProcessingJobCommand(job_id=submitted.job.id),
+    )
+
+    assert result.job.status is JobStatus.CANCELED
+    assert harness.jobs.get(submitted.job.id).status is JobStatus.CANCELED
 
 
 def test_run_processing_job_waits_for_review_when_mapping_warnings_exist() -> None:
@@ -940,6 +1107,153 @@ def test_review_speaker_mappings_completes_job_after_manual_fix() -> None:
     assert harness.speaker_mappings.records[-1].diagnostics == {"warning_count": 0}
 
 
+def test_review_speaker_mappings_completes_with_custom_and_kept_labels() -> None:
+    harness = Harness()
+    harness.ready_campaign("Alice")
+    harness.transcriber.segments = (
+        segment(0, 0, 1, "SPEAKER_00", "Alice speaks"),
+        segment(1, 1, 2, "SPEAKER_01", "A guest speaks"),
+        segment(2, 2, 3, "SPEAKER_02", "Another guest speaks"),
+    )
+    harness.speaker_identifier.mappings = (
+        confirmed_mapping("SPEAKER_00", "Alice", "participant-1"),
+    )
+    submitted = harness.submit_use_case().execute(
+        SubmitRecordingForProcessingCommand(
+            campaign_id="campaign-1",
+            artifact_uri="sessions/session-1.wav",
+        ),
+    )
+    waiting = harness.run_use_case().execute(
+        RunProcessingJobCommand(job_id=submitted.job.id),
+    )
+
+    result = harness.review_use_case().execute(
+        ReviewSpeakerMappingsCommand(
+            job_id=waiting.job.id,
+            mappings=(
+                ManualSpeakerMappingCommand(
+                    anonymous_label="SPEAKER_01",
+                    named_label=" Random Guest ",
+                    confidence=1.0,
+                ),
+                ManualSpeakerMappingCommand(
+                    anonymous_label="SPEAKER_02",
+                    named_label="SPEAKER_02",
+                    confidence=1.0,
+                ),
+            ),
+        ),
+    )
+
+    assert result.job.status is JobStatus.COMPLETED
+    assert result.warnings == ()
+    assert result.recap is not None
+    assert [segment.speaker_label for segment in result.transcript.segments] == [
+        SpeakerLabel.named("Alice"),
+        SpeakerLabel.named("Random Guest"),
+        SpeakerLabel.named("SPEAKER_02"),
+    ]
+    manual_records = harness.speaker_mappings.records[-2:]
+    assert all(record.mapping.participant_id is None for record in manual_records)
+
+
+def test_review_speaker_mappings_partial_review_stays_waiting() -> None:
+    harness = Harness()
+    harness.ready_campaign("Alice")
+    harness.transcriber.segments = (
+        segment(0, 0, 1, "SPEAKER_00", "A guest speaks"),
+        segment(1, 1, 2, "SPEAKER_01", "Another guest speaks"),
+    )
+    submitted = harness.submit_use_case().execute(
+        SubmitRecordingForProcessingCommand(
+            campaign_id="campaign-1",
+            artifact_uri="sessions/session-1.wav",
+        ),
+    )
+    waiting = harness.run_use_case().execute(
+        RunProcessingJobCommand(job_id=submitted.job.id),
+    )
+
+    result = harness.review_use_case().execute(
+        ReviewSpeakerMappingsCommand(
+            job_id=waiting.job.id,
+            mappings=(
+                ManualSpeakerMappingCommand(
+                    anonymous_label="SPEAKER_00",
+                    named_label="Random Guest",
+                    confidence=1.0,
+                ),
+            ),
+        ),
+    )
+
+    assert result.job.status is JobStatus.WAITING_FOR_REVIEW
+    assert result.recap is None
+    assert [segment.speaker_label.value for segment in result.transcript.segments] == [
+        "Random Guest",
+        "SPEAKER_01",
+    ]
+    assert PipelineWarningKind.UNRESOLVED_SPEAKER_LABEL in {
+        warning.kind for warning in result.warnings
+    }
+
+
+@pytest.mark.parametrize(
+    "mappings",
+    (
+        (
+            ManualSpeakerMappingCommand(
+                anonymous_label="SPEAKER_00",
+                named_label=" ",
+            ),
+        ),
+        (
+            ManualSpeakerMappingCommand(
+                anonymous_label="SPEAKER_00",
+                participant_id="participant-1",
+                named_label="Guest",
+            ),
+        ),
+        (
+            ManualSpeakerMappingCommand(
+                anonymous_label="SPEAKER_00",
+                participant_id="participant-1",
+            ),
+            ManualSpeakerMappingCommand(
+                anonymous_label="SPEAKER_00",
+                named_label="Guest",
+            ),
+        ),
+    ),
+)
+def test_review_speaker_mappings_rejects_invalid_manual_decisions(
+    mappings: tuple[ManualSpeakerMappingCommand, ...],
+) -> None:
+    harness = Harness()
+    harness.ready_campaign("Alice")
+    harness.transcriber.segments = (
+        segment(0, 0, 1, "SPEAKER_00", "A guest speaks"),
+    )
+    submitted = harness.submit_use_case().execute(
+        SubmitRecordingForProcessingCommand(
+            campaign_id="campaign-1",
+            artifact_uri="sessions/session-1.wav",
+        ),
+    )
+    waiting = harness.run_use_case().execute(
+        RunProcessingJobCommand(job_id=submitted.job.id),
+    )
+
+    with pytest.raises(InvalidOperationError):
+        harness.review_use_case().execute(
+            ReviewSpeakerMappingsCommand(
+                job_id=waiting.job.id,
+                mappings=mappings,
+            ),
+        )
+
+
 def test_generate_recap_and_export_markdown_use_artifact_storage() -> None:
     harness = Harness()
     transcript = Transcript(
@@ -956,14 +1270,33 @@ def test_generate_recap_and_export_markdown_use_artifact_storage() -> None:
         ),
     )
     harness.transcripts.save(transcript)
+    old_recap = Recap(
+        id="recap-old",
+        transcript_id=transcript.id,
+        markdown="# Old recap",
+    )
+    harness.recaps.save(old_recap)
+    job = ProcessingJob(
+        id="job-1",
+        campaign_id=transcript.campaign_id,
+        audio_track_id=transcript.audio_track_id,
+        status=JobStatus.COMPLETED,
+        created_at=datetime(2026, 1, 1, 10, 0, 0),
+        updated_at=datetime(2026, 1, 1, 11, 0, 0),
+        transcript_id=transcript.id,
+        recap_id=old_recap.id,
+    )
+    harness.jobs.save(job)
 
     recap_result = GenerateRecap(
+        harness.jobs,
         harness.transcripts,
         harness.recaps,
         harness.tokenizer,
         harness.recap_generator,
+        harness.clock,
         harness.ids,
-    ).execute(GenerateRecapCommand(transcript_id=transcript.id))
+    ).execute(GenerateRecapCommand(job_id=job.id))
     transcript_export = ExportTranscriptMarkdown(
         harness.transcripts,
         harness.artifact_storage,
@@ -975,15 +1308,94 @@ def test_generate_recap_and_export_markdown_use_artifact_storage() -> None:
 
     assert transcript_export.artifact.uri == "memory://transcript-transcript-1.md"
     assert recap_export.artifact.uri == "memory://recap-recap-1.md"
+    assert recap_result.job.recap_id == recap_result.recap.id
+    assert recap_result.job.transcript_id == transcript.id
+    assert recap_result.job.status is JobStatus.COMPLETED
+    assert recap_result.job.updated_at == datetime(2026, 1, 1, 12, 0, 0)
+    assert harness.jobs.get(job.id) == recap_result.job
+    assert harness.recaps.get(old_recap.id) == old_recap
+    assert harness.transcripts.get(transcript.id) == transcript
     assert (
         harness.recap_generator.generated_contexts[0].recap_id
         == recap_result.recap.id
     )
-    assert harness.recap_generator.generated_contexts[0].job_id is None
+    assert harness.recap_generator.generated_contexts[0].job_id == job.id
     transcript_content = harness.artifact_storage.saved["transcript-transcript-1.md"][0]
     recap_content = harness.artifact_storage.saved["recap-recap-1.md"][0]
     assert "[00:00:00 - 00:00:05] **Alice:** We enter the crypt." in transcript_content
     assert "## Summary" in recap_content
+
+
+def test_generate_recap_rejects_job_without_transcript() -> None:
+    harness = Harness()
+    job = ProcessingJob(
+        id="job-1",
+        campaign_id="campaign-1",
+        audio_track_id="audio-track-1",
+        status=JobStatus.PENDING,
+        created_at=datetime(2026, 1, 1),
+        updated_at=datetime(2026, 1, 1),
+    )
+    harness.jobs.save(job)
+
+    with pytest.raises(InvalidOperationError, match="has no transcript"):
+        GenerateRecap(
+            harness.jobs,
+            harness.transcripts,
+            harness.recaps,
+            harness.tokenizer,
+            harness.recap_generator,
+            harness.clock,
+            harness.ids,
+        ).execute(GenerateRecapCommand(job_id=job.id))
+
+    assert harness.jobs.get(job.id) == job
+    assert harness.recaps.items == {}
+
+
+def test_generate_recap_failure_preserves_existing_job_recap() -> None:
+    harness = Harness()
+    transcript = Transcript(
+        id="transcript-1",
+        campaign_id="campaign-1",
+        audio_track_id="audio-track-1",
+        segments=(
+            TranscriptSegment(
+                index=0,
+                time_range=TimeRange(0, 5),
+                speaker_label=SpeakerLabel.named("Alice"),
+                text="We enter the crypt.",
+            ),
+        ),
+    )
+    job = ProcessingJob(
+        id="job-1",
+        campaign_id="campaign-1",
+        audio_track_id="audio-track-1",
+        status=JobStatus.COMPLETED,
+        created_at=datetime(2026, 1, 1),
+        updated_at=datetime(2026, 1, 1),
+        transcript_id=transcript.id,
+        recap_id="recap-old",
+    )
+    harness.transcripts.save(transcript)
+    harness.jobs.save(job)
+    harness.recap_generator.generate_error = PortExecutionError("DeepSeek failed")
+
+    with pytest.raises(PortExecutionError, match="DeepSeek failed"):
+        GenerateRecap(
+            harness.jobs,
+            harness.transcripts,
+            harness.recaps,
+            harness.tokenizer,
+            harness.recap_generator,
+            harness.clock,
+            harness.ids,
+        ).execute(GenerateRecapCommand(job_id=job.id))
+
+    assert harness.jobs.get(job.id) == job
+    assert harness.recaps.items == {}
+    assert harness.transcripts.get(transcript.id) == transcript
 
 
 def test_get_job_status_returns_saved_job() -> None:

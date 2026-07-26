@@ -6,6 +6,7 @@ from notekeeper.application.ports import JobRepository
 from notekeeper.domain import (
     AudioTrackId,
     CampaignId,
+    JobStatus,
     ProcessingJob,
     ProcessingJobId,
 )
@@ -98,6 +99,36 @@ class SQLiteJobRepository(JobRepository):
                     job.error_message,
                 ),
             )
+
+    def save_if_status(
+        self,
+        job: ProcessingJob,
+        expected_status: JobStatus,
+    ) -> bool:
+        with self._database.connect() as connection:
+            cursor = connection.execute(
+                """
+                UPDATE jobs
+                SET campaign_id = ?, audio_track_id = ?, status = ?,
+                    created_at = ?, updated_at = ?, transcript_id = ?, recap_id = ?,
+                    warnings_json = ?, error_message = ?
+                WHERE id = ? AND status = ?
+                """,
+                (
+                    str(job.campaign_id),
+                    str(job.audio_track_id),
+                    job.status.value,
+                    datetime_to_text(job.created_at),
+                    datetime_to_text(job.updated_at),
+                    str(job.transcript_id) if job.transcript_id is not None else None,
+                    str(job.recap_id) if job.recap_id is not None else None,
+                    json.dumps([warning_to_dict(warning) for warning in job.warnings]),
+                    job.error_message,
+                    str(job.id),
+                    expected_status.value,
+                ),
+            )
+            return cursor.rowcount == 1
 
     def delete(self, job_id: ProcessingJobId) -> None:
         with self._database.connect() as connection:

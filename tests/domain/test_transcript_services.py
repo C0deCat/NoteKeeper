@@ -157,6 +157,40 @@ def test_apply_speaker_mappings_leaves_unresolved_labels_intact() -> None:
     }
 
 
+def test_apply_speaker_mappings_accepts_standalone_and_kept_labels() -> None:
+    campaign = make_campaign()
+    transcript = make_transcript(
+        make_segment(0, 0, 1, SpeakerLabel.anonymous("SPEAKER_00")),
+        make_segment(1, 1, 2, SpeakerLabel.anonymous("SPEAKER_01")),
+    )
+    mappings = (
+        SpeakerMapping(
+            anonymous_label=SpeakerLabel.anonymous("SPEAKER_00"),
+            named_label=SpeakerLabel.named("Random Guest"),
+            participant_id=None,
+            confidence=1.0,
+            source=SpeakerMappingSource.MANUAL,
+            status=SpeakerMappingStatus.CONFIRMED,
+        ),
+        SpeakerMapping(
+            anonymous_label=SpeakerLabel.anonymous("SPEAKER_01"),
+            named_label=SpeakerLabel.named("SPEAKER_01"),
+            participant_id=None,
+            confidence=1.0,
+            source=SpeakerMappingSource.MANUAL,
+            status=SpeakerMappingStatus.CONFIRMED,
+        ),
+    )
+
+    result = apply_speaker_mappings(campaign, transcript, mappings)
+
+    assert result.warnings == ()
+    assert [segment.speaker_label for segment in result.transcript.segments] == [
+        SpeakerLabel.named("Random Guest"),
+        SpeakerLabel.named("SPEAKER_01"),
+    ]
+
+
 def test_find_speaker_mapping_issues_reports_uncertain_and_unknown() -> None:
     campaign = make_campaign()
     transcript = make_transcript(

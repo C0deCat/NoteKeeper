@@ -37,5 +37,3 @@ class SpeakerMapping:
         if self.status is SpeakerMappingStatus.CONFIRMED:
             if self.named_label is None:
                 raise SpeakerMappingError("confirmed mapping must have a named_label")
-            if self.participant_id is None:
-                raise SpeakerMappingError("confirmed mapping must have a participant_id")

@@ -15,6 +15,7 @@ domain
   models
   services
   value_objects
+  enums
   errors
 
 application
@@ -31,9 +32,11 @@ infrastructure
   speechbrain
   deepseek
   tokenization
+  runtime
 
 interfaces
   cli
+  tui
   api
 
 jobs
@@ -63,6 +66,11 @@ Domain - внутренний слой приложения. Он содержи
 - `SpeakerLabel`
 - `SpeakerMapping`
 - `TimeRange`
+- `ProgressBar`
+
+`ProgressBar` является общей immutable-сущностью одной стадии. Pipeline-specific
+перечень стадий хранится отдельно в `ProcessingStage`, а счётчик стадий и
+идентификатор операции передаются application DTO `ProgressEvent`.
 
 ### AudioMetadata
 
@@ -97,7 +105,10 @@ Label может быть:
 
 ### SpeakerMapping
 
-`SpeakerMapping` описывает решение о сопоставлении анонимного speaker label с конкретным участником campaign.
+`SpeakerMapping` описывает решение о сопоставлении анонимного speaker label с
+конкретным участником campaign либо с самостоятельным именованным label для гостя.
+Подтвержденный ручной mapping может не иметь `participant id`, если `named label`
+задан явно.
 
 Он может хранить:
 
@@ -176,6 +187,9 @@ Ports описывают интерфейсы, которые нужны applica
 - `Tokenizer`
 - `Clock`
 - `IdGenerator`
+- `ProgressEventPublisher`
+- `ProgressEventStream`
+- `ProgressTrackerFactory`
 
 Порты определяют, что нужно приложению, но не определяют, какой конкретной библиотекой это будет реализовано.
 
@@ -195,6 +209,8 @@ Infrastructure содержит реальные адаптеры к внешн�
 - `SpeechBrainSpeakerIdentifier`
 - `DeepSeekRecapGenerator`
 - `TokenCounter`
+- `InMemoryProgressEventHub`
+- `StreamingProgressTracker`
 
 В этом слое допустимы зависимости от конкретных библиотек, subprocess, API clients, путей к файлам, GPU/CPU настроек и внешних сервисов.
 
@@ -218,6 +234,12 @@ Jobs layer отвечает за выполнение длительных за�
 Транскрипция и генерация рекапа для записи на 3-5 часов являются долгими операциями, поэтому они должны быть представлены как jobs.
 
 На ранней стадии job runner может быть синхронным. Позже его можно заменить на очередь и отдельный worker без изменения доменного ядра и use cases.
+
+Текущий `LocalProcessJobExecutor` запускает тяжёлый pipeline в дочернем процессе.
+Общий locked pipe переносит `progress`, `result` и `error`, а родитель публикует
+события в process-local `InMemoryProgressEventHub`. Активный снимок не
+персистится и удаляется после terminal event. Детали модели и потока описаны в
+[`progress.md`](progress.md).
 
 ## Composition
 

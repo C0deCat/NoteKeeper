@@ -4,9 +4,12 @@ from __future__ import annotations
 
 import importlib
 import logging
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from notekeeper.application.ports import ProgressTracker
+from notekeeper.domain import ProcessingStage
 from notekeeper.infrastructure.errors import InfrastructureError
 
 from .utils import patch_speechbrain_inspect_lazy_imports, to_json_safe
@@ -34,6 +37,7 @@ class DefaultWhisperXRunner:
         diarization_cache_dir: Path | None,
         hf_token: str | None,
         fill_nearest: bool,
+        progress: ProgressTracker | None = None,
     ) -> dict[str, Any]:
         whisperx = self._import_whisperx()
         audio_filename = str(audio_path)
@@ -48,6 +52,7 @@ class DefaultWhisperXRunner:
             language=language,
             vad_method=vad_method,
             hf_token=hf_token,
+            progress=progress,
         )
         current_result = asr_result
         alignment_result: dict[str, Any] | None = None
@@ -64,8 +69,11 @@ class DefaultWhisperXRunner:
                 alignment_model_name=alignment_model_name,
                 alignment_model_dir=alignment_model_dir,
                 alignment_model_cache_only=alignment_model_cache_only,
+                progress=progress,
             )
             current_result = alignment_result
+        elif alignment_enabled and progress is not None:
+            self._complete_inapplicable_alignment(progress)
 
         if diarization_enabled:
             current_result, diarization_payload = self._run_diarization(
@@ -77,6 +85,7 @@ class DefaultWhisperXRunner:
                 diarization_cache_dir=diarization_cache_dir,
                 hf_token=hf_token,
                 fill_nearest=fill_nearest,
+                progress=progress,
             )
 
         return to_json_safe(
@@ -106,6 +115,7 @@ class DefaultWhisperXRunner:
         language: str | None,
         vad_method: str,
         hf_token: str | None,
+        progress: ProgressTracker | None,
     ) -> dict[str, Any]:
         try:
             if vad_method == "pyannote":
@@ -122,6 +132,11 @@ class DefaultWhisperXRunner:
                 vad_method,
                 hf_token is not None,
             )
+            if progress is not None:
+                progress.start_stage(
+                    ProcessingStage.LOADING_TRANSCRIPTION_MODEL,
+                    timing_available=False,
+                )
             model = whisperx.load_model(
                 model_name,
                 device,
@@ -130,11 +145,23 @@ class DefaultWhisperXRunner:
                 vad_method=vad_method,
                 use_auth_token=hf_token,
             )
-            return model.transcribe(
+            if progress is not None:
+                progress.complete_stage()
+                progress.start_stage(
+                    ProcessingStage.TRANSCRIBING,
+                    timing_available=True,
+                )
+            result = model.transcribe(
                 audio_filename,
                 batch_size=batch_size,
                 language=language,
+                progress_callback=(
+                    _whisperx_progress(progress) if progress is not None else None
+                ),
             )
+            if progress is not None:
+                progress.complete_stage()
+            return result
         except Exception as exc:
             logger.exception(
                 "WhisperX ASR failed audio_path=%s model_name=%s device=%s "
@@ -161,6 +188,7 @@ class DefaultWhisperXRunner:
         alignment_model_name: str | None,
         alignment_model_dir: Path | None,
         alignment_model_cache_only: bool,
+        progress: ProgressTracker | None,
     ) -> dict[str, Any]:
         try:
             logger.info(
@@ -173,6 +201,11 @@ class DefaultWhisperXRunner:
                 alignment_model_dir,
                 alignment_model_cache_only,
             )
+            if progress is not None:
+                progress.start_stage(
+                    ProcessingStage.LOADING_ALIGNMENT_MODEL,
+                    timing_available=False,
+                )
             model, metadata = whisperx.load_align_model(
                 language_code=language,
                 device=device,
@@ -184,13 +217,25 @@ class DefaultWhisperXRunner:
                 ),
                 model_cache_only=alignment_model_cache_only,
             )
-            return whisperx.align(
+            if progress is not None:
+                progress.complete_stage()
+                progress.start_stage(
+                    ProcessingStage.ALIGNING_TRANSCRIPT,
+                    timing_available=True,
+                )
+            result = whisperx.align(
                 transcript_result.get("segments", ()),
                 model,
                 metadata,
                 audio_filename,
                 device,
+                progress_callback=(
+                    _whisperx_progress(progress) if progress is not None else None
+                ),
             )
+            if progress is not None:
+                progress.complete_stage()
+            return result
         except Exception as exc:
             logger.exception(
                 "WhisperX alignment failed audio_path=%s language=%s device=%s "
@@ -215,6 +260,7 @@ class DefaultWhisperXRunner:
         diarization_cache_dir: Path | None,
         hf_token: str | None,
         fill_nearest: bool,
+        progress: ProgressTracker | None,
     ) -> tuple[dict[str, Any], dict[str, Any]]:
         try:
             patch_speechbrain_inspect_lazy_imports()
@@ -228,6 +274,11 @@ class DefaultWhisperXRunner:
                 hf_token is not None,
             )
             diarize = importlib.import_module("whisperx.diarize")
+            if progress is not None:
+                progress.start_stage(
+                    ProcessingStage.LOADING_DIARIZATION_MODEL,
+                    timing_available=False,
+                )
             pipeline = diarize.DiarizationPipeline(
                 model_name=diarization_model_name,
                 token=hf_token,
@@ -238,7 +289,20 @@ class DefaultWhisperXRunner:
                     else None
                 ),
             )
-            diarization_result = pipeline(audio_filename)
+            if progress is not None:
+                progress.complete_stage()
+                progress.start_stage(
+                    ProcessingStage.DIARIZING_SPEAKERS,
+                    timing_available=True,
+                )
+            diarization_result = pipeline(
+                audio_filename,
+                progress_callback=(
+                    _whisperx_progress(progress, maximum=0.99)
+                    if progress is not None
+                    else None
+                ),
+            )
             speaker_embeddings = None
             diarization_frame = diarization_result
             if isinstance(diarization_result, tuple):
@@ -251,6 +315,8 @@ class DefaultWhisperXRunner:
                 speaker_embeddings=speaker_embeddings,
                 fill_nearest=fill_nearest,
             )
+            if progress is not None:
+                progress.complete_stage()
             return assigned, {
                 "segments": self._dataframe_records(diarization_frame),
                 "speaker_embeddings": speaker_embeddings,
@@ -267,11 +333,35 @@ class DefaultWhisperXRunner:
             )
             raise InfrastructureError("WhisperX diarization failed") from exc
 
+    @staticmethod
+    def _complete_inapplicable_alignment(progress: ProgressTracker) -> None:
+        progress.start_stage(
+            ProcessingStage.LOADING_ALIGNMENT_MODEL,
+            timing_available=False,
+        )
+        progress.complete_stage()
+        progress.start_stage(
+            ProcessingStage.ALIGNING_TRANSCRIPT,
+            timing_available=False,
+        )
+        progress.complete_stage()
+
     def _dataframe_records(self, value: Any) -> Any:
         to_dict = getattr(value, "to_dict", None)
         if callable(to_dict):
             return to_dict(orient="records")
         return value
+
+
+def _whisperx_progress(
+    progress: ProgressTracker,
+    *,
+    maximum: float = 1.0,
+) -> Callable[[float], None]:
+    def update(percent: float) -> None:
+        progress.update_fraction(min(max(float(percent) / 100.0, 0.0), maximum))
+
+    return update
 
 
 __all__ = ["DefaultWhisperXRunner"]

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
 
@@ -160,6 +161,32 @@ def test_sqlite_job_repository_lists_and_deletes_by_audio_track(tmp_path: Path) 
     assert jobs.list_for_audio_track(job.audio_track_id) == (second_job,)
 
 
+def test_sqlite_job_repository_conditionally_updates_expected_status(
+    tmp_path: Path,
+) -> None:
+    jobs = SQLiteJobRepository(_database(tmp_path))
+    job = ProcessingJob(
+        id="job-1",
+        campaign_id="campaign-1",
+        audio_track_id="audio-track-1",
+        status=JobStatus.RUNNING,
+        created_at=datetime(2026, 1, 1, 12, 0, 0),
+        updated_at=datetime(2026, 1, 1, 12, 0, 1),
+    )
+    jobs.save(job)
+    canceled = replace(job, status=JobStatus.CANCELED)
+
+    assert jobs.save_if_status(canceled, JobStatus.RUNNING) is True
+    assert (
+        jobs.save_if_status(
+            replace(job, status=JobStatus.COMPLETED),
+            JobStatus.RUNNING,
+        )
+        is False
+    )
+    assert jobs.get(job.id) == canceled
+
+
 def test_sqlite_job_repository_round_trips_failed_job_error(
     tmp_path: Path,
 ) -> None:
@@ -209,6 +236,30 @@ def test_sqlite_speaker_mapping_repository_round_trips_records(
     assert mappings.list_for_job(ProcessingJobId("job-1")) == (record,)
     assert mappings.list_for_transcript(TranscriptId("transcript-1")) == (record,)
     assert mappings.list_for_job(ProcessingJobId("missing")) == ()
+
+
+def test_sqlite_speaker_mapping_repository_round_trips_standalone_label(
+    tmp_path: Path,
+) -> None:
+    database = _database(tmp_path)
+    mappings = SQLiteSpeakerMappingRepository(database)
+    record = SpeakerMappingRecord(
+        job_id=ProcessingJobId("job-1"),
+        transcript_id=TranscriptId("transcript-1"),
+        mapping=SpeakerMapping(
+            anonymous_label=SpeakerLabel.anonymous("SPEAKER_01"),
+            named_label=SpeakerLabel.named("Random Guest"),
+            participant_id=None,
+            confidence=1.0,
+            source=SpeakerMappingSource.MANUAL,
+            status=SpeakerMappingStatus.CONFIRMED,
+        ),
+        diagnostics={"warning_count": 0},
+    )
+
+    mappings.save_many((record,))
+
+    assert mappings.list_for_job(ProcessingJobId("job-1")) == (record,)
 
 
 def _database(tmp_path: Path) -> SQLiteDatabase:

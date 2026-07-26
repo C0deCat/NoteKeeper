@@ -8,9 +8,15 @@ from pathlib import Path
 from notekeeper.application import (
     AddParticipantToCampaign,
     AddVoiceSample,
+    CancelProcessingJob,
+    ClearFailedJobsForCampaign,
     CreateCampaign,
     CreateProcessingJobForAudioTrack,
+    DeleteAudioTrack,
     DeleteCampaign,
+    DeleteParticipant,
+    DeleteProcessingJob,
+    DeleteVoiceSample,
     ExportRecapMarkdown,
     ExportTranscriptMarkdown,
     GenerateRecap,
@@ -27,17 +33,28 @@ from notekeeper.application import (
     PreviewTranscriptMarkdown,
     RegisterAudioTrack,
     RestartFailedProcessingJob,
+    RestartProcessingJob,
     ReviewSpeakerMappings,
     RunProcessingJob,
     SubmitRecordingForProcessing,
     SyncCampaignFolder,
+    UpdateAudioTrack,
     UpdateCampaign,
+    UpdateParticipant,
 )
 from notekeeper.application.errors import ApplicationError
+from notekeeper.application.ports import ProgressEventStream
 from notekeeper.domain import ArtifactRef
+from notekeeper.infrastructure.runtime import (
+    InMemoryProgressEventHub,
+    StreamingProgressTrackerFactory,
+)
 from notekeeper.interfaces import InterfaceRuntime, RuntimeDiagnostics, Stage1UseCases
 
 from .factory import InfrastructureBundle, build_infrastructure
+from .isolated_run_processing_job import IsolatedRunProcessingJob
+from .job_pipeline import build_processing_pipeline
+from .process_job_executor import LocalProcessJobExecutor
 from .settings import NoteKeeperSettings
 
 
@@ -46,6 +63,7 @@ class NoteKeeperRuntime:
     settings: NoteKeeperSettings
     use_cases: Stage1UseCases
     infrastructure: InfrastructureBundle
+    progress_events: ProgressEventStream
 
     def diagnostics(self, campaign_id: str | None = None) -> RuntimeDiagnostics:
         return RuntimeDiagnostics(
@@ -79,14 +97,38 @@ class NoteKeeperRuntime:
 
 def build_runtime(settings: NoteKeeperSettings | None = None) -> NoteKeeperRuntime:
     infrastructure = build_infrastructure(settings)
+    progress_events = InMemoryProgressEventHub()
     return NoteKeeperRuntime(
         settings=infrastructure.settings,
-        use_cases=build_stage1_use_cases(infrastructure),
+        use_cases=build_stage1_use_cases(
+            infrastructure,
+            progress_events=progress_events,
+        ),
         infrastructure=infrastructure,
+        progress_events=progress_events,
     )
 
 
-def build_stage1_use_cases(infrastructure: InfrastructureBundle) -> Stage1UseCases:
+def build_stage1_use_cases(
+    infrastructure: InfrastructureBundle,
+    *,
+    progress_events: InMemoryProgressEventHub | None = None,
+) -> Stage1UseCases:
+    progress_events = progress_events or InMemoryProgressEventHub()
+    progress_tracker_factory = StreamingProgressTrackerFactory(progress_events)
+    processing_pipeline = build_processing_pipeline(infrastructure)
+    process_executor = LocalProcessJobExecutor(
+        infrastructure.settings,
+        infrastructure.job_repository,
+        progress_events,
+    )
+    restart_processing_job = RestartProcessingJob(
+        infrastructure.campaign_repository,
+        infrastructure.audio_track_repository,
+        infrastructure.job_repository,
+        infrastructure.clock,
+        infrastructure.id_generator,
+    )
     return Stage1UseCases(
         create_campaign=CreateCampaign(
             infrastructure.campaign_repository,
@@ -105,18 +147,29 @@ def build_stage1_use_cases(infrastructure: InfrastructureBundle) -> Stage1UseCas
             infrastructure.id_generator,
         ),
         list_participants=ListParticipants(infrastructure.campaign_repository),
+        update_participant=UpdateParticipant(infrastructure.campaign_repository),
+        delete_participant=DeleteParticipant(infrastructure.campaign_repository),
         add_voice_sample=AddVoiceSample(
             infrastructure.campaign_repository,
             infrastructure.metadata_reader,
             infrastructure.id_generator,
         ),
         list_voice_samples=ListVoiceSamples(infrastructure.campaign_repository),
+        delete_voice_sample=DeleteVoiceSample(infrastructure.campaign_repository),
         register_audio_track=RegisterAudioTrack(
             infrastructure.campaign_repository,
             infrastructure.metadata_reader,
             infrastructure.id_generator,
         ),
         list_audio_tracks=ListAudioTracks(infrastructure.campaign_repository),
+        update_audio_track=UpdateAudioTrack(
+            infrastructure.campaign_repository,
+            infrastructure.metadata_reader,
+        ),
+        delete_audio_track=DeleteAudioTrack(
+            infrastructure.campaign_repository,
+            infrastructure.job_repository,
+        ),
         create_processing_job_for_audio_track=CreateProcessingJobForAudioTrack(
             infrastructure.campaign_repository,
             infrastructure.audio_track_repository,
@@ -132,27 +185,24 @@ def build_stage1_use_cases(infrastructure: InfrastructureBundle) -> Stage1UseCas
             infrastructure.clock,
             infrastructure.id_generator,
         ),
-        run_processing_job=RunProcessingJob(
-            infrastructure.campaign_repository,
-            infrastructure.audio_track_repository,
-            infrastructure.transcript_repository,
-            infrastructure.recap_repository,
-            infrastructure.job_repository,
-            infrastructure.audio_processor,
-            infrastructure.transcriber,
-            infrastructure.speaker_identifier,
-            infrastructure.speaker_mapping_repository,
-            infrastructure.tokenizer,
-            infrastructure.recap_generator,
-            infrastructure.clock,
-            infrastructure.id_generator,
+        run_processing_job=IsolatedRunProcessingJob(
+            processing_pipeline,
+            process_executor,
         ),
-        restart_failed_processing_job=RestartFailedProcessingJob(
+        restart_failed_processing_job=restart_processing_job,
+        clear_failed_jobs_for_campaign=ClearFailedJobsForCampaign(
             infrastructure.campaign_repository,
-            infrastructure.audio_track_repository,
+            infrastructure.job_repository,
+            infrastructure.job_cleaner,
+        ),
+        delete_processing_job=DeleteProcessingJob(
+            infrastructure.job_repository,
+            infrastructure.job_cleaner,
+        ),
+        cancel_processing_job=CancelProcessingJob(
             infrastructure.job_repository,
             infrastructure.clock,
-            infrastructure.id_generator,
+            process_executor,
         ),
         list_jobs_for_campaign=ListJobsForCampaign(
             infrastructure.campaign_repository,
@@ -169,13 +219,17 @@ def build_stage1_use_cases(infrastructure: InfrastructureBundle) -> Stage1UseCas
             infrastructure.recap_generator,
             infrastructure.clock,
             infrastructure.id_generator,
+            progress_tracker_factory=progress_tracker_factory,
         ),
         generate_recap=GenerateRecap(
+            infrastructure.job_repository,
             infrastructure.transcript_repository,
             infrastructure.recap_repository,
             infrastructure.tokenizer,
             infrastructure.recap_generator,
+            infrastructure.clock,
             infrastructure.id_generator,
+            progress_tracker_factory=progress_tracker_factory,
         ),
         export_transcript_markdown=ExportTranscriptMarkdown(
             infrastructure.transcript_repository,
@@ -197,6 +251,7 @@ def build_stage1_use_cases(infrastructure: InfrastructureBundle) -> Stage1UseCas
             infrastructure.metadata_reader,
             infrastructure.id_generator,
         ),
+        restart_processing_job=restart_processing_job,
     )
 
 

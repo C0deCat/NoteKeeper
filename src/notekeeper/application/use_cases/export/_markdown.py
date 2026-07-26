@@ -1,6 +1,23 @@
 """Markdown rendering helpers."""
 
-from notekeeper.domain import Transcript
+from notekeeper.domain import Recap, Transcript
+
+
+def render_recap_markdown(recap: Recap) -> str:
+    sections: list[str] = []
+
+    if recap.chunks:
+        for index, chunk in enumerate(recap.chunks, start=1):
+            chunk_lines = [f"# Chunk {index}"]
+            if chunk.time_range is not None:
+                start = format_seconds(chunk.time_range.start_seconds)
+                end = format_seconds(chunk.time_range.end_seconds)
+                chunk_lines.extend(("", f"**Time range:** {start} - {end}"))
+            chunk_lines.extend(("", chunk.markdown.strip()))
+            sections.append("\n".join(chunk_lines))
+
+    sections.extend(("# Overall Recap", recap.markdown.strip()))
+    return "\n\n".join(sections).rstrip() + "\n"
 
 
 def render_transcript_markdown(transcript: Transcript) -> str:

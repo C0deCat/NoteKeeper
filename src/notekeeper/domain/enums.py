@@ -37,3 +37,16 @@ class PipelineWarningKind(str, Enum):
     UNCERTAIN_MAPPING = "uncertain_mapping"
     CONFLICTING_MAPPING = "conflicting_mapping"
     MISSING_VOICE_SAMPLE = "missing_voice_sample"
+
+
+class ProcessingStage(str, Enum):
+    NORMALIZING_AUDIO = "normalizing_audio"
+    CONCATENATING_AUDIO = "concatenating_audio"
+    LOADING_TRANSCRIPTION_MODEL = "loading_transcription_model"
+    TRANSCRIBING = "transcribing"
+    LOADING_ALIGNMENT_MODEL = "loading_alignment_model"
+    ALIGNING_TRANSCRIPT = "aligning_transcript"
+    LOADING_DIARIZATION_MODEL = "loading_diarization_model"
+    DIARIZING_SPEAKERS = "diarizing_speakers"
+    MAPPING_SPEAKERS = "mapping_speakers"
+    GENERATING_RECAP = "generating_recap"

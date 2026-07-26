@@ -1,13 +1,32 @@
-"""Recap preview and export actions."""
+"""Recap generation, preview, and export actions."""
 
 from notekeeper.application import (
     ApplicationError,
     ExportRecapMarkdownCommand,
+    GenerateRecapCommand,
     PreviewRecapMarkdownCommand,
 )
 from notekeeper.domain import DomainError
 
 from .preview_app import MarkdownPreviewScreen
+
+
+def recreate_recap(app) -> None:
+    job = app._selected_job()
+    if job is None or job.transcript_id is None:
+        app._set_status("No transcript")
+        return
+    app._recap_generation_in_progress = True
+    app._update_action_buttons()
+    app._watch_progress(str(job.id))
+    app.run_worker(
+        lambda: app.runtime.use_cases.generate_recap.execute(
+            GenerateRecapCommand(job_id=str(job.id)),
+        ),
+        group="recap",
+        thread=True,
+        exit_on_error=False,
+    )
 
 
 def preview_recap(app) -> None:

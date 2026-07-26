@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from notekeeper.application import ManualSpeakerMappingCommand
 from notekeeper.domain import AudioMetadata
 
 from ..contracts import RuntimeDiagnostics
@@ -25,30 +24,6 @@ def metadata_text(metadata: AudioMetadata) -> str:
     if metadata.file_size_bytes is not None:
         lines.append(f"size: {metadata.file_size_bytes} bytes")
     return "\n".join(lines)
-
-
-def parse_mapping(value: str) -> ManualSpeakerMappingCommand:
-    try:
-        anonymous_label, participant_id = value.split("=", 1)
-    except ValueError as exc:
-        raise ValueError("mapping must use SPEAKER_00=participant-id form") from exc
-
-    anonymous_label = anonymous_label.strip()
-    participant_id = participant_id.strip()
-    if not anonymous_label or not participant_id:
-        raise ValueError("mapping must include speaker label and participant id")
-
-    return ManualSpeakerMappingCommand(
-        anonymous_label=anonymous_label,
-        participant_id=participant_id,
-        confidence=1.0,
-    )
-
-
-def participants_text(participants) -> str:
-    return "\n".join(
-        f"{participant.id}: {participant.display_name}" for participant in participants
-    )
 
 
 def warnings_text(job) -> str:

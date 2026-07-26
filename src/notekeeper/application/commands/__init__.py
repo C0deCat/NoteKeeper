@@ -106,6 +106,21 @@ class ListJobsForCampaignCommand:
 
 
 @dataclass(frozen=True, slots=True)
+class ClearFailedJobsForCampaignCommand:
+    campaign_id: str
+
+
+@dataclass(frozen=True, slots=True)
+class DeleteProcessingJobCommand:
+    job_id: str
+
+
+@dataclass(frozen=True, slots=True)
+class CancelProcessingJobCommand:
+    job_id: str
+
+
+@dataclass(frozen=True, slots=True)
 class UpdateAudioTrackCommand:
     campaign_id: str
     audio_track_id: str
@@ -139,15 +154,19 @@ class RunProcessingJobCommand:
 
 
 @dataclass(frozen=True, slots=True)
-class RestartFailedProcessingJobCommand:
+class RestartProcessingJobCommand:
     job_id: str
+
+
+RestartFailedProcessingJobCommand = RestartProcessingJobCommand
 
 
 @dataclass(frozen=True, slots=True)
 class ManualSpeakerMappingCommand:
     anonymous_label: str
-    participant_id: str
+    participant_id: str | None = None
     confidence: float | None = None
+    named_label: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -161,7 +180,7 @@ class ReviewSpeakerMappingsCommand:
 
 @dataclass(frozen=True, slots=True)
 class GenerateRecapCommand:
-    transcript_id: str
+    job_id: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -203,11 +222,14 @@ class SyncCampaignFolderCommand:
 __all__ = [
     "AddParticipantToCampaignCommand",
     "AddVoiceSampleCommand",
+    "CancelProcessingJobCommand",
+    "ClearFailedJobsForCampaignCommand",
     "CreateCampaignCommand",
     "CreateProcessingJobForAudioTrackCommand",
     "DeleteAudioTrackCommand",
     "DeleteCampaignCommand",
     "DeleteParticipantCommand",
+    "DeleteProcessingJobCommand",
     "DeleteVoiceSampleCommand",
     "ExportRecapMarkdownCommand",
     "ExportTranscriptMarkdownCommand",
@@ -226,6 +248,7 @@ __all__ = [
     "RegisterAudioTrackCommand",
     "ReviewSpeakerMappingsCommand",
     "RestartFailedProcessingJobCommand",
+    "RestartProcessingJobCommand",
     "RunProcessingJobCommand",
     "SubmitRecordingForProcessingCommand",
     "SyncCampaignFolderCommand",

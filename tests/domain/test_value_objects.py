@@ -94,7 +94,7 @@ def test_speaker_mapping_rejects_invalid_confidence() -> None:
         )
 
 
-def test_confirmed_mapping_requires_named_label_and_participant() -> None:
+def test_confirmed_mapping_requires_named_label() -> None:
     with pytest.raises(SpeakerMappingError):
         SpeakerMapping(
             anonymous_label=SpeakerLabel.anonymous("SPEAKER_00"),
@@ -104,6 +104,20 @@ def test_confirmed_mapping_requires_named_label_and_participant() -> None:
             source=SpeakerMappingSource.MANUAL,
             status=SpeakerMappingStatus.CONFIRMED,
         )
+
+
+def test_confirmed_mapping_allows_standalone_named_label() -> None:
+    mapping = SpeakerMapping(
+        anonymous_label=SpeakerLabel.anonymous("SPEAKER_00"),
+        named_label=SpeakerLabel.named("Random Guest"),
+        participant_id=None,
+        confidence=1.0,
+        source=SpeakerMappingSource.MANUAL,
+        status=SpeakerMappingStatus.CONFIRMED,
+    )
+
+    assert mapping.named_label == SpeakerLabel.named("Random Guest")
+    assert mapping.participant_id is None
 
 
 def test_domain_ids_are_plain_runtime_values() -> None:

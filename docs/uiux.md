@@ -35,18 +35,23 @@ commands, and explicit screens for long-running flows.
 The main dashboard must show:
 
 - the currently selected campaign and a way to switch between campaigns;
-- running and recent jobs, with status and stage-based or indeterminate progress bars;
+- running and recent jobs, with status and determinate stage-based progress bars;
 - audio recordings for the selected campaign, including title or URI, duration, job
   status, and whether transcript and recap artifacts exist;
 - campaign players, including display name, whether each player has a voice sample,
   and a compact readiness signal for processing;
 - pipeline warnings and job errors that need user attention.
 
-The current domain model has `JobStatus`, but does not yet expose numeric progress.
-Until a progress contract is added, the TUI should represent work using job status,
-known pipeline stages, and indeterminate progress. A future implementation may add
-fields such as `progress_percent` and `progress_stage` to the job-facing application
-contract.
+Numeric progress is delivered as an ephemeral event stream rather than persisted in
+`ProcessingJob`. Each stage independently advances from 0 to 100; the UI also shows
+the current stage index/count. Elapsed, expected, and remaining time appear only for
+stages with a measurable work fraction. Artificial stages show a percentage without
+an ETA.
+
+The CLI renders dynamic Rich output only in a TTY. Redirected/non-interactive output
+receives one stage-change line in stderr, keeping stdout reserved for the final
+command result. The TUI keeps active events by operation id, displays the selected
+job's latest event, and removes the panel after a terminal event.
 
 ## Required TUI flows
 
@@ -67,7 +72,10 @@ known, and any metadata-reading errors that prevent the use case from running.
 
 Speaker mapping review is a first-class TUI flow. For jobs waiting for review, the TUI
 should show unresolved anonymous speaker labels, candidate players, warnings, and a
-confirmation action that submits manual mappings through the application layer.
+confirmation action that submits manual mappings through the application layer. Each
+unresolved label can be assigned to an existing player or resolved to any non-empty
+label. Keeping the prefilled technical label marks that speaker as reviewed without
+changing the displayed label.
 
 ## Diagnostics and settings
 
