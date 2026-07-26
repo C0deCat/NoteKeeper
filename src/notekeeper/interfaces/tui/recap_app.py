@@ -18,6 +18,7 @@ def recreate_recap(app) -> None:
         return
     app._recap_generation_in_progress = True
     app._update_action_buttons()
+    app._watch_progress(str(job.id))
     app.run_worker(
         lambda: app.runtime.use_cases.generate_recap.execute(
             GenerateRecapCommand(job_id=str(job.id)),

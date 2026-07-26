@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+from io import StringIO
 import wave
 from datetime import datetime, timezone
 from pathlib import Path
@@ -37,12 +38,12 @@ def test_ffmpeg_audio_processor_prepares_audio_and_manifest(
     voice_sample = _voice_sample(storage)
     calls: list[list[str]] = []
 
-    def fake_run(command, check, capture_output, text):
+    def fake_popen(command, **kwargs):
         calls.append(command)
         _write_wav(Path(command[-1]))
-        return subprocess.CompletedProcess(command, returncode=0, stdout="", stderr="")
+        return FakeProcess(stdout="progress=end\n")
 
-    monkeypatch.setattr(subprocess, "run", fake_run)
+    monkeypatch.setattr(subprocess, "Popen", fake_popen)
     processor = FfmpegAudioProcessor(
         storage,
         manifest_store,
@@ -128,14 +129,10 @@ def test_ffmpeg_audio_processor_wraps_failed_subprocess(
     manifest_store = LocalPreparedAudioManifestStore(storage)
     audio_track = _audio_track(storage)
 
-    def fake_run(command, check, capture_output, text):
-        raise subprocess.CalledProcessError(
-            returncode=1,
-            cmd=command,
-            stderr="boom",
-        )
+    def fake_popen(command, **kwargs):
+        return FakeProcess(stderr="boom", returncode=1)
 
-    monkeypatch.setattr(subprocess, "run", fake_run)
+    monkeypatch.setattr(subprocess, "Popen", fake_popen)
     processor = FfmpegAudioProcessor(
         storage,
         manifest_store,
@@ -152,6 +149,53 @@ def test_ffmpeg_audio_processor_wraps_failed_subprocess(
             (),
             job_id=ProcessingJobId("job-1"),
         )
+
+
+def test_ffmpeg_progress_output_is_parsed_as_work_fraction(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class ProgressProcess:
+        stdout = StringIO(
+            "out_time_us=250000\nout_time_ms=500000\nprogress=end\n"
+        )
+        stderr = StringIO("")
+
+        def wait(self) -> int:
+            return 0
+
+    monkeypatch.setattr(
+        subprocess,
+        "Popen",
+        lambda *args, **kwargs: ProgressProcess(),
+    )
+    processor = object.__new__(FfmpegAudioProcessor)
+    fractions: list[float] = []
+
+    returncode = processor._run_ffmpeg(
+        ["ffmpeg"],
+        "test",
+        duration_seconds=1.0,
+        progress_callback=fractions.append,
+    )
+
+    assert returncode == 0
+    assert fractions == [0.25, 0.5, 1.0]
+
+
+class FakeProcess:
+    def __init__(
+        self,
+        *,
+        stdout: str = "",
+        stderr: str = "",
+        returncode: int = 0,
+    ) -> None:
+        self.stdout = StringIO(stdout)
+        self.stderr = StringIO(stderr)
+        self._returncode = returncode
+
+    def wait(self) -> int:
+        return self._returncode
 
 
 def _audio_track(storage: LocalCampaignArtifactStorage) -> AudioTrack:

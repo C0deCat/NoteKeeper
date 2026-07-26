@@ -12,6 +12,7 @@ from notekeeper.application import (
 )
 
 from .common import RuntimeFactory, echo_audio_track, echo_job, run
+from .progress import CliProgressDisplay
 
 
 def create_app(runtime_factory: RuntimeFactory) -> typer.Typer:
@@ -61,9 +62,10 @@ def create_app(runtime_factory: RuntimeFactory) -> typer.Typer:
         runtime = runtime_factory()
 
         def action() -> None:
-            result = runtime.use_cases.run_processing_job.execute(
-                RunProcessingJobCommand(job_id=job_id),
-            )
+            with CliProgressDisplay(runtime, job_id):
+                result = runtime.use_cases.run_processing_job.execute(
+                    RunProcessingJobCommand(job_id=job_id),
+                )
             echo_job(result.job)
             for warning in result.warnings:
                 typer.echo(f"warning {warning.kind.value}: {warning.message}")
@@ -89,9 +91,10 @@ def create_app(runtime_factory: RuntimeFactory) -> typer.Typer:
         runtime = runtime_factory()
 
         def action() -> None:
-            result = runtime.use_cases.generate_recap.execute(
-                GenerateRecapCommand(job_id=job_id),
-            )
+            with CliProgressDisplay(runtime, job_id):
+                result = runtime.use_cases.generate_recap.execute(
+                    GenerateRecapCommand(job_id=job_id),
+                )
             echo_job(result.job)
 
         run(action)

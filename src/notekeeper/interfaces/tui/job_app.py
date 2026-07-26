@@ -24,6 +24,7 @@ def run_selected_job(app) -> None:
     if job is None:
         app._set_status("Select a job")
         return
+    app._watch_progress(str(job.id))
     app.run_worker(
         lambda: app.runtime.use_cases.run_processing_job.execute(
             RunProcessingJobCommand(job_id=str(job.id)),

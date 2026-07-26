@@ -167,3 +167,22 @@ Screen {
     border: solid $accent;
     padding: 1;
 }
+
+#progress-panel {
+    height: auto;
+    margin-top: 1;
+}
+
+#progress-stage {
+    height: 1;
+    text-style: bold;
+}
+
+#job-progress {
+    height: 1;
+}
+
+#progress-time {
+    height: 1;
+    color: $text-muted;
+}

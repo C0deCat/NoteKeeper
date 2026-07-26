@@ -8,6 +8,7 @@ from notekeeper.application.ports import (
     Clock,
     IdGenerator,
     JobRepository,
+    ProgressTrackerFactory,
     RecapGenerator,
     RecapRepository,
     Tokenizer,
@@ -16,7 +17,7 @@ from notekeeper.application.ports import (
 from notekeeper.application.results import GenerateRecapResult
 from notekeeper.application.use_cases._recaps import generate_recap_for_transcript
 from notekeeper.application.use_cases.utils import _require_job, _require_transcript
-from notekeeper.domain import ProcessingJobId
+from notekeeper.domain import ProcessingJobId, ProcessingStage
 
 
 class GenerateRecap:
@@ -29,6 +30,8 @@ class GenerateRecap:
         recap_generator: RecapGenerator,
         clock: Clock,
         id_generator: IdGenerator,
+        *,
+        progress_tracker_factory: ProgressTrackerFactory | None = None,
     ) -> None:
         self._job_repository = job_repository
         self._transcript_repository = transcript_repository
@@ -37,6 +40,7 @@ class GenerateRecap:
         self._recap_generator = recap_generator
         self._clock = clock
         self._id_generator = id_generator
+        self._progress_tracker_factory = progress_tracker_factory
 
     def execute(self, command: GenerateRecapCommand) -> GenerateRecapResult:
         job = _require_job(
@@ -45,22 +49,50 @@ class GenerateRecap:
         )
         if job.transcript_id is None:
             raise InvalidOperationError("processing job has no transcript")
-        transcript = _require_transcript(
-            self._transcript_repository,
-            job.transcript_id,
+        progress = (
+            self._progress_tracker_factory.create(
+                str(job.id),
+                (ProcessingStage.GENERATING_RECAP,),
+            )
+            if self._progress_tracker_factory is not None
+            else None
         )
-        recap = generate_recap_for_transcript(
-            transcript,
-            id_generator=self._id_generator,
-            tokenizer=self._tokenizer,
-            recap_generator=self._recap_generator,
-            recap_repository=self._recap_repository,
-            job_id=job.id,
-        )
-        updated_job = replace(
-            job,
-            recap_id=recap.id,
-            updated_at=self._clock.now(),
-        )
-        self._job_repository.save(updated_job)
-        return GenerateRecapResult(job=updated_job, recap=recap)
+        try:
+            if progress is not None:
+                progress.start_stage(
+                    ProcessingStage.GENERATING_RECAP,
+                    timing_available=False,
+                )
+            transcript = _require_transcript(
+                self._transcript_repository,
+                job.transcript_id,
+            )
+            recap = generate_recap_for_transcript(
+                transcript,
+                id_generator=self._id_generator,
+                tokenizer=self._tokenizer,
+                recap_generator=self._recap_generator,
+                recap_repository=self._recap_repository,
+                job_id=job.id,
+                progress_callback=(
+                    progress.update_fraction if progress is not None else None
+                ),
+            )
+            if progress is not None:
+                progress.complete_stage()
+            updated_job = replace(
+                job,
+                recap_id=recap.id,
+                updated_at=self._clock.now(),
+            )
+            self._job_repository.save(updated_job)
+            if progress is not None:
+                progress.complete()
+            return GenerateRecapResult(job=updated_job, recap=recap)
+        except Exception:
+            if progress is not None:
+                progress.fail()
+            raise
+        finally:
+            if progress is not None:
+                progress.close()

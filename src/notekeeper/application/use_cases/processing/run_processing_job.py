@@ -12,6 +12,8 @@ from notekeeper.application.ports import (
     Clock,
     IdGenerator,
     JobRepository,
+    ProgressTracker,
+    ProgressTrackerFactory,
     RecapGenerator,
     RecapRepository,
     SpeakerIdentifier,
@@ -35,6 +37,7 @@ from notekeeper.domain import (
     JobStatus,
     ProcessingJob,
     ProcessingJobId,
+    ProcessingStage,
     SpeakerMapping,
     TranscriptId,
     apply_speaker_mappings,
@@ -60,6 +63,9 @@ class RunProcessingJob:
         recap_generator: RecapGenerator,
         clock: Clock,
         id_generator: IdGenerator,
+        *,
+        progress_tracker_factory: ProgressTrackerFactory | None = None,
+        progress_stages: tuple[ProcessingStage, ...] = (),
     ) -> None:
         self._campaign_repository = campaign_repository
         self._audio_track_repository = audio_track_repository
@@ -74,6 +80,8 @@ class RunProcessingJob:
         self._recap_generator = recap_generator
         self._clock = clock
         self._id_generator = id_generator
+        self._progress_tracker_factory = progress_tracker_factory
+        self._progress_stages = progress_stages
 
     def execute(self, command: RunProcessingJobCommand) -> RunProcessingJobResult:
         running_job = self.start(command)
@@ -127,27 +135,41 @@ class RunProcessingJob:
             running_job.audio_track_id,
         )
         job = running_job
+        progress = self._create_progress(job.id)
 
         persisted_transcript = None
         known_warnings = ()
         try:
+            audio_progress = {"progress": progress} if progress is not None else {}
             prepared_audio = self._audio_processor.prepare_session_audio(
                 audio_track,
                 campaign.voice_samples,
                 job_id=job.id,
+                **audio_progress,
+            )
+            transcription_progress = (
+                {"progress": progress} if progress is not None else {}
             )
             raw_transcript = self._transcriber.transcribe(
                 prepared_audio.audio_artifact,
                 transcript_id=TranscriptId(self._id_generator.transcript_id()),
                 campaign_id=campaign.id,
                 audio_track_id=audio_track.id,
+                **transcription_progress,
             )
+            if progress is not None:
+                progress.start_stage(
+                    ProcessingStage.MAPPING_SPEAKERS,
+                    timing_available=False,
+                )
             mappings = self._speaker_identifier.identify(
                 campaign,
                 raw_transcript,
                 prepared_audio=prepared_audio,
             )
             mapped = apply_speaker_mappings(campaign, raw_transcript, mappings)
+            if progress is not None:
+                progress.complete_stage()
             known_warnings = mapped.warnings
             self._transcript_repository.save(mapped.transcript)
             persisted_transcript = mapped.transcript
@@ -169,6 +191,11 @@ class RunProcessingJob:
                     warnings=mapped.warnings,
                 )
                 waiting_job = self._save_terminal(waiting_job)
+                if progress is not None:
+                    if waiting_job.status is JobStatus.CANCELED:
+                        progress.cancel()
+                    else:
+                        progress.pause()
                 return RunProcessingJobResult(
                     job=waiting_job,
                     transcript=mapped.transcript,
@@ -176,6 +203,11 @@ class RunProcessingJob:
                     warnings=mapped.warnings,
                 )
 
+            if progress is not None:
+                progress.start_stage(
+                    ProcessingStage.GENERATING_RECAP,
+                    timing_available=False,
+                )
             recap = generate_recap_for_transcript(
                 mapped.transcript,
                 id_generator=self._id_generator,
@@ -183,7 +215,12 @@ class RunProcessingJob:
                 recap_generator=self._recap_generator,
                 recap_repository=self._recap_repository,
                 job_id=job.id,
+                progress_callback=(
+                    progress.update_fraction if progress is not None else None
+                ),
             )
+            if progress is not None:
+                progress.complete_stage()
             completed_job = replace(
                 running_job,
                 status=JobStatus.COMPLETED,
@@ -193,6 +230,11 @@ class RunProcessingJob:
                 warnings=(),
             )
             completed_job = self._save_terminal(completed_job)
+            if progress is not None:
+                if completed_job.status is JobStatus.CANCELED:
+                    progress.cancel()
+                else:
+                    progress.complete()
             return RunProcessingJobResult(
                 job=completed_job,
                 transcript=mapped.transcript,
@@ -219,12 +261,35 @@ class RunProcessingJob:
                 error_message=_port_error_message(exc),
             )
             failed_job = self._save_terminal(failed_job)
+            if progress is not None:
+                if failed_job.status is JobStatus.CANCELED:
+                    progress.cancel()
+                else:
+                    progress.fail()
             return RunProcessingJobResult(
                 job=failed_job,
                 transcript=persisted_transcript,
                 recap=None,
                 warnings=known_warnings,
             )
+        except Exception:
+            if progress is not None:
+                progress.fail()
+            raise
+        finally:
+            if progress is not None:
+                progress.close()
+
+    def _create_progress(
+        self,
+        job_id: ProcessingJobId,
+    ) -> ProgressTracker | None:
+        if self._progress_tracker_factory is None or not self._progress_stages:
+            return None
+        return self._progress_tracker_factory.create(
+            str(job_id),
+            self._progress_stages,
+        )
 
     def _save_terminal(self, job: ProcessingJob) -> ProcessingJob:
         save_if_status = getattr(self._job_repository, "save_if_status", None)

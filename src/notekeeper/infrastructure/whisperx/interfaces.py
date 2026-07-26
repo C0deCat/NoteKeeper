@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Protocol
 
+from notekeeper.application.ports import ProgressTracker
 from notekeeper.domain import ArtifactRef, CampaignId, TranscriptId
 
 
@@ -28,6 +29,7 @@ class WhisperXRunner(Protocol):
         diarization_cache_dir: Path | None,
         hf_token: str | None,
         fill_nearest: bool,
+        progress: ProgressTracker | None = None,
     ) -> dict[str, Any]: ...
 
 

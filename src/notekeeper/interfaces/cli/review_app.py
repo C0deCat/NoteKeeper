@@ -12,6 +12,7 @@ from .common import (
     parse_mapping,
     run,
 )
+from .progress import CliProgressDisplay
 
 
 def create_app(runtime_factory: RuntimeFactory) -> typer.Typer:
@@ -51,12 +52,13 @@ def create_app(runtime_factory: RuntimeFactory) -> typer.Typer:
                 raise ValueError(
                     "at least one --mapping, --label, or --keep is required",
                 )
-            result = runtime.use_cases.review_speaker_mappings.execute(
-                ReviewSpeakerMappingsCommand(
-                    job_id=job_id,
-                    mappings=mappings,
-                ),
-            )
+            with CliProgressDisplay(runtime, job_id):
+                result = runtime.use_cases.review_speaker_mappings.execute(
+                    ReviewSpeakerMappingsCommand(
+                        job_id=job_id,
+                        mappings=mappings,
+                    ),
+                )
             echo_job(result.job)
             for warning in result.warnings:
                 typer.echo(f"warning {warning.kind.value}: {warning.message}")

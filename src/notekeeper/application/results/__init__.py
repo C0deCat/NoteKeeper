@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from enum import Enum
 from typing import Any
 
 from notekeeper.domain import (
@@ -14,6 +15,7 @@ from notekeeper.domain import (
     Participant,
     ParticipantId,
     PipelineWarning,
+    ProgressBar,
     ProcessingJob,
     ProcessingJobId,
     Recap,
@@ -26,6 +28,49 @@ from notekeeper.domain import (
     VoiceSample,
     VoiceSampleId,
 )
+
+
+class ProgressEventKind(str, Enum):
+    STARTED = "started"
+    UPDATED = "updated"
+    STAGE_COMPLETED = "stage_completed"
+    COMPLETED = "completed"
+    PAUSED = "paused"
+    FAILED = "failed"
+    CANCELED = "canceled"
+
+    @property
+    def is_terminal(self) -> bool:
+        return self in {
+            self.COMPLETED,
+            self.PAUSED,
+            self.FAILED,
+            self.CANCELED,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class ProgressEvent:
+    operation_id: str
+    stage_index: int
+    stage_count: int
+    timing_available: bool
+    kind: ProgressEventKind
+    progress: ProgressBar
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.operation_id, str) or not self.operation_id.strip():
+            raise ValueError("operation_id must not be empty")
+        if isinstance(self.stage_count, bool) or not isinstance(
+            self.stage_count,
+            int,
+        ) or self.stage_count < 1:
+            raise ValueError("stage_count must be positive")
+        if isinstance(self.stage_index, bool) or not isinstance(
+            self.stage_index,
+            int,
+        ) or not 1 <= self.stage_index <= self.stage_count:
+            raise ValueError("stage_index must be within stage_count")
 
 
 @dataclass(frozen=True, slots=True)
@@ -358,6 +403,8 @@ __all__ = [
     "MarkdownPreviewResult",
     "PreparedAudioResult",
     "PreparedVoiceSampleRange",
+    "ProgressEvent",
+    "ProgressEventKind",
     "RecapGenerationContext",
     "RegisterAudioTrackResult",
     "ReviewSpeakerMappingsResult",

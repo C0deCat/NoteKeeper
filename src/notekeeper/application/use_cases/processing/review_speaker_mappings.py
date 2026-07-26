@@ -12,6 +12,7 @@ from notekeeper.application.ports import (
     Clock,
     IdGenerator,
     JobRepository,
+    ProgressTrackerFactory,
     RecapGenerator,
     RecapRepository,
     SpeakerMappingRepository,
@@ -34,6 +35,7 @@ from notekeeper.domain import (
     Participant,
     ParticipantId,
     ProcessingJobId,
+    ProcessingStage,
     SpeakerLabel,
     SpeakerMapping,
     SpeakerMappingSource,
@@ -55,6 +57,8 @@ class ReviewSpeakerMappings:
         recap_generator: RecapGenerator,
         clock: Clock,
         id_generator: IdGenerator,
+        *,
+        progress_tracker_factory: ProgressTrackerFactory | None = None,
     ) -> None:
         self._campaign_repository = campaign_repository
         self._transcript_repository = transcript_repository
@@ -65,6 +69,7 @@ class ReviewSpeakerMappings:
         self._recap_generator = recap_generator
         self._clock = clock
         self._id_generator = id_generator
+        self._progress_tracker_factory = progress_tracker_factory
 
     def execute(
         self,
@@ -76,62 +81,102 @@ class ReviewSpeakerMappings:
         if job.transcript_id is None:
             raise InvalidOperationError("processing job has no transcript to review")
 
-        campaign = _require_campaign(self._campaign_repository, job.campaign_id)
-        transcript = _require_transcript(
-            self._transcript_repository,
-            job.transcript_id,
-        )
-        mappings = _build_manual_mappings(campaign, command.mappings)
-        mapped = apply_speaker_mappings(campaign, transcript, mappings)
-        self._transcript_repository.save(mapped.transcript)
-        self._speaker_mapping_repository.save_many(
-            _mapping_records(
-                job_id=job.id,
-                transcript_id=mapped.transcript.id,
-                mappings=mappings,
-                warning_count=len(mapped.warnings),
-            ),
-        )
-
-        if mapped.warnings:
-            waiting_job = replace(
-                job,
-                updated_at=self._clock.now(),
-                warnings=mapped.warnings,
+        progress = (
+            self._progress_tracker_factory.create(
+                str(job.id),
+                (
+                    ProcessingStage.MAPPING_SPEAKERS,
+                    ProcessingStage.GENERATING_RECAP,
+                ),
             )
-            self._job_repository.save(waiting_job)
+            if self._progress_tracker_factory is not None
+            else None
+        )
+        try:
+            if progress is not None:
+                progress.start_stage(
+                    ProcessingStage.MAPPING_SPEAKERS,
+                    timing_available=False,
+                )
+            campaign = _require_campaign(self._campaign_repository, job.campaign_id)
+            transcript = _require_transcript(
+                self._transcript_repository,
+                job.transcript_id,
+            )
+            mappings = _build_manual_mappings(campaign, command.mappings)
+            mapped = apply_speaker_mappings(campaign, transcript, mappings)
+            self._transcript_repository.save(mapped.transcript)
+            self._speaker_mapping_repository.save_many(
+                _mapping_records(
+                    job_id=job.id,
+                    transcript_id=mapped.transcript.id,
+                    mappings=mappings,
+                    warning_count=len(mapped.warnings),
+                ),
+            )
+            if progress is not None:
+                progress.complete_stage()
+
+            if mapped.warnings:
+                waiting_job = replace(
+                    job,
+                    updated_at=self._clock.now(),
+                    warnings=mapped.warnings,
+                )
+                self._job_repository.save(waiting_job)
+                if progress is not None:
+                    progress.pause()
+                return ReviewSpeakerMappingsResult(
+                    job=waiting_job,
+                    transcript=mapped.transcript,
+                    recap=None,
+                    warnings=mapped.warnings,
+                    applied_mappings=mapped.applied_mappings,
+                )
+
+            if progress is not None:
+                progress.start_stage(
+                    ProcessingStage.GENERATING_RECAP,
+                    timing_available=False,
+                )
+            recap = generate_recap_for_transcript(
+                mapped.transcript,
+                id_generator=self._id_generator,
+                tokenizer=self._tokenizer,
+                recap_generator=self._recap_generator,
+                recap_repository=self._recap_repository,
+                job_id=job.id,
+                progress_callback=(
+                    progress.update_fraction if progress is not None else None
+                ),
+            )
+            if progress is not None:
+                progress.complete_stage()
+            completed_job = replace(
+                job,
+                status=JobStatus.COMPLETED,
+                updated_at=self._clock.now(),
+                transcript_id=mapped.transcript.id,
+                recap_id=recap.id,
+                warnings=(),
+            )
+            self._job_repository.save(completed_job)
+            if progress is not None:
+                progress.complete()
             return ReviewSpeakerMappingsResult(
-                job=waiting_job,
+                job=completed_job,
                 transcript=mapped.transcript,
-                recap=None,
-                warnings=mapped.warnings,
+                recap=recap,
+                warnings=(),
                 applied_mappings=mapped.applied_mappings,
             )
-
-        recap = generate_recap_for_transcript(
-            mapped.transcript,
-            id_generator=self._id_generator,
-            tokenizer=self._tokenizer,
-            recap_generator=self._recap_generator,
-            recap_repository=self._recap_repository,
-            job_id=job.id,
-        )
-        completed_job = replace(
-            job,
-            status=JobStatus.COMPLETED,
-            updated_at=self._clock.now(),
-            transcript_id=mapped.transcript.id,
-            recap_id=recap.id,
-            warnings=(),
-        )
-        self._job_repository.save(completed_job)
-        return ReviewSpeakerMappingsResult(
-            job=completed_job,
-            transcript=mapped.transcript,
-            recap=recap,
-            warnings=(),
-            applied_mappings=mapped.applied_mappings,
-        )
+        except Exception:
+            if progress is not None:
+                progress.fail()
+            raise
+        finally:
+            if progress is not None:
+                progress.close()
 
 
 def _build_manual_mappings(

@@ -43,7 +43,12 @@ from notekeeper.application import (
     UpdateParticipant,
 )
 from notekeeper.application.errors import ApplicationError
+from notekeeper.application.ports import ProgressEventStream
 from notekeeper.domain import ArtifactRef
+from notekeeper.infrastructure.runtime import (
+    InMemoryProgressEventHub,
+    StreamingProgressTrackerFactory,
+)
 from notekeeper.interfaces import InterfaceRuntime, RuntimeDiagnostics, Stage1UseCases
 
 from .factory import InfrastructureBundle, build_infrastructure
@@ -58,6 +63,7 @@ class NoteKeeperRuntime:
     settings: NoteKeeperSettings
     use_cases: Stage1UseCases
     infrastructure: InfrastructureBundle
+    progress_events: ProgressEventStream
 
     def diagnostics(self, campaign_id: str | None = None) -> RuntimeDiagnostics:
         return RuntimeDiagnostics(
@@ -91,18 +97,30 @@ class NoteKeeperRuntime:
 
 def build_runtime(settings: NoteKeeperSettings | None = None) -> NoteKeeperRuntime:
     infrastructure = build_infrastructure(settings)
+    progress_events = InMemoryProgressEventHub()
     return NoteKeeperRuntime(
         settings=infrastructure.settings,
-        use_cases=build_stage1_use_cases(infrastructure),
+        use_cases=build_stage1_use_cases(
+            infrastructure,
+            progress_events=progress_events,
+        ),
         infrastructure=infrastructure,
+        progress_events=progress_events,
     )
 
 
-def build_stage1_use_cases(infrastructure: InfrastructureBundle) -> Stage1UseCases:
+def build_stage1_use_cases(
+    infrastructure: InfrastructureBundle,
+    *,
+    progress_events: InMemoryProgressEventHub | None = None,
+) -> Stage1UseCases:
+    progress_events = progress_events or InMemoryProgressEventHub()
+    progress_tracker_factory = StreamingProgressTrackerFactory(progress_events)
     processing_pipeline = build_processing_pipeline(infrastructure)
     process_executor = LocalProcessJobExecutor(
         infrastructure.settings,
         infrastructure.job_repository,
+        progress_events,
     )
     restart_processing_job = RestartProcessingJob(
         infrastructure.campaign_repository,
@@ -201,6 +219,7 @@ def build_stage1_use_cases(infrastructure: InfrastructureBundle) -> Stage1UseCas
             infrastructure.recap_generator,
             infrastructure.clock,
             infrastructure.id_generator,
+            progress_tracker_factory=progress_tracker_factory,
         ),
         generate_recap=GenerateRecap(
             infrastructure.job_repository,
@@ -210,6 +229,7 @@ def build_stage1_use_cases(infrastructure: InfrastructureBundle) -> Stage1UseCas
             infrastructure.recap_generator,
             infrastructure.clock,
             infrastructure.id_generator,
+            progress_tracker_factory=progress_tracker_factory,
         ),
         export_transcript_markdown=ExportTranscriptMarkdown(
             infrastructure.transcript_repository,

@@ -18,6 +18,7 @@ from notekeeper.application import (
     GetCampaignCommand,
     ListCampaignsCommand,
     ListJobsForCampaignCommand,
+    ProgressEvent,
 )
 from notekeeper.domain import (
     AudioTrack,
@@ -87,6 +88,8 @@ class NoteKeeperTui(App[None]):
         self._job_delete_in_progress = False
         self._job_cancel_in_progress = False
         self._recap_generation_in_progress = False
+        self._active_progress_events: dict[str, ProgressEvent] = {}
+        self._progress_unsubscribes: dict[str, Callable[[], None]] = {}
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -125,7 +128,10 @@ class NoteKeeperTui(App[None]):
                 yield Button("Preview Recap", id="preview-recap")
                 yield Button("Export Transcript", id="export-transcript")
                 yield Button("Export Recap", id="export-recap")
-                yield ProgressBar(total=None, id="job-progress")
+                with Vertical(id="progress-panel"):
+                    yield Static("", id="progress-stage")
+                    yield ProgressBar(total=100, id="job-progress")
+                    yield Static("", id="progress-time")
             with Vertical(id="content"):
                 with Horizontal(id="jobs-header"):
                     yield Label("Jobs")
@@ -160,7 +166,7 @@ class NoteKeeperTui(App[None]):
         yield Footer()
 
     def on_mount(self) -> None:
-        self._progress().display = False
+        self.query_one("#progress-panel", Vertical).display = False
         self._setup_tables()
         self.refresh_dashboard()
 
@@ -262,7 +268,6 @@ class NoteKeeperTui(App[None]):
             return
 
         if event.state is WorkerState.RUNNING:
-            self._progress().display = True
             if event.worker.group == "sync":
                 self._set_status("Syncing")
             elif event.worker.group == "cleanup":
@@ -281,7 +286,8 @@ class NoteKeeperTui(App[None]):
                         lambda: self.refresh_dashboard(update_campaigns=False),
                     )
         elif event.state is WorkerState.SUCCESS:
-            self._progress().display = False
+            if event.worker.group in {"job", "recap", "review"}:
+                self._hide_progress_if_inactive()
             if event.worker.group == "sync":
                 message = sync_result_status(event.worker.result)
                 self.refresh_dashboard(update_campaigns=False)
@@ -316,7 +322,8 @@ class NoteKeeperTui(App[None]):
                 self._set_status("Done")
                 self.refresh_dashboard(update_campaigns=False)
         elif event.state is WorkerState.ERROR:
-            self._progress().display = False
+            if event.worker.group in {"job", "recap", "review"}:
+                self._hide_progress_if_inactive()
             if event.worker.group == "cleanup":
                 self._clear_failed_jobs_in_progress = False
                 self._update_action_buttons()
@@ -333,7 +340,8 @@ class NoteKeeperTui(App[None]):
             self._set_status(message)
             self.notify(message, severity="error")
         elif event.state is WorkerState.CANCELLED:
-            self._progress().display = False
+            if event.worker.group in {"job", "recap", "review"}:
+                self._hide_progress_if_inactive()
             if event.worker.group == "cleanup":
                 self._clear_failed_jobs_in_progress = False
                 self._update_action_buttons()
@@ -602,6 +610,7 @@ class NoteKeeperTui(App[None]):
 
         self._sync_table_selection()
         self._update_action_buttons()
+        self._show_selected_progress()
         if announce and self._selected_object is not None:
             self._set_status(f"Selected {selected_label}")
 
@@ -624,6 +633,7 @@ class NoteKeeperTui(App[None]):
         self._selected_object = self._dashboard_jobs.get(job_id)
         self._sync_table_selection()
         self._update_action_buttons()
+        self._show_selected_progress()
 
     def _update_action_buttons(self) -> None:
         """Enable only actions whose current dashboard context supports them."""
@@ -942,6 +952,96 @@ class NoteKeeperTui(App[None]):
     def _progress(self) -> ProgressBar:
         return self.query_one("#job-progress", ProgressBar)
 
+    def _watch_progress(self, operation_id: str) -> None:
+        if operation_id in self._progress_unsubscribes:
+            return
+        stream = getattr(self.runtime, "progress_events", None)
+        if stream is None:
+            return
+        self._progress_unsubscribes[operation_id] = stream.subscribe(
+            operation_id,
+            self._on_progress_event,
+        )
+
+    def _on_progress_event(self, event: ProgressEvent) -> None:
+        self.call_from_thread(self._apply_progress_event, event)
+
+    def _apply_progress_event(self, event: ProgressEvent) -> None:
+        if event.kind.is_terminal:
+            self._active_progress_events.pop(event.operation_id, None)
+            unsubscribe = self._progress_unsubscribes.pop(
+                event.operation_id,
+                None,
+            )
+            if unsubscribe is not None:
+                unsubscribe()
+            if self._selected_job_id() == event.operation_id:
+                self._hide_progress()
+            return
+
+        self._active_progress_events[event.operation_id] = event
+        if self._selected_job_id() != event.operation_id:
+            return
+        self.query_one("#progress-panel", Vertical).display = True
+        stage = event.progress.stage.replace("_", " ").title()
+        self.query_one("#progress-stage", Static).update(
+            f"[{event.stage_index}/{event.stage_count}] {stage}",
+        )
+        self._progress().update(total=100, progress=event.progress.percent)
+        self.query_one("#progress-time", Static).update(
+            _progress_time_text(event),
+        )
+
+    def _show_selected_progress(self) -> None:
+        operation_id = self._selected_job_id()
+        if operation_id is None:
+            self._hide_progress()
+            return
+        event = self._active_progress_events.get(operation_id)
+        if event is None:
+            stream = getattr(self.runtime, "progress_events", None)
+            event = stream.latest(operation_id) if stream is not None else None
+        if event is None:
+            self._hide_progress()
+            return
+        self._apply_progress_event(event)
+
+    def _selected_job_id(self) -> str | None:
+        job = self._selected_job()
+        return str(job.id) if job is not None else None
+
+    def _hide_progress(self) -> None:
+        self.query_one("#progress-panel", Vertical).display = False
+
+    def _hide_progress_if_inactive(self) -> None:
+        operation_id = self._selected_job_id()
+        if operation_id not in self._active_progress_events:
+            self._hide_progress()
+
+    def on_unmount(self) -> None:
+        for unsubscribe in tuple(self._progress_unsubscribes.values()):
+            unsubscribe()
+        self._progress_unsubscribes.clear()
+
 
 def run_tui(runtime: InterfaceRuntime) -> None:
     NoteKeeperTui(runtime).run()
+
+
+def _progress_time_text(event: ProgressEvent) -> str:
+    if not event.timing_available:
+        return ""
+    if event.progress.expected_duration == 0:
+        return "Estimating…"
+    current = _milliseconds(event.progress.current_duration)
+    expected = _milliseconds(event.progress.expected_duration)
+    remaining = _milliseconds(event.progress.remaining_duration)
+    return f"{current} / {expected} · remaining {remaining}"
+
+
+def _milliseconds(value: int) -> str:
+    seconds = value / 1000
+    if seconds < 60:
+        return f"{seconds:.1f}s"
+    minutes, remainder = divmod(round(seconds), 60)
+    return f"{minutes}m {remainder:02d}s"

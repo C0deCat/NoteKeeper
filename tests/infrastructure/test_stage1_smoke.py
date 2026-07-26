@@ -3,6 +3,7 @@ from __future__ import annotations
 import subprocess
 import wave
 from datetime import datetime, timedelta, timezone
+from io import StringIO
 from pathlib import Path
 from typing import Any
 
@@ -187,6 +188,19 @@ def test_stage1_processing_smoke_with_fake_external_boundaries(
         return subprocess.CompletedProcess(command, returncode=0, stdout="", stderr="")
 
     monkeypatch.setattr(subprocess, "run", fake_subprocess_run)
+
+    class FakeFfmpegProcess:
+        stdout = StringIO("progress=end\n")
+        stderr = StringIO("")
+
+        def wait(self) -> int:
+            return 0
+
+    def fake_subprocess_popen(command, **kwargs):
+        _write_wav(Path(command[-1]), duration_seconds=1.0)
+        return FakeFfmpegProcess()
+
+    monkeypatch.setattr(subprocess, "Popen", fake_subprocess_popen)
     clock = FixedClock()
     ids = FixedIds()
     submit = SubmitRecordingForProcessing(

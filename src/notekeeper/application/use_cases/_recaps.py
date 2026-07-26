@@ -1,5 +1,7 @@
 """Shared recap-generation orchestration."""
 
+from collections.abc import Callable
+
 from notekeeper.application.ports import (
     IdGenerator,
     RecapGenerator,
@@ -21,34 +23,40 @@ def generate_recap_for_transcript(
     recap_repository: RecapRepository,
     target_token_count: int = DEFAULT_RECAP_CHUNK_TOKEN_TARGET,
     job_id: ProcessingJobId | None = None,
+    progress_callback: Callable[[float], None] | None = None,
 ) -> Recap:
     recap_id = RecapId(id_generator.recap_id())
     chunks = tokenizer.split_transcript(
         transcript,
         target_token_count=target_token_count,
     )
-    recap_chunks = tuple(
-        RecapChunk(
-            markdown=recap_generator.generate_chunk(
-                chunk,
-                context=RecapGenerationContext(
-                    campaign_id=transcript.campaign_id,
-                    transcript_id=transcript.id,
-                    recap_id=recap_id,
-                    job_id=job_id,
-                    chunk_index=chunk_index,
+    request_count = len(chunks) + 1
+    recap_chunks = []
+    for chunk_index, chunk in enumerate(chunks):
+        recap_chunks.append(
+            RecapChunk(
+                markdown=recap_generator.generate_chunk(
+                    chunk,
+                    context=RecapGenerationContext(
+                        campaign_id=transcript.campaign_id,
+                        transcript_id=transcript.id,
+                        recap_id=recap_id,
+                        job_id=job_id,
+                        chunk_index=chunk_index,
+                    ),
                 ),
+                time_range=chunk.time_range,
+                source_segment_indexes=chunk.source_segment_indexes,
             ),
-            time_range=chunk.time_range,
-            source_segment_indexes=chunk.source_segment_indexes,
         )
-        for chunk_index, chunk in enumerate(chunks)
-    )
+        if progress_callback is not None:
+            progress_callback((chunk_index + 1) / request_count)
+    recap_chunks_tuple = tuple(recap_chunks)
     recap = Recap(
         id=recap_id,
         transcript_id=transcript.id,
         markdown=recap_generator.combine_chunks(
-            recap_chunks,
+            recap_chunks_tuple,
             context=RecapGenerationContext(
                 campaign_id=transcript.campaign_id,
                 transcript_id=transcript.id,
@@ -56,7 +64,9 @@ def generate_recap_for_transcript(
                 job_id=job_id,
             ),
         ),
-        chunks=recap_chunks,
+        chunks=recap_chunks_tuple,
     )
+    if progress_callback is not None:
+        progress_callback(1.0)
     recap_repository.save(recap)
     return recap

@@ -155,6 +155,7 @@ def review_selected_job(app, mappings: tuple[ManualSpeakerMappingCommand, ...]) 
     job = app._selected_job()
     if job is None or not mappings:
         return
+    app._watch_progress(str(job.id))
     app.run_worker(
         lambda: app.runtime.use_cases.review_speaker_mappings.execute(
             ReviewSpeakerMappingsCommand(
