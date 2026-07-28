@@ -23,6 +23,7 @@ from notekeeper.application import (
     GetCampaign,
     GetJobStatus,
     InspectAudioMetadata,
+    InspectLocalAudioFile,
     ListAudioTracks,
     ListCampaigns,
     ListJobsForCampaign,
@@ -152,6 +153,8 @@ def build_stage1_use_cases(
         add_voice_sample=AddVoiceSample(
             infrastructure.campaign_repository,
             infrastructure.metadata_reader,
+            infrastructure.source_metadata_reader,
+            infrastructure.artifact_storage,
             infrastructure.id_generator,
         ),
         list_voice_samples=ListVoiceSamples(infrastructure.campaign_repository),
@@ -182,6 +185,8 @@ def build_stage1_use_cases(
             infrastructure.audio_track_repository,
             infrastructure.job_repository,
             infrastructure.metadata_reader,
+            infrastructure.source_metadata_reader,
+            infrastructure.artifact_storage,
             infrastructure.clock,
             infrastructure.id_generator,
         ),
@@ -244,6 +249,9 @@ def build_stage1_use_cases(
         ),
         preview_recap_markdown=PreviewRecapMarkdown(infrastructure.recap_repository),
         inspect_audio_metadata=InspectAudioMetadata(infrastructure.metadata_reader),
+        inspect_local_audio_file=InspectLocalAudioFile(
+            infrastructure.source_metadata_reader,
+        ),
         sync_campaign_folder=SyncCampaignFolder(
             infrastructure.campaign_repository,
             infrastructure.job_repository,

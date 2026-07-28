@@ -25,6 +25,7 @@ from notekeeper.application.ports import (
     RecapRepository,
     SpeakerIdentifier,
     SpeakerMappingRepository,
+    SourceAudioMetadataReader,
     Tokenizer,
     Transcriber,
     TranscriptRepository,
@@ -43,6 +44,7 @@ from notekeeper.infrastructure.filesystem import (
     LocalCampaignArtifactStorage,
     LocalCampaignFolderScanner,
     LocalPreparedAudioManifestStore,
+    LocalSourceAudioMetadataReader,
 )
 from notekeeper.infrastructure.runtime import SystemClock, UuidGenerator
 from notekeeper.infrastructure.speaker_mapping import SampleBasedSpeakerIdentifier
@@ -77,6 +79,7 @@ class InfrastructureBundle:
     artifact_storage: CampaignArtifactStorage
     folder_scanner: CampaignFolderScanner
     metadata_reader: AudioMetadataReader
+    source_metadata_reader: SourceAudioMetadataReader
     prepared_audio_manifest_store: PreparedAudioManifestStore
     audio_processor: AudioProcessor
     transcriber: Transcriber
@@ -112,6 +115,9 @@ def build_infrastructure(
     )
     metadata_reader = LocalAudioMetadataReader(
         artifact_storage,
+        ffprobe_path=resolved_settings.ffprobe_path,
+    )
+    source_metadata_reader = LocalSourceAudioMetadataReader(
         ffprobe_path=resolved_settings.ffprobe_path,
     )
     prepared_audio_manifest_store = LocalPreparedAudioManifestStore(artifact_storage)
@@ -186,6 +192,7 @@ def build_infrastructure(
         artifact_storage=artifact_storage,
         folder_scanner=folder_scanner,
         metadata_reader=metadata_reader,
+        source_metadata_reader=source_metadata_reader,
         prepared_audio_manifest_store=prepared_audio_manifest_store,
         audio_processor=audio_processor,
         transcriber=transcriber,

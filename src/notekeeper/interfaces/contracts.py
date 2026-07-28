@@ -23,6 +23,7 @@ from notekeeper.application import (
     GetCampaign,
     GetJobStatus,
     InspectAudioMetadata,
+    InspectLocalAudioFile,
     ListAudioTracks,
     ListCampaigns,
     ListJobsForCampaign,
@@ -77,6 +78,7 @@ class Stage1UseCases:
     preview_transcript_markdown: PreviewTranscriptMarkdown
     preview_recap_markdown: PreviewRecapMarkdown
     inspect_audio_metadata: InspectAudioMetadata
+    inspect_local_audio_file: InspectLocalAudioFile
     sync_campaign_folder: SyncCampaignFolder
     restart_processing_job: RestartProcessingJob | None = None
     delete_processing_job: DeleteProcessingJob | None = None

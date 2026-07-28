@@ -61,9 +61,10 @@ class DeleteParticipantCommand:
 class AddVoiceSampleCommand:
     campaign_id: str
     participant_id: str
-    artifact_uri: str
+    artifact_uri: str | None = None
     artifact_kind: str = "file"
     recorded_at: datetime | None = None
+    source_path: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -143,9 +144,10 @@ class CreateProcessingJobForAudioTrackCommand:
 @dataclass(frozen=True, slots=True)
 class SubmitRecordingForProcessingCommand:
     campaign_id: str
-    artifact_uri: str
+    artifact_uri: str | None = None
     artifact_kind: str = "file"
     title: str | None = None
+    source_path: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -205,6 +207,11 @@ class InspectAudioMetadataCommand:
 
 
 @dataclass(frozen=True, slots=True)
+class InspectLocalAudioFileCommand:
+    source_path: str
+
+
+@dataclass(frozen=True, slots=True)
 class PreviewTranscriptMarkdownCommand:
     transcript_id: str
 
@@ -243,6 +250,7 @@ __all__ = [
     "ListVoiceSamplesCommand",
     "ManualSpeakerMappingCommand",
     "InspectAudioMetadataCommand",
+    "InspectLocalAudioFileCommand",
     "PreviewRecapMarkdownCommand",
     "PreviewTranscriptMarkdownCommand",
     "RegisterAudioTrackCommand",

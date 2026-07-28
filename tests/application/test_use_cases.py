@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 from datetime import datetime, timedelta
+from pathlib import Path
 
 import pytest
 
@@ -29,6 +30,8 @@ from notekeeper.application import (
     GetJobStatusCommand,
     InspectAudioMetadata,
     InspectAudioMetadataCommand,
+    InspectLocalAudioFile,
+    InspectLocalAudioFileCommand,
     InvalidOperationError,
     ListJobsForCampaign,
     ListJobsForCampaignCommand,
@@ -192,6 +195,21 @@ class FakeMetadataReader:
             channels=1,
             format="wav",
             checksum=f"checksum:{artifact.uri}",
+        )
+
+
+class FakeSourceMetadataReader:
+    def __init__(self) -> None:
+        self.read_paths: list[Path] = []
+
+    def read(self, source_path: Path) -> AudioMetadata:
+        self.read_paths.append(source_path)
+        return AudioMetadata(
+            duration_seconds=12,
+            sample_rate_hz=16000,
+            channels=1,
+            format="wav",
+            checksum=f"source-checksum:{source_path.name}",
         )
 
 
@@ -368,6 +386,7 @@ class FakeArtifactStorage:
         self.saved: dict[str, tuple[str, str, ArtifactRef]] = {}
         self.deleted_campaigns: list[CampaignId] = []
         self.delete_error: Exception | None = None
+        self.imports: list[tuple[CampaignId, str, Path, str | None]] = []
 
     def ensure_campaign_layout(self, campaign_id: CampaignId) -> None:
         return None
@@ -388,6 +407,23 @@ class FakeArtifactStorage:
         self.saved[suggested_name] = (content, media_type, artifact)
         return artifact
 
+    def import_file(
+        self,
+        *,
+        campaign_id: CampaignId,
+        folder: str,
+        source_path: str | Path,
+        player_name: str | None = None,
+    ) -> ArtifactRef:
+        path = Path(source_path)
+        self.imports.append((campaign_id, folder, path, player_name))
+        destination = (
+            f"{campaign_id}/{folder}/{player_name}/{path.name}"
+            if player_name is not None
+            else f"{campaign_id}/{folder}/{path.name}"
+        )
+        return ArtifactRef(uri=destination)
+
 
 class FakeCampaignFolderScanner:
     def __init__(self) -> None:
@@ -406,6 +442,7 @@ class Harness:
         self.jobs = InMemoryRepository()
         self.failed_job_cleaner = FakeFailedJobCleaner(self.jobs)
         self.metadata_reader = FakeMetadataReader()
+        self.source_metadata_reader = FakeSourceMetadataReader()
         self.audio_processor = FakeAudioProcessor()
         self.transcriber = FakeTranscriber()
         self.speaker_identifier = FakeSpeakerIdentifier()
@@ -444,6 +481,8 @@ class Harness:
             self.audio_tracks,
             self.jobs,
             self.metadata_reader,
+            self.source_metadata_reader,
+            self.artifact_storage,
             self.clock,
             self.ids,
         )
@@ -531,6 +570,8 @@ def test_campaign_use_cases_create_campaign_add_participant_and_voice_sample() -
     sample_result = AddVoiceSample(
         harness.campaigns,
         harness.metadata_reader,
+        harness.source_metadata_reader,
+        harness.artifact_storage,
         harness.ids,
     ).execute(
         AddVoiceSampleCommand(
@@ -547,6 +588,46 @@ def test_campaign_use_cases_create_campaign_add_participant_and_voice_sample() -
     assert harness.campaigns.get(campaign.id).voice_samples == (
         sample_result.voice_sample,
     )
+
+
+def test_add_voice_sample_imports_local_source_for_participant() -> None:
+    harness = Harness()
+    campaign = CreateCampaign(harness.campaigns, harness.ids).execute(
+        CreateCampaignCommand(name="Storm King's Thunder"),
+    ).campaign
+    participant = AddParticipantToCampaign(
+        harness.campaigns,
+        harness.ids,
+    ).execute(
+        AddParticipantToCampaignCommand(
+            campaign_id=campaign.id,
+            display_name="Alice",
+        ),
+    ).participant
+    source_path = Path("alice.wav").resolve()
+
+    result = AddVoiceSample(
+        harness.campaigns,
+        harness.metadata_reader,
+        harness.source_metadata_reader,
+        harness.artifact_storage,
+        harness.ids,
+    ).execute(
+        AddVoiceSampleCommand(
+            campaign_id=str(campaign.id),
+            participant_id=str(participant.id),
+            source_path=str(source_path),
+        ),
+    )
+
+    assert result.voice_sample.artifact.uri == (
+        f"{campaign.id}/players/Alice/alice.wav"
+    )
+    assert result.voice_sample.metadata.checksum == "source-checksum:alice.wav"
+    assert harness.source_metadata_reader.read_paths == [source_path]
+    assert harness.artifact_storage.imports == [
+        (campaign.id, "players", source_path, "Alice"),
+    ]
 
 
 def test_delete_campaign_can_preserve_or_remove_campaign_files() -> None:
@@ -609,6 +690,57 @@ def test_submit_recording_rejects_campaign_without_voice_samples() -> None:
 
     assert not harness.jobs.items
     assert not harness.audio_tracks.items
+
+
+def test_submit_recording_imports_local_source_into_records() -> None:
+    harness = Harness()
+    campaign = harness.ready_campaign("Alice")
+    source_path = Path("session.wav").resolve()
+
+    result = harness.submit_use_case().execute(
+        SubmitRecordingForProcessingCommand(
+            campaign_id=str(campaign.id),
+            source_path=str(source_path),
+            title="Session",
+        ),
+    )
+
+    assert result.audio_track.artifact.uri == (
+        f"{campaign.id}/records/session.wav"
+    )
+    assert result.audio_track.metadata.checksum == "source-checksum:session.wav"
+    assert harness.artifact_storage.imports == [
+        (campaign.id, "records", source_path, None),
+    ]
+
+
+@pytest.mark.parametrize(
+    ("artifact_uri", "source_path"),
+    [
+        (None, None),
+        ("sessions/session.wav", str(Path("session.wav").resolve())),
+    ],
+)
+def test_submit_recording_requires_exactly_one_audio_source(
+    artifact_uri: str | None,
+    source_path: str | None,
+) -> None:
+    harness = Harness()
+    harness.ready_campaign("Alice")
+
+    with pytest.raises(
+        InvalidOperationError,
+        match="exactly one of artifact_uri or source_path",
+    ):
+        harness.submit_use_case().execute(
+            SubmitRecordingForProcessingCommand(
+                campaign_id="campaign-1",
+                artifact_uri=artifact_uri,
+                source_path=source_path,
+            ),
+        )
+
+    assert harness.artifact_storage.imports == []
 
 
 def test_create_processing_job_for_existing_audio_track() -> None:
@@ -1460,6 +1592,11 @@ def test_query_use_cases_list_jobs_inspect_metadata_and_preview_markdown() -> No
     metadata = InspectAudioMetadata(harness.metadata_reader).execute(
         InspectAudioMetadataCommand(artifact_uri="sessions/session-2.wav"),
     )
+    local_metadata = InspectLocalAudioFile(
+        harness.source_metadata_reader,
+    ).execute(
+        InspectLocalAudioFileCommand(source_path="session.wav"),
+    )
     transcript_preview = PreviewTranscriptMarkdown(harness.transcripts).execute(
         PreviewTranscriptMarkdownCommand(transcript_id=transcript.id),
     )
@@ -1469,6 +1606,8 @@ def test_query_use_cases_list_jobs_inspect_metadata_and_preview_markdown() -> No
 
     assert jobs.jobs == (submitted.job,)
     assert metadata.metadata.checksum == "checksum:sessions/session-2.wav"
+    assert local_metadata.source_path == str(Path("session.wav").resolve())
+    assert local_metadata.metadata.checksum == "source-checksum:session.wav"
     assert (
         "[00:00:00 - 00:00:05] **Alice:** We enter the crypt.\n\n"
         "[00:00:05 - 00:00:09] **Bob:** I light a torch."

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from datetime import datetime
+from pathlib import Path
 from typing import Any, Protocol
 
 from notekeeper.application.results import (
@@ -214,6 +215,10 @@ class AudioMetadataReader(Protocol):
     def read(self, artifact: ArtifactRef) -> AudioMetadata: ...
 
 
+class SourceAudioMetadataReader(Protocol):
+    def read(self, source_path: Path) -> AudioMetadata: ...
+
+
 class AudioProcessor(Protocol):
     def prepare_session_audio(
         self,
@@ -300,6 +305,15 @@ class CampaignArtifactStorage(ArtifactStorage, Protocol):
     def ensure_campaign_layout(self, campaign_id: CampaignId) -> None: ...
 
     def delete_campaign(self, campaign_id: CampaignId) -> None: ...
+
+    def import_file(
+        self,
+        *,
+        campaign_id: CampaignId,
+        folder: str,
+        source_path: str | Path,
+        player_name: str | None = None,
+    ) -> ArtifactRef: ...
 
     def save_campaign_text(
         self,
@@ -389,6 +403,7 @@ __all__ = [
     "RecapRepository",
     "SpeakerIdentifier",
     "SpeakerMappingRepository",
+    "SourceAudioMetadataReader",
     "Tokenizer",
     "Transcriber",
     "TranscriptRepository",

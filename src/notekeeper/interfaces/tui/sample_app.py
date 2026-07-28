@@ -2,21 +2,24 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from textual.app import ComposeResult
 from textual.containers import Vertical
 from textual.screen import ModalScreen
-from textual.widgets import Button, Input, Label, Select, Static
+from textual.widgets import Button, Label, Select, Static
 
 from notekeeper.application import (
     AddVoiceSampleCommand,
     ApplicationError,
     DeleteVoiceSampleCommand,
-    InspectAudioMetadataCommand,
+    InspectLocalAudioFileCommand,
     ListParticipantsCommand,
     ListVoiceSamplesCommand,
 )
 from notekeeper.domain import DomainError, Participant
 
+from .audio_file_explorer_screen import AudioFileExplorerScreen
 from .common import metadata_text
 from .remove_voice_sample_screen import RemoveVoiceSampleScreen
 
@@ -33,34 +36,49 @@ class VoiceSampleScreen(ModalScreen[bool]):
         self.campaign_id = campaign_id
         self.participants = participants
         self._preflight_ok = False
+        self._source_path: Path | None = None
 
     def compose(self) -> ComposeResult:
         with Vertical(classes="modal"):
             yield Label("Voice Sample")
             yield Select(self.participants, prompt="Player", id="participant")
-            yield Input(
-                placeholder="campaign-1/players/Alice/sample.wav",
-                id="artifact-uri",
+            yield Static(
+                "No file selected",
+                id="source-path",
+                classes="selected-file",
             )
+            yield Button("Choose File", id="choose-file")
             yield Static("No metadata", id="metadata", classes="metadata")
-            yield Button("Preflight", id="preflight")
             yield Button("Save", id="save", variant="primary", disabled=True)
             yield Button("Cancel", id="cancel")
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
-        if event.button.id == "preflight":
-            self._run_preflight()
+        if event.button.id == "choose-file":
+            self.app.push_screen(
+                AudioFileExplorerScreen(),
+                self._select_source,
+            )
         elif event.button.id == "save":
             self._save()
         else:
             self.dismiss(False)
 
+    def _select_source(self, source_path: Path | None) -> None:
+        if source_path is None:
+            return
+        self._source_path = source_path.resolve(strict=False)
+        self.query_one("#source-path", Static).update(str(self._source_path))
+        self._run_preflight()
+
     def _run_preflight(self) -> None:
-        uri = self.query_one("#artifact-uri", Input).value.strip()
+        if self._source_path is None:
+            return
         try:
-            result = self.runtime.use_cases.inspect_audio_metadata.execute(
-                InspectAudioMetadataCommand(artifact_uri=uri),
+            result = self.runtime.use_cases.inspect_local_audio_file.execute(
+                InspectLocalAudioFileCommand(source_path=str(self._source_path)),
             )
+            self._source_path = Path(result.source_path)
+            self.query_one("#source-path", Static).update(result.source_path)
             self.query_one("#metadata", Static).update(metadata_text(result.metadata))
             self.query_one("#save", Button).disabled = False
             self._preflight_ok = True
@@ -71,15 +89,18 @@ class VoiceSampleScreen(ModalScreen[bool]):
 
     def _save(self) -> None:
         participant_id = self.query_one("#participant", Select).value
-        uri = self.query_one("#artifact-uri", Input).value.strip()
-        if participant_id in (Select.BLANK, Select.NULL) or not self._preflight_ok:
+        if (
+            participant_id in (Select.BLANK, Select.NULL)
+            or not self._preflight_ok
+            or self._source_path is None
+        ):
             return
         try:
             self.runtime.use_cases.add_voice_sample.execute(
                 AddVoiceSampleCommand(
                     campaign_id=self.campaign_id,
                     participant_id=str(participant_id),
-                    artifact_uri=uri,
+                    source_path=str(self._source_path),
                 ),
             )
             self.dismiss(True)

@@ -146,6 +146,7 @@ class FakeRuntime:
                     metadata=metadata,
                 ),
             ),
+            inspect_local_audio_file=FakeUseCase(None),
             sync_campaign_folder=FakeUseCase(
                 SyncCampaignFolderResult(
                     campaign=campaign,
