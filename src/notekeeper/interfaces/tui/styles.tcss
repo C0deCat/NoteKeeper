@@ -2,6 +2,10 @@ Screen {
     layout: vertical;
 }
 
+ModalScreen {
+    align: center middle;
+}
+
 #topbar {
     height: 3;
     padding: 0 1;
@@ -162,7 +166,7 @@ Screen {
     margin: 1 0;
 }
 
-#preview-markdown {
+#preview-scroll {
     height: 28;
     border: solid $accent;
     padding: 1;

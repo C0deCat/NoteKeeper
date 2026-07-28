@@ -21,13 +21,13 @@ def render_recap_markdown(recap: Recap) -> str:
 
 
 def render_transcript_markdown(transcript: Transcript) -> str:
-    lines = ["# Transcript", ""]
+    sections = ["# Transcript"]
     for segment in transcript.segments:
         start = format_seconds(segment.time_range.start_seconds)
         end = format_seconds(segment.time_range.end_seconds)
         speaker = segment.speaker_label.value
-        lines.append(f"[{start} - {end}] **{speaker}:** {segment.text}")
-    return "\n".join(lines).rstrip() + "\n"
+        sections.append(f"[{start} - {end}] **{speaker}:** {segment.text}")
+    return "\n\n".join(sections).rstrip() + "\n"
 
 
 def format_seconds(seconds: float) -> str:

@@ -3,6 +3,7 @@ from dataclasses import replace
 from datetime import datetime
 from types import SimpleNamespace
 
+from textual.containers import VerticalScroll
 from textual.coordinate import Coordinate
 from textual.widgets import Button, DataTable, Input, Select, Static, Switch
 
@@ -64,6 +65,7 @@ from notekeeper.interfaces.tui.job_action_confirmation_screen import (
 from notekeeper.interfaces.tui.object_action_confirmation_screen import (
     ObjectActionConfirmationScreen,
 )
+from notekeeper.interfaces.tui.preview_app import MarkdownPreviewScreen
 from notekeeper.interfaces.tui.remove_voice_sample_screen import (
     RemoveVoiceSampleScreen,
 )
@@ -80,6 +82,12 @@ class FakeUseCase:
     def execute(self, command):
         self.commands.append(command)
         return self.result
+
+
+def assert_modal_is_centered(screen) -> None:
+    modal = screen.query_one(".modal")
+    assert abs(2 * modal.region.x + modal.region.width - screen.region.width) <= 1
+    assert abs(2 * modal.region.y + modal.region.height - screen.region.height) <= 1
 
 
 class FakeRestartUseCase(FakeUseCase):
@@ -1197,6 +1205,46 @@ def test_tui_dashboard_and_content_are_scrollable() -> None:
             assert app.query_one("#dashboard").styles.overflow_y == "auto"
             assert app.query_one("#actions").styles.overflow_y == "auto"
             assert app.query_one("#content").styles.overflow_y == "auto"
+
+    asyncio.run(run())
+
+
+def test_tui_markdown_previews_are_scrollable_and_centered() -> None:
+    async def run() -> None:
+        app = NoteKeeperTui(FakeRuntime())
+        async with app.run_test(size=(100, 40)) as pilot:
+            for title in ("Transcript", "Recap"):
+                markdown = "\n\n".join(
+                    f"## {title} section {index}\n\nContent {index}"
+                    for index in range(30)
+                )
+                screen = MarkdownPreviewScreen(title, markdown)
+                app.push_screen(screen)
+                await pilot.pause()
+
+                preview_scroll = screen.query_one("#preview-scroll", VerticalScroll)
+                assert preview_scroll.has_focus is True
+                assert preview_scroll.max_scroll_y > 0
+                assert_modal_is_centered(screen)
+
+                await pilot.press("end")
+                await pilot.pause()
+                assert preview_scroll.scroll_y > 0
+
+                screen.dismiss(None)
+                await pilot.pause()
+
+    asyncio.run(run())
+
+
+def test_tui_short_modal_is_centered() -> None:
+    async def run() -> None:
+        app = NoteKeeperTui(FakeRuntime())
+        async with app.run_test(size=(100, 40)) as pilot:
+            screen = RenameScreen("Rename Player", "Alice")
+            app.push_screen(screen)
+            await pilot.pause()
+            assert_modal_is_centered(screen)
 
     asyncio.run(run())
 
