@@ -101,6 +101,10 @@ class LocalCampaignArtifactStorage(CampaignArtifactStorage):
             target_dir = self.campaign_path(campaign_id) / folder
         target_dir.mkdir(parents=True, exist_ok=True)
 
+        resolved_source = source.resolve(strict=True)
+        if resolved_source.parent == target_dir.resolve(strict=False):
+            return ArtifactRef(uri=self.uri_for_path(resolved_source), kind="file")
+
         target = available_path(target_dir / source.name)
         shutil.copy2(source, target)
         return ArtifactRef(uri=self.uri_for_path(target), kind="file")

@@ -26,7 +26,7 @@ from .export import (
     PreviewRecapMarkdown,
     PreviewTranscriptMarkdown,
 )
-from .media import InspectAudioMetadata
+from .media import InspectAudioMetadata, InspectLocalAudioFile
 from .processing import (
     CancelProcessingJob,
     ClearFailedJobsForCampaign,
@@ -60,6 +60,7 @@ __all__ = [
     "GetCampaign",
     "GetJobStatus",
     "InspectAudioMetadata",
+    "InspectLocalAudioFile",
     "ListAudioTracks",
     "ListCampaigns",
     "ListJobsForCampaign",

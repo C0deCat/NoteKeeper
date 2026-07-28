@@ -1,6 +1,7 @@
 import asyncio
 from dataclasses import replace
 from datetime import datetime
+from pathlib import Path
 from types import SimpleNamespace
 
 from textual.containers import VerticalScroll
@@ -23,6 +24,7 @@ from notekeeper.application import (
     GetCampaignResult,
     GetJobStatusResult,
     InspectAudioMetadataResult,
+    InspectLocalAudioFileResult,
     ListAudioTracksResult,
     ListCampaignsResult,
     ListJobsForCampaignResult,
@@ -55,7 +57,12 @@ from notekeeper.domain import (
     VoiceSample,
 )
 from notekeeper.interfaces import RuntimeDiagnostics, Stage1UseCases
-from notekeeper.interfaces.tui import NoteKeeperTui, RecordingScreen, VoiceSampleScreen
+from notekeeper.interfaces.tui import (
+    AudioFileExplorerScreen,
+    NoteKeeperTui,
+    RecordingScreen,
+    VoiceSampleScreen,
+)
 from notekeeper.interfaces.tui.campaign_management_screen import ManageCampaignsScreen
 from notekeeper.interfaces.tui.clear_failed_jobs_screen import ClearFailedJobsScreen
 from notekeeper.interfaces.tui.identifier_data_table import compact_identifier
@@ -320,6 +327,12 @@ class FakeRuntime:
             inspect_audio_metadata=FakeUseCase(
                 InspectAudioMetadataResult(
                     artifact=ArtifactRef(uri="session.wav"),
+                    metadata=metadata,
+                ),
+            ),
+            inspect_local_audio_file=FakeUseCase(
+                InspectLocalAudioFileResult(
+                    source_path=str(Path("session.wav").resolve()),
                     metadata=metadata,
                 ),
             ),
@@ -1538,7 +1551,70 @@ def test_tui_clear_failed_jobs_confirms_and_refreshes_current_campaign() -> None
     asyncio.run(run())
 
 
-def test_voice_sample_screen_shows_expected_artifact_uri_placeholder() -> None:
+def test_audio_file_explorer_starts_in_project_data_directory() -> None:
+    explorer = AudioFileExplorerScreen()
+
+    assert explorer.initial_location == Path("data").resolve()
+
+
+def test_audio_file_explorer_accepts_absolute_file_path(tmp_path: Path) -> None:
+    async def run() -> None:
+        source = tmp_path / "session.wav"
+        source.write_bytes(b"audio")
+        selected: list[Path | None] = []
+        app = NoteKeeperTui(FakeRuntime())
+
+        async with app.run_test() as pilot:
+            app.push_screen(
+                AudioFileExplorerScreen(tmp_path),
+                selected.append,
+            )
+            await pilot.pause()
+            file_input = app.screen.query_one(Input)
+            file_input.value = str(source.resolve())
+            file_input.focus()
+            await pilot.press("enter")
+            await pilot.pause()
+
+        assert selected == [source.resolve()]
+
+    asyncio.run(run())
+
+
+def test_audio_file_explorer_navigates_to_absolute_directory(tmp_path: Path) -> None:
+    async def run() -> None:
+        folder = tmp_path / "records"
+        folder.mkdir()
+        source = folder / "session.wav"
+        source.write_bytes(b"audio")
+        selected: list[Path | None] = []
+        app = NoteKeeperTui(FakeRuntime())
+
+        async with app.run_test() as pilot:
+            app.push_screen(
+                AudioFileExplorerScreen(tmp_path),
+                selected.append,
+            )
+            await pilot.pause()
+            file_input = app.screen.query_one(Input)
+            file_input.value = str(folder.resolve())
+            file_input.focus()
+            await pilot.press("enter")
+            await pilot.pause()
+
+            assert isinstance(app.screen, AudioFileExplorerScreen)
+            assert file_input.value == ""
+            file_input.value = source.name
+            file_input.focus()
+            await pilot.press("enter")
+            await pilot.pause()
+
+        assert selected == [source.resolve()]
+
+    asyncio.run(run())
+
+
+def test_voice_sample_screen_selects_and_preflights_local_file() -> None:
     async def run() -> None:
         runtime = FakeRuntime()
         app = NoteKeeperTui(runtime)
@@ -1551,10 +1627,22 @@ def test_voice_sample_screen_shows_expected_artifact_uri_placeholder() -> None:
             app.push_screen(screen)
             await pilot.pause()
 
-            assert (
-                screen.query_one("#artifact-uri", Input).placeholder
-                == "campaign-1/players/Alice/sample.wav"
+            assert len(screen.query("#artifact-uri")) == 0
+            assert screen.query_one("#save", Button).disabled is True
+
+            screen._select_source(Path("session.wav"))
+
+            assert "duration: 12.00s" in str(
+                screen.query_one("#metadata", Static).render(),
             )
+            assert screen.query_one("#save", Button).disabled is False
+            assert runtime.use_cases.inspect_local_audio_file.commands
+            screen.query_one("#participant", Select).value = "participant-1"
+            screen._save()
+
+            command = runtime.use_cases.add_voice_sample.commands[-1]
+            assert command.artifact_uri is None
+            assert command.source_path == str(Path("session.wav").resolve())
 
     asyncio.run(run())
 
@@ -1567,12 +1655,41 @@ def test_recording_screen_preflight_shows_metadata() -> None:
             screen = RecordingScreen(runtime, "campaign-1")
             app.push_screen(screen)
             await pilot.pause()
-            screen.query_one("#artifact-uri", Input).value = "session.wav"
-            screen._run_preflight()
+            assert len(screen.query("#artifact-uri")) == 0
+
+            screen._select_source(Path("session.wav"))
+
             assert "duration: 12.00s" in str(
                 screen.query_one("#metadata", Static).render(),
             )
             assert screen.query_one("#submit", Button).disabled is False
+            command = runtime.use_cases.inspect_local_audio_file.commands[-1]
+            assert command.source_path == str(Path("session.wav").resolve())
+            screen._submit()
+
+            submit_command = (
+                runtime.use_cases.submit_recording_for_processing.commands[-1]
+            )
+            assert submit_command.artifact_uri is None
+            assert submit_command.source_path == str(Path("session.wav").resolve())
+
+    asyncio.run(run())
+
+
+def test_recording_screen_choose_file_opens_shared_explorer() -> None:
+    async def run() -> None:
+        runtime = FakeRuntime()
+        app = NoteKeeperTui(runtime)
+        async with app.run_test() as pilot:
+            screen = RecordingScreen(runtime, "campaign-1")
+            app.push_screen(screen)
+            await pilot.pause()
+
+            screen.query_one("#choose-file", Button).press()
+            await pilot.pause()
+
+            assert isinstance(app.screen, AudioFileExplorerScreen)
+            app.screen.dismiss(None)
 
     asyncio.run(run())
 

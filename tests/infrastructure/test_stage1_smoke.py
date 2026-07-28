@@ -32,6 +32,7 @@ from notekeeper.infrastructure.filesystem import (
     LocalAudioMetadataReader,
     LocalCampaignArtifactStorage,
     LocalPreparedAudioManifestStore,
+    LocalSourceAudioMetadataReader,
 )
 from notekeeper.infrastructure.speaker_mapping import SampleBasedSpeakerIdentifier
 from notekeeper.infrastructure.sqlite import (
@@ -208,6 +209,8 @@ def test_stage1_processing_smoke_with_fake_external_boundaries(
         audio_tracks,
         jobs,
         metadata_reader,
+        LocalSourceAudioMetadataReader(ffprobe_path="missing-ffprobe"),
+        storage,
         clock,
         ids,
     )

@@ -166,6 +166,14 @@ ModalScreen {
     margin: 1 0;
 }
 
+.selected-file {
+    min-height: 3;
+    border: solid $secondary;
+    padding: 0 1;
+    margin: 1 0;
+    color: $text-muted;
+}
+
 #preview-scroll {
     height: 28;
     border: solid $accent;

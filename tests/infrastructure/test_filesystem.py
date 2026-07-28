@@ -13,6 +13,7 @@ from notekeeper.infrastructure.filesystem import (
     LocalCampaignArtifactStorage,
     LocalCampaignFolderScanner,
     LocalPreparedAudioManifestStore,
+    LocalSourceAudioMetadataReader,
 )
 
 
@@ -56,6 +57,44 @@ def test_storage_rejects_unsafe_relative_uri(tmp_path: Path) -> None:
 
     with pytest.raises(InfrastructureError):
         storage.path_for_uri("campaign-1\\records\\session.wav")
+
+
+def test_storage_imports_file_and_resolves_name_collisions(tmp_path: Path) -> None:
+    storage = LocalCampaignArtifactStorage(tmp_path / "artifacts")
+    source = tmp_path / "session.wav"
+    source.write_bytes(b"audio")
+
+    first = storage.import_file(
+        campaign_id=CampaignId("campaign-1"),
+        folder="records",
+        source_path=source,
+    )
+    second = storage.import_file(
+        campaign_id=CampaignId("campaign-1"),
+        folder="records",
+        source_path=source,
+    )
+
+    assert first.uri == "campaign-1/records/session.wav"
+    assert second.uri == "campaign-1/records/session_1.wav"
+    assert (tmp_path / "artifacts" / first.uri).read_bytes() == b"audio"
+    assert source.read_bytes() == b"audio"
+
+
+def test_storage_reuses_file_already_in_target_directory(tmp_path: Path) -> None:
+    storage = LocalCampaignArtifactStorage(tmp_path)
+    storage.ensure_campaign_layout(CampaignId("campaign-1"))
+    source = tmp_path / "campaign-1" / "records" / "session.wav"
+    source.write_bytes(b"audio")
+
+    artifact = storage.import_file(
+        campaign_id=CampaignId("campaign-1"),
+        folder="records",
+        source_path=source,
+    )
+
+    assert artifact.uri == "campaign-1/records/session.wav"
+    assert list(source.parent.glob("session*.wav")) == [source]
 
 
 def test_prepared_audio_manifest_store_saves_and_reads_json(tmp_path: Path) -> None:
@@ -135,6 +174,19 @@ def test_local_audio_metadata_reader_reads_wav_metadata(tmp_path: Path) -> None:
     assert metadata.duration_seconds == pytest.approx(0.1)
     assert metadata.sample_rate_hz == 16000
     assert metadata.channels == 1
+    assert metadata.file_size_bytes == wav_path.stat().st_size
+    assert metadata.checksum is not None
+
+
+def test_source_audio_metadata_reader_reads_absolute_wav_path(tmp_path: Path) -> None:
+    wav_path = tmp_path / "source.wav"
+    _write_wav(wav_path)
+
+    metadata = LocalSourceAudioMetadataReader(
+        ffprobe_path="missing-ffprobe",
+    ).read(wav_path.resolve())
+
+    assert metadata.duration_seconds == pytest.approx(0.1)
     assert metadata.file_size_bytes == wav_path.stat().st_size
     assert metadata.checksum is not None
 

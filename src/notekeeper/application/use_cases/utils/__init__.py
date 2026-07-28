@@ -1,5 +1,7 @@
 """Shared application use-case lookup helpers."""
 
+from .audio_sources import resolve_audio_source
+
 from notekeeper.application.errors import NotFoundError
 from notekeeper.application.ports import (
     AudioTrackRepository,
@@ -78,4 +80,5 @@ __all__ = [
     "_require_job",
     "_require_recap",
     "_require_transcript",
+    "resolve_audio_source",
 ]

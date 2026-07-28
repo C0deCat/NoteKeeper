@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from textual.app import ComposeResult
 from textual.containers import Vertical
 from textual.screen import ModalScreen
@@ -10,12 +12,13 @@ from textual.widgets import Button, Input, Label, Static
 from notekeeper.application import (
     ApplicationError,
     DeleteAudioTrackCommand,
-    InspectAudioMetadataCommand,
+    InspectLocalAudioFileCommand,
     SubmitRecordingForProcessingCommand,
     UpdateAudioTrackCommand,
 )
 from notekeeper.domain import AudioTrack, DomainError
 
+from .audio_file_explorer_screen import AudioFileExplorerScreen
 from .common import metadata_text
 from .object_action_confirmation_screen import ObjectActionConfirmationScreen
 from .rename_screen import RenameScreen
@@ -27,31 +30,49 @@ class RecordingScreen(ModalScreen[bool]):
         self.runtime = runtime
         self.campaign_id = campaign_id
         self._preflight_ok = False
+        self._source_path: Path | None = None
 
     def compose(self) -> ComposeResult:
         with Vertical(classes="modal"):
             yield Label("Recording")
-            yield Input(placeholder="Artifact URI", id="artifact-uri")
+            yield Static(
+                "No file selected",
+                id="source-path",
+                classes="selected-file",
+            )
+            yield Button("Choose File", id="choose-file")
             yield Input(placeholder="Title", id="title")
             yield Static("No metadata", id="metadata", classes="metadata")
-            yield Button("Preflight", id="preflight")
             yield Button("Submit", id="submit", variant="primary", disabled=True)
             yield Button("Cancel", id="cancel")
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
-        if event.button.id == "preflight":
-            self._run_preflight()
+        if event.button.id == "choose-file":
+            self.app.push_screen(
+                AudioFileExplorerScreen(),
+                self._select_source,
+            )
         elif event.button.id == "submit":
             self._submit()
         else:
             self.dismiss(False)
 
+    def _select_source(self, source_path: Path | None) -> None:
+        if source_path is None:
+            return
+        self._source_path = source_path.resolve(strict=False)
+        self.query_one("#source-path", Static).update(str(self._source_path))
+        self._run_preflight()
+
     def _run_preflight(self) -> None:
-        uri = self.query_one("#artifact-uri", Input).value.strip()
+        if self._source_path is None:
+            return
         try:
-            result = self.runtime.use_cases.inspect_audio_metadata.execute(
-                InspectAudioMetadataCommand(artifact_uri=uri),
+            result = self.runtime.use_cases.inspect_local_audio_file.execute(
+                InspectLocalAudioFileCommand(source_path=str(self._source_path)),
             )
+            self._source_path = Path(result.source_path)
+            self.query_one("#source-path", Static).update(result.source_path)
             self.query_one("#metadata", Static).update(metadata_text(result.metadata))
             self.query_one("#submit", Button).disabled = False
             self._preflight_ok = True
@@ -61,15 +82,14 @@ class RecordingScreen(ModalScreen[bool]):
             self._preflight_ok = False
 
     def _submit(self) -> None:
-        uri = self.query_one("#artifact-uri", Input).value.strip()
         title = self.query_one("#title", Input).value.strip() or None
-        if not self._preflight_ok:
+        if not self._preflight_ok or self._source_path is None:
             return
         try:
             self.runtime.use_cases.submit_recording_for_processing.execute(
                 SubmitRecordingForProcessingCommand(
                     campaign_id=self.campaign_id,
-                    artifact_uri=uri,
+                    source_path=str(self._source_path),
                     title=title,
                 ),
             )

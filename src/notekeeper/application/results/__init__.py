@@ -337,6 +337,12 @@ class InspectAudioMetadataResult:
 
 
 @dataclass(frozen=True, slots=True)
+class InspectLocalAudioFileResult:
+    source_path: str
+    metadata: AudioMetadata
+
+
+@dataclass(frozen=True, slots=True)
 class MarkdownPreviewResult:
     markdown: str
 
@@ -395,6 +401,7 @@ __all__ = [
     "GetCampaignResult",
     "GetJobStatusResult",
     "InspectAudioMetadataResult",
+    "InspectLocalAudioFileResult",
     "ListAudioTracksResult",
     "ListCampaignsResult",
     "ListJobsForCampaignResult",
