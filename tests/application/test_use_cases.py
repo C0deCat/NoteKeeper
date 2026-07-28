@@ -1435,6 +1435,12 @@ def test_query_use_cases_list_jobs_inspect_metadata_and_preview_markdown() -> No
                 speaker_label=SpeakerLabel.named("Alice"),
                 text="We enter the crypt.",
             ),
+            TranscriptSegment(
+                index=1,
+                time_range=TimeRange(5, 9),
+                speaker_label=SpeakerLabel.named("Bob"),
+                text="I light a torch.",
+            ),
         ),
     )
     recap = Recap(
@@ -1463,7 +1469,11 @@ def test_query_use_cases_list_jobs_inspect_metadata_and_preview_markdown() -> No
 
     assert jobs.jobs == (submitted.job,)
     assert metadata.metadata.checksum == "checksum:sessions/session-2.wav"
-    assert "**Alice:** We enter the crypt." in transcript_preview.markdown
+    assert (
+        "[00:00:00 - 00:00:05] **Alice:** We enter the crypt.\n\n"
+        "[00:00:05 - 00:00:09] **Bob:** I light a torch."
+        in transcript_preview.markdown
+    )
     assert recap_preview.markdown == "# Recap\n\nDone."
 
 
