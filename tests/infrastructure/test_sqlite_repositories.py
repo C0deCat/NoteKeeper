@@ -62,7 +62,7 @@ def test_sqlite_campaign_repository_reconstructs_aggregate(tmp_path: Path) -> No
     ) == campaign.voice_samples[0]
     assert audio_tracks.get_by_artifact_uri(
         campaign.id,
-        "campaign-1/records/session.wav",
+        "campaign-1/records/normalized/audio-track-1.wav",
     ) == campaign.audio_tracks[0]
 
     campaign_repository.delete(campaign.id)
@@ -226,7 +226,9 @@ def test_sqlite_speaker_mapping_repository_round_trips_records(
             status=SpeakerMappingStatus.CONFIRMED,
         ),
         diagnostics={
-            "prepared_audio_artifact_uri": "campaign-1/records/prepared/job-1.wav",
+            "prepared_audio_artifact_uri": (
+                "campaign-1/records/transient/job-1/prepared.wav"
+            ),
             "label_overlap_seconds": {"SPEAKER_00": 3.5},
         },
     )
@@ -290,7 +292,9 @@ def _campaign() -> Campaign:
     audio_track = AudioTrack(
         id=AudioTrackId("audio-track-1"),
         campaign_id=CampaignId("campaign-1"),
-        artifact=ArtifactRef(uri="campaign-1/records/session.wav"),
+        artifact=ArtifactRef(
+            uri="campaign-1/records/normalized/audio-track-1.wav",
+        ),
         metadata=metadata,
         title="Session",
     )

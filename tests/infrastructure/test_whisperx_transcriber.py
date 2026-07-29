@@ -228,7 +228,7 @@ def test_whisperx_transcriber_rejects_missing_audio(tmp_path: Path) -> None:
         match="prepared audio artifact does not exist",
     ):
         transcriber.transcribe(
-            ArtifactRef(uri="campaign-1/records/prepared/missing.wav"),
+            ArtifactRef(uri="campaign-1/records/transient/job-1/missing.wav"),
             transcript_id=TranscriptId("transcript-1"),
             campaign_id=CampaignId("campaign-1"),
             audio_track_id=AudioTrackId("audio-track-1"),
@@ -307,7 +307,11 @@ def _payload() -> dict[str, Any]:
 
 
 def _prepared_audio(storage: LocalCampaignArtifactStorage) -> ArtifactRef:
-    path = storage.path_for_uri("campaign-1/records/prepared/job-1/prepared.wav")
+    path = storage.path_for_uri(
+        "campaign-1/records/transient/job-1/prepared.wav",
+    )
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(b"prepared audio")
-    return ArtifactRef(uri="campaign-1/records/prepared/job-1/prepared.wav")
+    return ArtifactRef(
+        uri="campaign-1/records/transient/job-1/prepared.wav",
+    )

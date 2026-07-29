@@ -21,6 +21,7 @@ from notekeeper.application.ports import (
     Tokenizer,
     Transcriber,
     TranscriptRepository,
+    TransientAudioCleaner,
 )
 from notekeeper.application.results import (
     PreparedAudioResult,
@@ -66,6 +67,7 @@ class RunProcessingJob:
         *,
         progress_tracker_factory: ProgressTrackerFactory | None = None,
         progress_stages: tuple[ProcessingStage, ...] = (),
+        transient_audio_cleaner: TransientAudioCleaner | None = None,
     ) -> None:
         self._campaign_repository = campaign_repository
         self._audio_track_repository = audio_track_repository
@@ -82,6 +84,7 @@ class RunProcessingJob:
         self._id_generator = id_generator
         self._progress_tracker_factory = progress_tracker_factory
         self._progress_stages = progress_stages
+        self._transient_audio_cleaner = transient_audio_cleaner
 
     def execute(self, command: RunProcessingJobCommand) -> RunProcessingJobResult:
         running_job = self.start(command)
@@ -279,6 +282,15 @@ class RunProcessingJob:
         finally:
             if progress is not None:
                 progress.close()
+            if self._transient_audio_cleaner is not None:
+                try:
+                    self._transient_audio_cleaner.clean(campaign.id, job.id)
+                except Exception:
+                    logger.exception(
+                        "Could not clean transient audio job_id=%s campaign_id=%s",
+                        job.id,
+                        campaign.id,
+                    )
 
     def _create_progress(
         self,

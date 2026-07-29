@@ -261,7 +261,9 @@ class FakeRuntime:
         audio_track = AudioTrack(
             id="audio-track-1",
             campaign_id=campaign.id,
-            artifact=ArtifactRef(uri="sessions/session-1.wav"),
+            artifact=ArtifactRef(
+                uri="campaign-1/records/normalized/audio-track-1.wav",
+            ),
             metadata=metadata,
             title="Session 1",
         )
@@ -439,7 +441,9 @@ def test_tui_sorts_dashboard_rows_newest_first() -> None:
         second_track = AudioTrack(
             id="audio-track-2",
             campaign_id=campaign.id,
-            artifact=ArtifactRef(uri="sessions/session-2.wav"),
+            artifact=ArtifactRef(
+                uri="campaign-1/records/normalized/audio-track-2.wav",
+            ),
             metadata=metadata,
             title="Session 2",
         )
@@ -898,7 +902,9 @@ def test_tui_rename_recording_and_player_use_existing_update_use_cases() -> None
             assert isinstance(recording_command, UpdateAudioTrackCommand)
             assert recording_command.campaign_id == "campaign-1"
             assert recording_command.audio_track_id == "audio-track-1"
-            assert recording_command.artifact_uri == "sessions/session-1.wav"
+            assert recording_command.artifact_uri == (
+                "campaign-1/records/normalized/audio-track-1.wav"
+            )
             assert recording_command.artifact_kind == "file"
             assert recording_command.title == "Renamed Session"
             assert isinstance(app._selected_object, AudioTrack)
@@ -1666,6 +1672,7 @@ def test_recording_screen_preflight_shows_metadata() -> None:
             command = runtime.use_cases.inspect_local_audio_file.commands[-1]
             assert command.source_path == str(Path("session.wav").resolve())
             screen._submit()
+            await pilot.pause()
 
             submit_command = (
                 runtime.use_cases.submit_recording_for_processing.commands[-1]

@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import subprocess
 import wave
 from datetime import datetime
 from pathlib import Path
+
+import pytest
 
 from notekeeper.application import SyncCampaignFolder, SyncCampaignFolderCommand
 from notekeeper.domain import (
@@ -25,6 +28,7 @@ from notekeeper.infrastructure.filesystem import (
     LocalCampaignArtifactStorage,
     LocalCampaignFolderScanner,
 )
+from notekeeper.infrastructure.ffmpeg import FfmpegRecordingNormalizer
 from notekeeper.infrastructure.sqlite import (
     SQLiteCampaignRepository,
     SQLiteDatabase,
@@ -36,6 +40,7 @@ from notekeeper.infrastructure.sqlite import (
 
 def test_sync_campaign_folder_with_sqlite_and_filesystem_preserves_outputs(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     storage = LocalCampaignArtifactStorage(tmp_path / "artifacts")
     database = SQLiteDatabase(tmp_path / "notekeeper.sqlite3")
@@ -52,12 +57,24 @@ def test_sync_campaign_folder_with_sqlite_and_filesystem_preserves_outputs(
     record_path = tmp_path / "artifacts" / "campaign-1" / "records" / "session.wav"
     _write_wav(sample_path)
     _write_wav(record_path)
+
+    def fake_run(command, **kwargs):
+        _write_wav(Path(command[-1]))
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
     sync = SyncCampaignFolder(
         campaigns,
         jobs,
         LocalCampaignFolderScanner(storage),
         LocalAudioMetadataReader(storage, ffprobe_path="missing-ffprobe"),
         _Ids(),
+        audio_normalizer=FfmpegRecordingNormalizer(
+            storage,
+            ffmpeg_path="fake-ffmpeg",
+            ffprobe_path="missing-ffprobe",
+        ),
+        artifact_storage=storage,
     )
 
     first_result = sync.execute(SyncCampaignFolderCommand(campaign_id="campaign-1"))
@@ -69,7 +86,12 @@ def test_sync_campaign_folder_with_sqlite_and_filesystem_preserves_outputs(
     assert loaded is not None
     assert loaded.participants[0].display_name == "Alice"
     assert loaded.voice_samples[0].metadata.checksum is not None
-    assert loaded.audio_tracks[0].metadata.file_size_bytes == record_path.stat().st_size
+    canonical_path = storage.artifact_path(loaded.audio_tracks[0].artifact)
+    assert loaded.audio_tracks[0].artifact.uri == (
+        "campaign-1/records/normalized/audio-track-1.wav"
+    )
+    assert loaded.audio_tracks[0].metadata.file_size_bytes == canonical_path.stat().st_size
+    assert not record_path.exists()
 
     audio_track_id = loaded.audio_tracks[0].id
     transcript = Transcript(
@@ -114,7 +136,7 @@ def test_sync_campaign_folder_with_sqlite_and_filesystem_preserves_outputs(
     jobs.save(completed)
 
     sample_path.unlink()
-    record_path.unlink()
+    canonical_path.unlink()
     second_result = sync.execute(SyncCampaignFolderCommand(campaign_id="campaign-1"))
     loaded_after_delete = campaigns.get(CampaignId("campaign-1"))
 

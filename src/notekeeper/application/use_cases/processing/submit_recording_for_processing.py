@@ -3,6 +3,7 @@
 from notekeeper.application.commands import SubmitRecordingForProcessingCommand
 from notekeeper.application.ports import (
     AudioMetadataReader,
+    AudioRecordingNormalizer,
     AudioTrackRepository,
     CampaignArtifactStorage,
     CampaignRepository,
@@ -14,6 +15,7 @@ from notekeeper.application.ports import (
 from notekeeper.application.results import SubmitRecordingForProcessingResult
 from notekeeper.application.use_cases.utils import (
     _require_campaign,
+    delete_artifact_with_warning,
     resolve_audio_source,
 )
 from notekeeper.domain import (
@@ -40,6 +42,8 @@ class SubmitRecordingForProcessing:
         artifact_storage: CampaignArtifactStorage,
         clock: Clock,
         id_generator: IdGenerator,
+        *,
+        audio_normalizer: AudioRecordingNormalizer,
     ) -> None:
         self._campaign_repository = campaign_repository
         self._audio_track_repository = audio_track_repository
@@ -49,6 +53,7 @@ class SubmitRecordingForProcessing:
         self._artifact_storage = artifact_storage
         self._clock = clock
         self._id_generator = id_generator
+        self._audio_normalizer = audio_normalizer
 
     def execute(
         self,
@@ -64,25 +69,34 @@ class SubmitRecordingForProcessing:
             command.artifact_uri,
             command.source_path,
         )
+        audio_track_id = AudioTrackId(self._id_generator.audio_track_id())
+        managed_source_artifact = None
         if source_path is not None:
-            metadata = self._source_metadata_reader.read(source_path)
-            artifact = self._artifact_storage.import_file(
+            source_metadata = self._source_metadata_reader.read(source_path)
+            normalized = self._audio_normalizer.normalize_source(
                 campaign_id=campaign.id,
-                folder="records",
+                audio_track_id=audio_track_id,
                 source_path=source_path,
+                source_metadata=source_metadata,
             )
         else:
-            artifact = ArtifactRef(
+            managed_source_artifact = ArtifactRef(
                 uri=artifact_uri or "",
                 kind=command.artifact_kind,
             )
-            metadata = self._metadata_reader.read(artifact)
+            source_metadata = self._metadata_reader.read(managed_source_artifact)
+            normalized = self._audio_normalizer.normalize_artifact(
+                campaign_id=campaign.id,
+                audio_track_id=audio_track_id,
+                source_artifact=managed_source_artifact,
+                source_metadata=source_metadata,
+            )
 
         audio_track = AudioTrack(
-            id=AudioTrackId(self._id_generator.audio_track_id()),
+            id=audio_track_id,
             campaign_id=campaign.id,
-            artifact=artifact,
-            metadata=metadata,
+            artifact=normalized.audio_artifact,
+            metadata=normalized.metadata,
             title=command.title,
         )
         updated_campaign = add_audio_track(campaign, audio_track)
@@ -99,8 +113,20 @@ class SubmitRecordingForProcessing:
             updated_at=now,
         )
         self._job_repository.save(job)
+        cleanup_warnings = ()
+        if (
+            managed_source_artifact is not None
+            and managed_source_artifact.uri != normalized.audio_artifact.uri
+        ):
+            cleanup_warnings = delete_artifact_with_warning(
+                self._artifact_storage,
+                managed_source_artifact,
+            )
         return SubmitRecordingForProcessingResult(
             campaign=updated_campaign,
             audio_track=audio_track,
             job=job,
+            normalized_count=1,
+            bytes_freed=normalized.bytes_freed,
+            cleanup_warnings=cleanup_warnings,
         )

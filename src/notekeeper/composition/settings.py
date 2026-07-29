@@ -24,10 +24,10 @@ class NoteKeeperSettings(BaseSettings):
     ffmpeg_path: str = "ffmpeg"
     ffprobe_path: str = "ffprobe"
     processing_work_root: Path = Field(default=Path("data") / "processing-work")
-    prepared_audio_sample_rate_hz: int = 16000
-    prepared_audio_channels: int = 1
-    prepared_audio_codec: str = "pcm_s16le"
-    prepared_audio_container: str = "wav"
+    normalized_audio_sample_rate_hz: int = 16000
+    normalized_audio_channels: int = 1
+    normalized_audio_codec: str = "pcm_s16le"
+    normalized_audio_container: str = "wav"
     whisperx_model_name: str = "large-v3-turbo"
     whisperx_device: str = "cuda"
     whisperx_compute_type: str = "float16"

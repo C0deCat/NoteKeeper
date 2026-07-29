@@ -34,15 +34,20 @@ def warnings_text(job) -> str:
 
 
 def sync_result_status(result) -> str:
-    return (
+    message = (
         "Synced: "
         f"players +{result.participants_created}, "
         f"samples +{result.voice_samples_added}/~{result.voice_samples_updated}"
         f"/-{result.voice_samples_deleted}, "
         f"records +{result.audio_tracks_added}/~{result.audio_tracks_updated}"
         f"/-{result.audio_tracks_deleted}, "
+        f"normalized {result.audio_tracks_normalized}, "
+        f"freed {result.bytes_freed} bytes, "
         f"pending jobs -{result.pending_jobs_deleted}"
     )
+    if result.cleanup_warnings:
+        message = f"{message}, cleanup pending {len(result.cleanup_warnings)}"
+    return message
 
 
 def diagnostics_text(diagnostics: RuntimeDiagnostics) -> str:

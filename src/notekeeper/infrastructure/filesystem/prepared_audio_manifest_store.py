@@ -26,7 +26,10 @@ class LocalPreparedAudioManifestStore(PreparedAudioManifestStore):
     ) -> str:
         campaign_name = safe_name(str(campaign_id), "campaign_id")
         job_name = safe_name(str(job_id), "job_id")
-        return f"{campaign_name}/records/prepared/{job_name}/manifest.json"
+        return (
+            f"{campaign_name}/records/manifests/"
+            f"{job_name}/prepared-audio.json"
+        )
 
     def save(
         self,

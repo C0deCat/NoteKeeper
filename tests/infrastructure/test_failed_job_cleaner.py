@@ -292,11 +292,19 @@ class _CleanupContext:
         transcript: Transcript,
         recap: Recap,
     ) -> dict[str, tuple[Path, ...]]:
-        prepared = self.storage.path_for_uri(
-            f"{self.campaign.id}/records/prepared/{job.id}",
+        transient = self.storage.path_for_uri(
+            f"{self.campaign.id}/records/transient/{job.id}",
         )
-        prepared.mkdir(parents=True)
-        (prepared / "prepared.wav").write_bytes(b"audio")
+        transient.mkdir(parents=True)
+        (transient / "prepared.wav").write_bytes(b"audio")
+        manifest = self.storage.path_for_uri(
+            f"{self.campaign.id}/records/manifests/{job.id}",
+        )
+        manifest.mkdir(parents=True)
+        (manifest / "prepared-audio.json").write_text(
+            "{}",
+            encoding="utf-8",
+        )
         work = self.work_root / str(self.campaign.id) / str(job.id)
         work.mkdir(parents=True)
         (work / "concat.txt").write_text("work", encoding="utf-8")
@@ -313,7 +321,7 @@ class _CleanupContext:
                 {
                     "audio_artifact": {
                         "uri": (
-                            f"{self.campaign.id}/records/prepared/"
+                            f"{self.campaign.id}/records/transient/"
                             f"{job.id}/prepared.wav"
                         ),
                     },
@@ -336,12 +344,15 @@ class _CleanupContext:
             encoding="utf-8",
         )
         source_recording = self.storage.path_for_uri(
-            f"{self.campaign.id}/records/session.wav",
+            f"{self.campaign.id}/records/normalized/audio-1.wav",
         )
         source_recording.parent.mkdir(parents=True, exist_ok=True)
         source_recording.write_bytes(b"source")
         other_campaign_file = self.storage.path_for_uri(
-            f"{self.other_campaign.id}/records/prepared/job-other/prepared.wav",
+            (
+                f"{self.other_campaign.id}/records/transient/"
+                "job-other/prepared.wav"
+            ),
         )
         other_campaign_file.parent.mkdir(parents=True, exist_ok=True)
         other_campaign_file.write_bytes(b"other")
@@ -353,7 +364,8 @@ class _CleanupContext:
         )
         return {
             "deleted": (
-                prepared,
+                transient,
+                manifest,
                 work,
             ),
             "preserved": (
@@ -374,7 +386,9 @@ def _campaign(campaign_id: str) -> Campaign:
     audio_track = AudioTrack(
         id=f"audio-{campaign_id}",
         campaign_id=CampaignId(campaign_id),
-        artifact=ArtifactRef(uri=f"{campaign_id}/records/session.wav"),
+        artifact=ArtifactRef(
+            uri=f"{campaign_id}/records/normalized/audio-{campaign_id}.wav",
+        ),
         metadata=AudioMetadata(duration_seconds=12),
     )
     return Campaign(

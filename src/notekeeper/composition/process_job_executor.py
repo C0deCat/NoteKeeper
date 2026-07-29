@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import multiprocessing
 import threading
 from multiprocessing.process import BaseProcess
@@ -20,9 +21,13 @@ from notekeeper.application.ports import (
     JobProcessExecutor,
     JobRepository,
     ProgressEventHub,
+    TransientAudioCleaner,
 )
 from notekeeper.application.use_cases.processing.progress import processing_stages
 from notekeeper.domain import JobStatus, ProcessingJobId, ProgressBar
+
+
+logger = logging.getLogger(__name__)
 
 
 class LocalProcessJobExecutor(JobProcessExecutor):
@@ -31,16 +36,19 @@ class LocalProcessJobExecutor(JobProcessExecutor):
         settings: Any,
         job_repository: JobRepository,
         progress_events: ProgressEventHub | None = None,
+        transient_audio_cleaner: TransientAudioCleaner | None = None,
     ) -> None:
         self._settings = settings
         self._job_repository = job_repository
         self._progress_events = progress_events
+        self._transient_audio_cleaner = transient_audio_cleaner
         self._context = multiprocessing.get_context("spawn")
         self._processes: dict[str, BaseProcess] = {}
         self._terminal_operations: set[str] = set()
         self._lock = threading.Lock()
 
     def execute(self, job_id: ProcessingJobId) -> RunProcessingJobResult:
+        job_before_execution = self._job_repository.get(job_id)
         result_reader, result_writer = self._context.Pipe(duplex=False)
         process = self._context.Process(
             target=_execute_job,
@@ -97,6 +105,20 @@ class LocalProcessJobExecutor(JobProcessExecutor):
                 self._terminal_operations.discard(key)
             result_reader.close()
             result_writer.close()
+            if (
+                self._transient_audio_cleaner is not None
+                and job_before_execution is not None
+            ):
+                try:
+                    self._transient_audio_cleaner.clean(
+                        job_before_execution.campaign_id,
+                        job_id,
+                    )
+                except Exception:
+                    logger.exception(
+                        "Could not clean parent-side transient audio job_id=%s",
+                        job_id,
+                    )
 
     def cancel(self, job_id: ProcessingJobId) -> None:
         with self._lock:

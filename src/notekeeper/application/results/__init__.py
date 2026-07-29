@@ -123,6 +123,21 @@ class PreparedAudioResult:
 
 
 @dataclass(frozen=True, slots=True)
+class NormalizedAudioResult:
+    audio_track_id: AudioTrackId
+    audio_artifact: ArtifactRef
+    manifest_artifact: ArtifactRef
+    metadata: AudioMetadata
+    source_checksum: str | None
+    source_size_bytes: int
+    normalized_size_bytes: int
+
+    @property
+    def bytes_freed(self) -> int:
+        return max(0, self.source_size_bytes - self.normalized_size_bytes)
+
+
+@dataclass(frozen=True, slots=True)
 class SpeakerMappingRecord:
     job_id: ProcessingJobId
     transcript_id: TranscriptId
@@ -217,6 +232,12 @@ class DeleteVoiceSampleResult:
 class RegisterAudioTrackResult:
     campaign: Campaign
     audio_track: AudioTrack
+    normalized_count: int = 0
+    bytes_freed: int = 0
+    cleanup_warnings: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "cleanup_warnings", tuple(self.cleanup_warnings))
 
 
 @dataclass(frozen=True, slots=True)
@@ -257,6 +278,12 @@ class CancelProcessingJobResult:
 class UpdateAudioTrackResult:
     campaign: Campaign
     audio_track: AudioTrack
+    normalized_count: int = 0
+    bytes_freed: int = 0
+    cleanup_warnings: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "cleanup_warnings", tuple(self.cleanup_warnings))
 
 
 @dataclass(frozen=True, slots=True)
@@ -277,6 +304,12 @@ class SubmitRecordingForProcessingResult:
     campaign: Campaign
     audio_track: AudioTrack
     job: ProcessingJob
+    normalized_count: int = 0
+    bytes_freed: int = 0
+    cleanup_warnings: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "cleanup_warnings", tuple(self.cleanup_warnings))
 
 
 @dataclass(frozen=True, slots=True)
@@ -381,6 +414,12 @@ class SyncCampaignFolderResult:
     audio_tracks_updated: int = 0
     audio_tracks_deleted: int = 0
     pending_jobs_deleted: int = 0
+    audio_tracks_normalized: int = 0
+    bytes_freed: int = 0
+    cleanup_warnings: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "cleanup_warnings", tuple(self.cleanup_warnings))
 
 
 __all__ = [
@@ -408,6 +447,7 @@ __all__ = [
     "ListParticipantsResult",
     "ListVoiceSamplesResult",
     "MarkdownPreviewResult",
+    "NormalizedAudioResult",
     "PreparedAudioResult",
     "PreparedVoiceSampleRange",
     "ProgressEvent",

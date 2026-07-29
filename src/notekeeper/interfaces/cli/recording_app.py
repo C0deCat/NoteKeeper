@@ -43,6 +43,10 @@ def create_app(runtime_factory: RuntimeFactory) -> typer.Typer:
             )
             echo_audio_track(result.audio_track)
             echo_job(result.job)
+            typer.echo(f"normalized={result.normalized_count}")
+            typer.echo(f"bytes_freed={result.bytes_freed}")
+            for warning in result.cleanup_warnings:
+                typer.echo(f"cleanup_warning={warning}", err=True)
 
         run(action)
 

@@ -48,6 +48,23 @@ class LocalCampaignArtifactStorage(CampaignArtifactStorage):
         except OSError as exc:
             raise InfrastructureError("could not delete campaign files") from exc
 
+    def artifact_exists(self, artifact: ArtifactRef) -> bool:
+        return self.artifact_path(artifact).is_file()
+
+    def delete_artifact(self, artifact: ArtifactRef) -> None:
+        path = self.artifact_path(artifact)
+        ensure_within_root(path, self._storage_root)
+        if not path.exists() and not path.is_symlink():
+            return
+        if path.is_symlink() or not path.is_file():
+            raise InfrastructureError("artifact path must be a regular file")
+        try:
+            path.unlink()
+        except OSError as exc:
+            raise InfrastructureError(
+                f"could not delete artifact: {artifact.uri}",
+            ) from exc
+
     def campaign_path(self, campaign_id: CampaignId) -> Path:
         return self._storage_root / safe_name(str(campaign_id), "campaign_id")
 

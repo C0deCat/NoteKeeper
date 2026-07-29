@@ -10,6 +10,7 @@ import pytest
 from notekeeper.application.ports import (
     AudioMetadataReader,
     AudioProcessor,
+    AudioRecordingNormalizer,
     AudioTrackRepository,
     CampaignArtifactStorage,
     CampaignFolderScanner,
@@ -27,6 +28,7 @@ from notekeeper.application.ports import (
     SourceAudioMetadataReader,
     Tokenizer,
     Transcriber,
+    TransientAudioCleaner,
     TranscriptRepository,
     VoiceSampleRepository,
 )
@@ -77,6 +79,7 @@ def test_infrastructure_bundle_uses_port_types_only() -> None:
         "folder_scanner": CampaignFolderScanner,
         "metadata_reader": AudioMetadataReader,
         "source_metadata_reader": SourceAudioMetadataReader,
+        "audio_normalizer": AudioRecordingNormalizer,
         "prepared_audio_manifest_store": PreparedAudioManifestStore,
         "audio_processor": AudioProcessor,
         "transcriber": Transcriber,
@@ -92,6 +95,7 @@ def test_infrastructure_bundle_uses_port_types_only() -> None:
         "job_repository": JobRepository,
         "speaker_mapping_repository": SpeakerMappingRepository,
         "job_cleaner": JobCleaner,
+        "transient_audio_cleaner": TransientAudioCleaner,
         "clock": Clock,
         "id_generator": IdGenerator,
     }

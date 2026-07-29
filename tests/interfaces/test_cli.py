@@ -81,7 +81,9 @@ class FakeRuntime:
         audio_track = AudioTrack(
             id="audio-track-1",
             campaign_id=campaign.id,
-            artifact=ArtifactRef(uri="sessions/session-1.wav"),
+            artifact=ArtifactRef(
+                uri="campaign-1/records/normalized/audio-track-1.wav",
+            ),
             metadata=metadata,
             title="Session 1",
         )

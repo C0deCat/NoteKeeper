@@ -8,6 +8,7 @@ from textual.app import ComposeResult
 from textual.containers import Vertical
 from textual.screen import ModalScreen
 from textual.widgets import Button, Input, Label, Static
+from textual.worker import Worker, WorkerState
 
 from notekeeper.application import (
     ApplicationError,
@@ -85,17 +86,41 @@ class RecordingScreen(ModalScreen[bool]):
         title = self.query_one("#title", Input).value.strip() or None
         if not self._preflight_ok or self._source_path is None:
             return
-        try:
-            self.runtime.use_cases.submit_recording_for_processing.execute(
+        self.query_one("#submit", Button).disabled = True
+        self.query_one("#choose-file", Button).disabled = True
+        self.query_one("#metadata", Static).update("Normalizing…")
+        self.run_worker(
+            lambda: self.runtime.use_cases.submit_recording_for_processing.execute(
                 SubmitRecordingForProcessingCommand(
                     campaign_id=self.campaign_id,
                     source_path=str(self._source_path),
                     title=title,
                 ),
-            )
+            ),
+            group="recording-normalize",
+            thread=True,
+            exit_on_error=False,
+        )
+
+    def on_worker_state_changed(self, event: Worker.StateChanged) -> None:
+        if event.worker.group != "recording-normalize":
+            return
+        if event.state is WorkerState.SUCCESS:
+            result = event.worker.result
+            cleanup_warnings = getattr(result, "cleanup_warnings", ())
+            if cleanup_warnings:
+                self.app.notify(
+                    "\n".join(cleanup_warnings),
+                    severity="warning",
+                )
             self.dismiss(True)
-        except (ApplicationError, DomainError, ValueError) as exc:
-            self.query_one("#metadata", Static).update(str(exc))
+        elif event.state is WorkerState.ERROR:
+            error = event.worker.error
+            self.query_one("#metadata", Static).update(
+                str(error) if error is not None else "Recording normalization failed",
+            )
+            self.query_one("#submit", Button).disabled = False
+            self.query_one("#choose-file", Button).disabled = False
 
 
 def open_submit_recording(app, campaign_id: str) -> None:

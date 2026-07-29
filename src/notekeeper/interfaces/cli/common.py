@@ -141,6 +141,10 @@ def echo_sync_result(result) -> None:
     typer.echo(f"audio_tracks_added={result.audio_tracks_added}")
     typer.echo(f"audio_tracks_updated={result.audio_tracks_updated}")
     typer.echo(f"audio_tracks_deleted={result.audio_tracks_deleted}")
+    typer.echo(f"audio_tracks_normalized={result.audio_tracks_normalized}")
+    typer.echo(f"bytes_freed={result.bytes_freed}")
+    for warning in result.cleanup_warnings:
+        typer.echo(f"cleanup_warning={warning}", err=True)
     typer.echo(f"pending_jobs_deleted={result.pending_jobs_deleted}")
 
 

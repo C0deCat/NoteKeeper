@@ -9,6 +9,7 @@ from typing import Any, Protocol
 
 from notekeeper.application.results import (
     CampaignFolderSnapshot,
+    NormalizedAudioResult,
     PreparedAudioResult,
     ProgressEvent,
     RecapGenerationContext,
@@ -203,6 +204,12 @@ class JobCleaner(Protocol):
 FailedJobCleaner = JobCleaner
 
 
+class TransientAudioCleaner(Protocol):
+    def clean(self, campaign_id: CampaignId, job_id: ProcessingJobId) -> None: ...
+
+    def clean_stale(self) -> None: ...
+
+
 class JobExecutionController(Protocol):
     def cancel(self, job_id: ProcessingJobId) -> None: ...
 
@@ -228,6 +235,34 @@ class AudioProcessor(Protocol):
         job_id: ProcessingJobId,
         progress: ProgressTracker | None = None,
     ) -> PreparedAudioResult: ...
+
+
+class AudioRecordingNormalizer(Protocol):
+    def normalize_artifact(
+        self,
+        *,
+        campaign_id: CampaignId,
+        audio_track_id: AudioTrackId,
+        source_artifact: ArtifactRef,
+        source_metadata: AudioMetadata,
+    ) -> NormalizedAudioResult: ...
+
+    def normalize_source(
+        self,
+        *,
+        campaign_id: CampaignId,
+        audio_track_id: AudioTrackId,
+        source_path: Path,
+        source_metadata: AudioMetadata,
+    ) -> NormalizedAudioResult: ...
+
+    def find_for_source(
+        self,
+        *,
+        campaign_id: CampaignId,
+        source_artifact: ArtifactRef,
+        source_metadata: AudioMetadata,
+    ) -> NormalizedAudioResult | None: ...
 
 
 class Transcriber(Protocol):
@@ -306,6 +341,10 @@ class CampaignArtifactStorage(ArtifactStorage, Protocol):
 
     def delete_campaign(self, campaign_id: CampaignId) -> None: ...
 
+    def artifact_exists(self, artifact: ArtifactRef) -> bool: ...
+
+    def delete_artifact(self, artifact: ArtifactRef) -> None: ...
+
     def import_file(
         self,
         *,
@@ -380,6 +419,7 @@ __all__ = [
     "ArtifactStorage",
     "AudioMetadataReader",
     "AudioProcessor",
+    "AudioRecordingNormalizer",
     "AudioTrackRepository",
     "CampaignArtifactStorage",
     "CampaignFolderScanner",
@@ -406,6 +446,7 @@ __all__ = [
     "SourceAudioMetadataReader",
     "Tokenizer",
     "Transcriber",
+    "TransientAudioCleaner",
     "TranscriptRepository",
     "Unsubscribe",
     "VoiceSampleRepository",

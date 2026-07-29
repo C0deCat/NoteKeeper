@@ -98,6 +98,7 @@ class NoteKeeperRuntime:
 
 def build_runtime(settings: NoteKeeperSettings | None = None) -> NoteKeeperRuntime:
     infrastructure = build_infrastructure(settings)
+    infrastructure.transient_audio_cleaner.clean_stale()
     progress_events = InMemoryProgressEventHub()
     return NoteKeeperRuntime(
         settings=infrastructure.settings,
@@ -122,6 +123,7 @@ def build_stage1_use_cases(
         infrastructure.settings,
         infrastructure.job_repository,
         progress_events,
+        infrastructure.transient_audio_cleaner,
     )
     restart_processing_job = RestartProcessingJob(
         infrastructure.campaign_repository,
@@ -163,11 +165,15 @@ def build_stage1_use_cases(
             infrastructure.campaign_repository,
             infrastructure.metadata_reader,
             infrastructure.id_generator,
+            audio_normalizer=infrastructure.audio_normalizer,
+            artifact_storage=infrastructure.artifact_storage,
         ),
         list_audio_tracks=ListAudioTracks(infrastructure.campaign_repository),
         update_audio_track=UpdateAudioTrack(
             infrastructure.campaign_repository,
             infrastructure.metadata_reader,
+            audio_normalizer=infrastructure.audio_normalizer,
+            artifact_storage=infrastructure.artifact_storage,
         ),
         delete_audio_track=DeleteAudioTrack(
             infrastructure.campaign_repository,
@@ -189,6 +195,7 @@ def build_stage1_use_cases(
             infrastructure.artifact_storage,
             infrastructure.clock,
             infrastructure.id_generator,
+            audio_normalizer=infrastructure.audio_normalizer,
         ),
         run_processing_job=IsolatedRunProcessingJob(
             processing_pipeline,
@@ -258,6 +265,8 @@ def build_stage1_use_cases(
             infrastructure.folder_scanner,
             infrastructure.metadata_reader,
             infrastructure.id_generator,
+            audio_normalizer=infrastructure.audio_normalizer,
+            artifact_storage=infrastructure.artifact_storage,
         ),
         restart_processing_job=restart_processing_job,
     )

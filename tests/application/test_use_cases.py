@@ -36,6 +36,7 @@ from notekeeper.application import (
     ListJobsForCampaign,
     ListJobsForCampaignCommand,
     ManualSpeakerMappingCommand,
+    NormalizedAudioResult,
     PreviewRecapMarkdown,
     PreviewRecapMarkdownCommand,
     PreviewTranscriptMarkdown,
@@ -43,6 +44,8 @@ from notekeeper.application import (
     PortExecutionError,
     PreparedAudioResult,
     RecapGenerationContext,
+    RegisterAudioTrack,
+    RegisterAudioTrackCommand,
     RestartFailedProcessingJob,
     RestartFailedProcessingJobCommand,
     ReviewSpeakerMappings,
@@ -57,6 +60,8 @@ from notekeeper.application import (
     SyncCampaignFolder,
     SyncCampaignFolderCommand,
     TranscriptChunk,
+    UpdateAudioTrack,
+    UpdateAudioTrackCommand,
 )
 from notekeeper.domain import (
     ArtifactRef,
@@ -240,6 +245,68 @@ class FakeAudioProcessor:
         )
 
 
+class FakeAudioNormalizer:
+    def __init__(self) -> None:
+        self.artifact_calls = []
+        self.source_calls = []
+        self.recovered = None
+
+    def normalize_artifact(
+        self,
+        *,
+        campaign_id,
+        audio_track_id,
+        source_artifact,
+        source_metadata,
+    ) -> NormalizedAudioResult:
+        self.artifact_calls.append(
+            (campaign_id, audio_track_id, source_artifact, source_metadata),
+        )
+        return self._result(campaign_id, audio_track_id, source_metadata)
+
+    def normalize_source(
+        self,
+        *,
+        campaign_id,
+        audio_track_id,
+        source_path,
+        source_metadata,
+    ) -> NormalizedAudioResult:
+        self.source_calls.append(
+            (campaign_id, audio_track_id, source_path, source_metadata),
+        )
+        return self._result(campaign_id, audio_track_id, source_metadata)
+
+    def find_for_source(self, **kwargs):
+        return self.recovered
+
+    @staticmethod
+    def _result(campaign_id, audio_track_id, source_metadata):
+        metadata = AudioMetadata(
+            duration_seconds=source_metadata.duration_seconds,
+            sample_rate_hz=16000,
+            channels=1,
+            codec="pcm_s16le",
+            format="wav",
+            file_size_bytes=25,
+            checksum=f"normalized:{audio_track_id}",
+        )
+        return NormalizedAudioResult(
+            audio_track_id=audio_track_id,
+            audio_artifact=ArtifactRef(
+                uri=f"{campaign_id}/records/normalized/{audio_track_id}.wav",
+                checksum=metadata.checksum,
+            ),
+            manifest_artifact=ArtifactRef(
+                uri=f"{campaign_id}/records/normalized/{audio_track_id}.json",
+            ),
+            metadata=metadata,
+            source_checksum=source_metadata.checksum,
+            source_size_bytes=100,
+            normalized_size_bytes=25,
+        )
+
+
 class FakeTranscriber:
     def __init__(self) -> None:
         self.segments: tuple[TranscriptSegment, ...] = ()
@@ -315,6 +382,17 @@ class FakeFailedJobCleaner:
         return tuple(job.id for job in jobs)
 
 
+class FakeTransientAudioCleaner:
+    def __init__(self) -> None:
+        self.calls = []
+
+    def clean(self, campaign_id, job_id) -> None:
+        self.calls.append((campaign_id, job_id))
+
+    def clean_stale(self) -> None:
+        return None
+
+
 class FakeTokenizer:
     def __init__(self) -> None:
         self.calls: list[tuple[Transcript, int]] = []
@@ -387,6 +465,9 @@ class FakeArtifactStorage:
         self.deleted_campaigns: list[CampaignId] = []
         self.delete_error: Exception | None = None
         self.imports: list[tuple[CampaignId, str, Path, str | None]] = []
+        self.deleted_artifacts: list[ArtifactRef] = []
+        self.artifact_delete_error: Exception | None = None
+        self.missing_artifact_uris: set[str] = set()
 
     def ensure_campaign_layout(self, campaign_id: CampaignId) -> None:
         return None
@@ -395,6 +476,14 @@ class FakeArtifactStorage:
         if self.delete_error is not None:
             raise self.delete_error
         self.deleted_campaigns.append(campaign_id)
+
+    def artifact_exists(self, artifact: ArtifactRef) -> bool:
+        return artifact.uri not in self.missing_artifact_uris
+
+    def delete_artifact(self, artifact: ArtifactRef) -> None:
+        if self.artifact_delete_error is not None:
+            raise self.artifact_delete_error
+        self.deleted_artifacts.append(artifact)
 
     def save_text(
         self,
@@ -441,9 +530,11 @@ class Harness:
         self.recaps = InMemoryRepository()
         self.jobs = InMemoryRepository()
         self.failed_job_cleaner = FakeFailedJobCleaner(self.jobs)
+        self.transient_audio_cleaner = FakeTransientAudioCleaner()
         self.metadata_reader = FakeMetadataReader()
         self.source_metadata_reader = FakeSourceMetadataReader()
         self.audio_processor = FakeAudioProcessor()
+        self.audio_normalizer = FakeAudioNormalizer()
         self.transcriber = FakeTranscriber()
         self.speaker_identifier = FakeSpeakerIdentifier()
         self.speaker_mappings = FakeSpeakerMappingRepository()
@@ -485,6 +576,7 @@ class Harness:
             self.artifact_storage,
             self.clock,
             self.ids,
+            audio_normalizer=self.audio_normalizer,
         )
 
     def create_job_for_audio_track_use_case(self) -> CreateProcessingJobForAudioTrack:
@@ -496,7 +588,7 @@ class Harness:
             self.ids,
         )
 
-    def run_use_case(self) -> RunProcessingJob:
+    def run_use_case(self, *, clean_transient: bool = False) -> RunProcessingJob:
         return RunProcessingJob(
             self.campaigns,
             self.audio_tracks,
@@ -511,6 +603,9 @@ class Harness:
             self.recap_generator,
             self.clock,
             self.ids,
+            transient_audio_cleaner=(
+                self.transient_audio_cleaner if clean_transient else None
+            ),
         )
 
     def restart_use_case(self) -> RestartFailedProcessingJob:
@@ -549,6 +644,8 @@ class Harness:
             self.folder_scanner,
             self.metadata_reader,
             self.ids,
+            audio_normalizer=self.audio_normalizer,
+            artifact_storage=self.artifact_storage,
         )
 
 
@@ -692,7 +789,7 @@ def test_submit_recording_rejects_campaign_without_voice_samples() -> None:
     assert not harness.audio_tracks.items
 
 
-def test_submit_recording_imports_local_source_into_records() -> None:
+def test_submit_recording_normalizes_external_source_without_copying_or_deleting() -> None:
     harness = Harness()
     campaign = harness.ready_campaign("Alice")
     source_path = Path("session.wav").resolve()
@@ -706,12 +803,98 @@ def test_submit_recording_imports_local_source_into_records() -> None:
     )
 
     assert result.audio_track.artifact.uri == (
-        f"{campaign.id}/records/session.wav"
+        f"{campaign.id}/records/normalized/audio-track-1.wav"
     )
-    assert result.audio_track.metadata.checksum == "source-checksum:session.wav"
-    assert harness.artifact_storage.imports == [
-        (campaign.id, "records", source_path, None),
-    ]
+    assert result.audio_track.metadata.codec == "pcm_s16le"
+    assert result.normalized_count == 1
+    assert result.bytes_freed == 75
+    assert harness.artifact_storage.imports == []
+    assert harness.artifact_storage.deleted_artifacts == []
+
+
+def test_submit_recording_normalizes_and_deletes_managed_source() -> None:
+    harness = Harness()
+    campaign = harness.ready_campaign("Alice")
+    source = ArtifactRef(uri=f"{campaign.id}/records/session.wav")
+
+    result = harness.submit_use_case().execute(
+        SubmitRecordingForProcessingCommand(
+            campaign_id=str(campaign.id),
+            artifact_uri=source.uri,
+        ),
+    )
+
+    assert result.audio_track.artifact.uri.endswith(
+        "/records/normalized/audio-track-1.wav",
+    )
+    assert harness.artifact_storage.deleted_artifacts == [source]
+
+
+def test_source_cleanup_failure_does_not_roll_back_submitted_recording() -> None:
+    harness = Harness()
+    campaign = harness.ready_campaign("Alice")
+    harness.artifact_storage.artifact_delete_error = InfrastructureError(
+        "file is locked",
+    )
+
+    result = harness.submit_use_case().execute(
+        SubmitRecordingForProcessingCommand(
+            campaign_id=str(campaign.id),
+            artifact_uri=f"{campaign.id}/records/session.wav",
+        ),
+    )
+
+    assert result.job.status is JobStatus.PENDING
+    assert harness.audio_tracks.get(result.audio_track.id) == result.audio_track
+    assert result.cleanup_warnings
+    assert "file is locked" in result.cleanup_warnings[0]
+
+
+def test_register_and_replace_audio_track_use_canonical_artifact() -> None:
+    harness = Harness()
+    campaign = harness.ready_campaign("Alice")
+    register = RegisterAudioTrack(
+        harness.campaigns,
+        harness.metadata_reader,
+        harness.ids,
+        audio_normalizer=harness.audio_normalizer,
+        artifact_storage=harness.artifact_storage,
+    )
+    registered = register.execute(
+        RegisterAudioTrackCommand(
+            campaign_id=str(campaign.id),
+            artifact_uri=f"{campaign.id}/records/session.wav",
+            title="Session",
+        ),
+    )
+    update = UpdateAudioTrack(
+        harness.campaigns,
+        harness.metadata_reader,
+        audio_normalizer=harness.audio_normalizer,
+        artifact_storage=harness.artifact_storage,
+    )
+
+    renamed = update.execute(
+        UpdateAudioTrackCommand(
+            campaign_id=str(campaign.id),
+            audio_track_id=str(registered.audio_track.id),
+            artifact_uri=registered.audio_track.artifact.uri,
+            title="Renamed",
+        ),
+    )
+    replaced = update.execute(
+        UpdateAudioTrackCommand(
+            campaign_id=str(campaign.id),
+            audio_track_id=str(registered.audio_track.id),
+            artifact_uri=f"{campaign.id}/records/replacement.wav",
+            title="Replacement",
+        ),
+    )
+
+    assert renamed.normalized_count == 0
+    assert len(harness.audio_normalizer.artifact_calls) == 2
+    assert replaced.audio_track.artifact.uri == registered.audio_track.artifact.uri
+    assert replaced.normalized_count == 1
 
 
 @pytest.mark.parametrize(
@@ -749,7 +932,9 @@ def test_create_processing_job_for_existing_audio_track() -> None:
     audio_track = AudioTrack(
         id="audio-track-1",
         campaign_id=campaign.id,
-        artifact=ArtifactRef(uri="sessions/session-1.wav"),
+        artifact=ArtifactRef(
+            uri="campaign-1/records/normalized/audio-track-1.wav",
+        ),
         metadata=AudioMetadata(duration_seconds=12),
         title="Session 1",
     )
@@ -778,7 +963,9 @@ def test_create_processing_job_allows_multiple_jobs_for_same_audio_track() -> No
     audio_track = AudioTrack(
         id="audio-track-1",
         campaign_id=campaign.id,
-        artifact=ArtifactRef(uri="sessions/session-1.wav"),
+        artifact=ArtifactRef(
+            uri="campaign-1/records/normalized/audio-track-1.wav",
+        ),
         metadata=AudioMetadata(duration_seconds=12),
         title="Session 1",
     )
@@ -812,7 +999,9 @@ def test_create_processing_job_rejects_unready_campaign() -> None:
     audio_track = AudioTrack(
         id="audio-track-1",
         campaign_id=CampaignId("campaign-1"),
-        artifact=ArtifactRef(uri="sessions/session-1.wav"),
+        artifact=ArtifactRef(
+            uri="campaign-1/records/normalized/audio-track-1.wav",
+        ),
         metadata=AudioMetadata(duration_seconds=12),
     )
     harness.campaigns.save(
@@ -840,7 +1029,9 @@ def test_restart_failed_processing_job_creates_new_pending_job() -> None:
     audio_track = AudioTrack(
         id="audio-track-1",
         campaign_id=campaign.id,
-        artifact=ArtifactRef(uri="sessions/session-1.wav"),
+        artifact=ArtifactRef(
+            uri="campaign-1/records/normalized/audio-track-1.wav",
+        ),
         metadata=AudioMetadata(duration_seconds=12),
         title="Session 1",
     )
@@ -888,7 +1079,9 @@ def test_restart_failed_processing_job_rejects_non_failed_job() -> None:
     audio_track = AudioTrack(
         id="audio-track-1",
         campaign_id=campaign.id,
-        artifact=ArtifactRef(uri="sessions/session-1.wav"),
+        artifact=ArtifactRef(
+            uri="campaign-1/records/normalized/audio-track-1.wav",
+        ),
         metadata=AudioMetadata(duration_seconds=12),
         title="Session 1",
     )
@@ -919,7 +1112,9 @@ def test_restart_canceled_processing_job_creates_new_pending_job() -> None:
     audio_track = AudioTrack(
         id="audio-track-1",
         campaign_id=campaign.id,
-        artifact=ArtifactRef(uri="sessions/session-1.wav"),
+        artifact=ArtifactRef(
+            uri="campaign-1/records/normalized/audio-track-1.wav",
+        ),
         metadata=AudioMetadata(duration_seconds=12),
     )
     campaign = add_audio_track(campaign, audio_track)
@@ -1025,7 +1220,7 @@ def test_run_processing_job_completes_clean_mapping_flow() -> None:
             title="Session 1",
         ),
     )
-    result = harness.run_use_case().execute(
+    result = harness.run_use_case(clean_transient=True).execute(
         RunProcessingJobCommand(job_id=submitted.job.id),
     )
 
@@ -1055,6 +1250,30 @@ def test_run_processing_job_completes_clean_mapping_flow() -> None:
     assert chunk_context.job_id == submitted.job.id
     assert chunk_context.chunk_index == 0
     assert harness.recap_generator.combined_contexts[0].chunk_index is None
+    assert harness.transient_audio_cleaner.calls == [
+        (CampaignId("campaign-1"), submitted.job.id),
+    ]
+
+
+def test_run_processing_job_always_cleans_transient_audio() -> None:
+    harness = Harness()
+    harness.ready_campaign("Alice")
+    harness.audio_processor.error = InfrastructureError("ffmpeg failed")
+    submitted = harness.submit_use_case().execute(
+        SubmitRecordingForProcessingCommand(
+            campaign_id="campaign-1",
+            artifact_uri="sessions/session-1.wav",
+        ),
+    )
+
+    result = harness.run_use_case(clean_transient=True).execute(
+        RunProcessingJobCommand(job_id=submitted.job.id),
+    )
+
+    assert result.job.status is JobStatus.FAILED
+    assert harness.transient_audio_cleaner.calls == [
+        (CampaignId("campaign-1"), submitted.job.id),
+    ]
 
 
 def test_run_processing_job_does_not_overwrite_concurrent_cancel() -> None:
@@ -1083,12 +1302,15 @@ def test_run_processing_job_does_not_overwrite_concurrent_cancel() -> None:
 
     harness.jobs.save_if_status = cancel_before_terminal_save
 
-    result = harness.run_use_case().execute(
+    result = harness.run_use_case(clean_transient=True).execute(
         RunProcessingJobCommand(job_id=submitted.job.id),
     )
 
     assert result.job.status is JobStatus.CANCELED
     assert harness.jobs.get(submitted.job.id).status is JobStatus.CANCELED
+    assert harness.transient_audio_cleaner.calls == [
+        (CampaignId("campaign-1"), submitted.job.id),
+    ]
 
 
 def test_run_processing_job_waits_for_review_when_mapping_warnings_exist() -> None:
@@ -1108,7 +1330,7 @@ def test_run_processing_job_waits_for_review_when_mapping_warnings_exist() -> No
             artifact_uri="sessions/session-1.wav",
         ),
     )
-    result = harness.run_use_case().execute(
+    result = harness.run_use_case(clean_transient=True).execute(
         RunProcessingJobCommand(job_id=submitted.job.id),
     )
 
@@ -1128,6 +1350,9 @@ def test_run_processing_job_waits_for_review_when_mapping_warnings_exist() -> No
     assert harness.speaker_mappings.records[0].diagnostics[
         "prepared_audio_artifact_uri"
     ] == f"prepared/{submitted.job.id}.wav"
+    assert harness.transient_audio_cleaner.calls == [
+        (CampaignId("campaign-1"), submitted.job.id),
+    ]
 
 
 def test_run_processing_job_marks_failed_when_early_adapter_fails() -> None:
@@ -1649,13 +1874,69 @@ def test_sync_campaign_folder_adds_players_samples_and_records() -> None:
     assert result.campaign.audio_tracks[0].title == "session-1"
 
 
+def test_sync_normalizes_new_record_and_preserves_canonical_on_next_scan() -> None:
+    harness = Harness()
+    harness.campaigns.save(Campaign(id=CampaignId("campaign-1"), name="Synced"))
+    source = ArtifactRef(uri="campaign-1/records/session-1.wav")
+    harness.folder_scanner.snapshot = CampaignFolderSnapshot(
+        campaign_id="campaign-1",
+        audio_tracks=(ScannedAudioTrackArtifact(artifact=source, title="session-1"),),
+    )
+
+    first = harness.sync_use_case().execute(
+        SyncCampaignFolderCommand(campaign_id="campaign-1"),
+    )
+    harness.folder_scanner.snapshot = CampaignFolderSnapshot(campaign_id="campaign-1")
+    second = harness.sync_use_case().execute(
+        SyncCampaignFolderCommand(campaign_id="campaign-1"),
+    )
+
+    assert first.audio_tracks_normalized == 1
+    assert first.bytes_freed == 75
+    assert first.campaign.audio_tracks[0].artifact.uri == (
+        "campaign-1/records/normalized/audio-track-1.wav"
+    )
+    assert harness.artifact_storage.deleted_artifacts == [source]
+    assert second.audio_tracks_deleted == 0
+    assert second.campaign.audio_tracks == first.campaign.audio_tracks
+
+
+def test_sync_recovers_committed_normalization_without_duplicate_track() -> None:
+    harness = Harness()
+    harness.campaigns.save(Campaign(id=CampaignId("campaign-1"), name="Synced"))
+    source = ArtifactRef(uri="campaign-1/records/session-1.wav")
+    source_metadata = harness.metadata_reader.read(source)
+    harness.audio_normalizer.recovered = harness.audio_normalizer._result(
+        CampaignId("campaign-1"),
+        AudioTrackId("audio-track-recovered"),
+        source_metadata,
+    )
+    harness.folder_scanner.snapshot = CampaignFolderSnapshot(
+        campaign_id="campaign-1",
+        audio_tracks=(ScannedAudioTrackArtifact(artifact=source, title="session-1"),),
+    )
+
+    result = harness.sync_use_case().execute(
+        SyncCampaignFolderCommand(campaign_id="campaign-1"),
+    )
+
+    assert len(result.campaign.audio_tracks) == 1
+    assert result.campaign.audio_tracks[0].id == AudioTrackId(
+        "audio-track-recovered",
+    )
+    assert result.audio_tracks_normalized == 0
+    assert harness.artifact_storage.deleted_artifacts == [source]
+
+
 def test_sync_campaign_folder_removes_missing_files_and_only_pending_jobs() -> None:
     harness = Harness()
     campaign = harness.ready_campaign("Alice")
     audio_track = AudioTrack(
         id="audio-track-old",
         campaign_id=campaign.id,
-        artifact=ArtifactRef(uri="campaign-1/records/old.wav"),
+        artifact=ArtifactRef(
+            uri="campaign-1/records/normalized/audio-track-old.wav",
+        ),
         metadata=AudioMetadata(duration_seconds=12),
         title="old",
     )
@@ -1679,6 +1960,9 @@ def test_sync_campaign_folder_removes_missing_files_and_only_pending_jobs() -> N
     )
     harness.jobs.save(pending)
     harness.jobs.save(completed)
+    harness.artifact_storage.missing_artifact_uris.add(
+        audio_track.artifact.uri,
+    )
     harness.folder_scanner.snapshot = CampaignFolderSnapshot(campaign_id="campaign-1")
 
     result = harness.sync_use_case().execute(

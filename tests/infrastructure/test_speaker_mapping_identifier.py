@@ -131,9 +131,15 @@ def _prepared_audio(
     *voice_sample_ranges: PreparedVoiceSampleRange,
 ) -> PreparedAudioResult:
     return PreparedAudioResult(
-        audio_artifact=ArtifactRef(uri="campaign-1/records/prepared/job-1.wav"),
-        manifest_artifact=ArtifactRef(uri="campaign-1/records/prepared/job-1.json"),
-        source_audio_artifact=ArtifactRef(uri="campaign-1/records/session.wav"),
+        audio_artifact=ArtifactRef(
+            uri="campaign-1/records/transient/job-1/prepared.wav",
+        ),
+        manifest_artifact=ArtifactRef(
+            uri="campaign-1/records/manifests/job-1/prepared-audio.json",
+        ),
+        source_audio_artifact=ArtifactRef(
+            uri="campaign-1/records/normalized/audio-track-1.wav",
+        ),
         session_time_range=TimeRange(0, 10),
         voice_sample_ranges=voice_sample_ranges,
     )

@@ -105,13 +105,19 @@ class LocalJobCleaner(JobCleaner):
             job_name = safe_name(job_id, "job_id")
             self._remove_path(
                 self._storage.path_for_uri(
-                    f"{campaign_name}/records/prepared/{job_name}",
+                    f"{campaign_name}/records/transient/{job_name}",
                 ),
                 self._storage.storage_root,
             )
             self._remove_path(
                 self._processing_work_root / campaign_name / job_name,
                 self._processing_work_root,
+            )
+            self._remove_path(
+                self._storage.path_for_uri(
+                    f"{campaign_name}/records/manifests/{job_name}",
+                ),
+                self._storage.storage_root,
             )
 
     def _delete_database_rows(

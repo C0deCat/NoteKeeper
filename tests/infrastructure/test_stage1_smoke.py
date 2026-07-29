@@ -27,7 +27,10 @@ from notekeeper.domain import (
 )
 from notekeeper.infrastructure.deepseek import DeepSeekRecapGenerator
 from notekeeper.infrastructure.deepseek.interfaces import DeepSeekChatCompletion
-from notekeeper.infrastructure.ffmpeg import FfmpegAudioProcessor
+from notekeeper.infrastructure.ffmpeg import (
+    FfmpegAudioProcessor,
+    FfmpegRecordingNormalizer,
+)
 from notekeeper.infrastructure.filesystem import (
     LocalAudioMetadataReader,
     LocalCampaignArtifactStorage,
@@ -213,6 +216,11 @@ def test_stage1_processing_smoke_with_fake_external_boundaries(
         storage,
         clock,
         ids,
+        audio_normalizer=FfmpegRecordingNormalizer(
+            storage,
+            ffmpeg_path="fake-ffmpeg",
+            ffprobe_path="missing-ffprobe",
+        ),
     )
     deepseek_client = FakeDeepSeekClient()
     run = RunProcessingJob(
@@ -272,7 +280,7 @@ def test_stage1_processing_smoke_with_fake_external_boundaries(
     assert manifest_store.read_for_job(
         campaign_id=CampaignId("campaign-1"),
         job_id=result.job.id,
-    )["prepared_artifact"]["uri"] == "campaign-1/records/prepared/job-1/prepared.wav"
+    )["prepared_artifact"]["uri"] == "campaign-1/records/transient/job-1/prepared.wav"
     assert storage.path_for_uri(
         "campaign-1/transcripts/raw-whisperx/transcript-1.json",
     ).is_file()

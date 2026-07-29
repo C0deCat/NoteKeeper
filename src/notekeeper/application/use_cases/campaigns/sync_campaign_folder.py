@@ -5,6 +5,8 @@ from dataclasses import replace
 from notekeeper.application.commands import SyncCampaignFolderCommand
 from notekeeper.application.ports import (
     AudioMetadataReader,
+    AudioRecordingNormalizer,
+    CampaignArtifactStorage,
     CampaignFolderScanner,
     CampaignRepository,
     IdGenerator,
@@ -12,7 +14,10 @@ from notekeeper.application.ports import (
 )
 from notekeeper.application.results import SyncCampaignFolderResult
 from notekeeper.application.use_cases.campaigns.utils import delete_pending_jobs
-from notekeeper.application.use_cases.utils import _require_campaign
+from notekeeper.application.use_cases.utils import (
+    _require_campaign,
+    delete_artifact_with_warning,
+)
 from notekeeper.domain import (
     AudioTrack,
     AudioTrackId,
@@ -27,7 +32,6 @@ from notekeeper.domain import (
     add_voice_sample,
     remove_audio_track,
     remove_voice_sample,
-    update_audio_track,
     update_voice_sample,
 )
 
@@ -40,12 +44,17 @@ class SyncCampaignFolder:
         folder_scanner: CampaignFolderScanner,
         metadata_reader: AudioMetadataReader,
         id_generator: IdGenerator,
+        *,
+        audio_normalizer: AudioRecordingNormalizer,
+        artifact_storage: CampaignArtifactStorage,
     ) -> None:
         self._campaign_repository = campaign_repository
         self._job_repository = job_repository
         self._folder_scanner = folder_scanner
         self._metadata_reader = metadata_reader
         self._id_generator = id_generator
+        self._audio_normalizer = audio_normalizer
+        self._artifact_storage = artifact_storage
 
     def execute(
         self,
@@ -63,6 +72,10 @@ class SyncCampaignFolder:
         tracks_updated = 0
         tracks_deleted = 0
         pending_jobs_deleted = 0
+        tracks_normalized = 0
+        bytes_freed = 0
+        cleanup_warnings: tuple[str, ...] = ()
+        cleanup_sources = []
 
         participants_by_name = {
             participant.display_name.casefold(): participant
@@ -116,43 +129,74 @@ class SyncCampaignFolder:
                 campaign = remove_voice_sample(campaign, sample.id)
                 samples_deleted += 1
 
-        track_uris = {track.artifact.uri for track in snapshot.audio_tracks}
+        retained_track_uris: set[str] = set()
         tracks_by_uri = {track.artifact.uri: track for track in campaign.audio_tracks}
         for scanned_track in snapshot.audio_tracks:
             metadata = self._metadata_reader.read(scanned_track.artifact)
-            existing = tracks_by_uri.get(scanned_track.artifact.uri)
-            if existing is None:
-                audio_track = AudioTrack(
-                    id=AudioTrackId(self._id_generator.audio_track_id()),
-                    campaign_id=campaign.id,
-                    artifact=scanned_track.artifact,
-                    metadata=metadata,
-                    title=scanned_track.title,
+            recovered = self._audio_normalizer.find_for_source(
+                campaign_id=campaign.id,
+                source_artifact=scanned_track.artifact,
+                source_metadata=metadata,
+            )
+            if recovered is not None:
+                recovered_existing = tracks_by_uri.get(
+                    recovered.audio_artifact.uri,
                 )
-                campaign = add_audio_track(campaign, audio_track)
-                tracks_added += 1
+                if recovered_existing is None:
+                    audio_track = AudioTrack(
+                        id=recovered.audio_track_id,
+                        campaign_id=campaign.id,
+                        artifact=recovered.audio_artifact,
+                        metadata=recovered.metadata,
+                        title=scanned_track.title,
+                    )
+                    campaign = add_audio_track(campaign, audio_track)
+                    tracks_by_uri[audio_track.artifact.uri] = audio_track
+                    tracks_added += 1
+                retained_track_uris.add(recovered.audio_artifact.uri)
+                cleanup_sources.append(scanned_track.artifact)
                 continue
 
-            updated_track = replace(
-                existing,
-                artifact=scanned_track.artifact,
-                metadata=metadata,
+            audio_track_id = AudioTrackId(self._id_generator.audio_track_id())
+            normalized = self._audio_normalizer.normalize_artifact(
+                campaign_id=campaign.id,
+                audio_track_id=audio_track_id,
+                source_artifact=scanned_track.artifact,
+                source_metadata=metadata,
+            )
+            audio_track = AudioTrack(
+                id=audio_track_id,
+                campaign_id=campaign.id,
+                artifact=normalized.audio_artifact,
+                metadata=normalized.metadata,
                 title=scanned_track.title,
             )
-            if updated_track != existing:
-                campaign = update_audio_track(campaign, updated_track)
-                tracks_updated += 1
+            campaign = add_audio_track(campaign, audio_track)
+            tracks_by_uri[audio_track.artifact.uri] = audio_track
+            retained_track_uris.add(audio_track.artifact.uri)
+            tracks_added += 1
+            tracks_normalized += 1
+            bytes_freed += normalized.bytes_freed
+            cleanup_sources.append(scanned_track.artifact)
 
         for audio_track in tuple(campaign.audio_tracks):
-            if audio_track.artifact.uri not in track_uris:
-                pending_jobs_deleted += delete_pending_jobs(
-                    self._job_repository,
-                    audio_track.id,
-                )
-                campaign = remove_audio_track(campaign, audio_track.id)
-                tracks_deleted += 1
+            if audio_track.artifact.uri in retained_track_uris:
+                continue
+            if self._artifact_storage.artifact_exists(audio_track.artifact):
+                continue
+            pending_jobs_deleted += delete_pending_jobs(
+                self._job_repository,
+                audio_track.id,
+            )
+            campaign = remove_audio_track(campaign, audio_track.id)
+            tracks_deleted += 1
 
         self._campaign_repository.save(campaign)
+        for source_artifact in cleanup_sources:
+            cleanup_warnings += delete_artifact_with_warning(
+                self._artifact_storage,
+                source_artifact,
+            )
         return SyncCampaignFolderResult(
             campaign=campaign,
             participants_created=participants_created,
@@ -163,4 +207,7 @@ class SyncCampaignFolder:
             audio_tracks_updated=tracks_updated,
             audio_tracks_deleted=tracks_deleted,
             pending_jobs_deleted=pending_jobs_deleted,
+            audio_tracks_normalized=tracks_normalized,
+            bytes_freed=bytes_freed,
+            cleanup_warnings=cleanup_warnings,
         )

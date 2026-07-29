@@ -1,6 +1,7 @@
 """Shared application use-case lookup helpers."""
 
 from .audio_sources import resolve_audio_source
+from .artifact_cleanup import delete_artifact_with_warning
 
 from notekeeper.application.errors import NotFoundError
 from notekeeper.application.ports import (
@@ -80,5 +81,6 @@ __all__ = [
     "_require_job",
     "_require_recap",
     "_require_transcript",
+    "delete_artifact_with_warning",
     "resolve_audio_source",
 ]

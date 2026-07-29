@@ -59,10 +59,10 @@ def test_ffmpeg_audio_processor_prepares_audio_and_manifest(
     )
 
     assert result.audio_artifact.uri == (
-        "campaign-1/records/prepared/job-1/prepared.wav"
+        "campaign-1/records/transient/job-1/prepared.wav"
     )
     assert result.manifest_artifact.uri == (
-        "campaign-1/records/prepared/job-1/manifest.json"
+        "campaign-1/records/manifests/job-1/prepared-audio.json"
     )
     assert result.session_time_range.start_seconds == 0
     assert result.session_time_range.end_seconds == 3.0
@@ -83,16 +83,23 @@ def test_ffmpeg_audio_processor_prepares_audio_and_manifest(
     }
     assert [entry["stage"] for entry in manifest["ffmpeg_command_metadata"]] == [
         "normalize",
-        "normalize",
         "concat",
     ]
     assert manifest["voice_sample_ranges"][0]["source_artifact"]["uri"] == (
         voice_sample.artifact.uri
     )
     assert str(tmp_path) not in json.dumps(manifest)
-    assert len(calls) == 3
+    assert len(calls) == 2
     assert calls[0][0] == "fake-ffmpeg"
     assert calls[0][calls[0].index("-ar") + 1] == "16000"
+    manifest = manifest_store.read(result.manifest_artifact)
+    assert [
+        entry["source_role"]
+        for entry in manifest["ffmpeg_command_metadata"]
+        if entry["stage"] == "normalize"
+    ] == [
+        "voice_sample",
+    ]
 
 
 def test_ffmpeg_audio_processor_rejects_missing_session_artifact(
@@ -109,7 +116,9 @@ def test_ffmpeg_audio_processor_rejects_missing_session_artifact(
     audio_track = AudioTrack(
         id=AudioTrackId("audio-track-1"),
         campaign_id=CampaignId("campaign-1"),
-        artifact=ArtifactRef(uri="campaign-1/records/missing.wav"),
+        artifact=ArtifactRef(
+            uri="campaign-1/records/normalized/missing.wav",
+        ),
         metadata=AudioMetadata(duration_seconds=3.0),
     )
 
@@ -142,11 +151,11 @@ def test_ffmpeg_audio_processor_wraps_failed_subprocess(
 
     with pytest.raises(
         InfrastructureError,
-        match="ffmpeg command failed during normalize session: boom",
+        match="ffmpeg command failed during normalize voice_sample: boom",
     ):
         processor.prepare_session_audio(
             audio_track,
-            (),
+            (_voice_sample(storage),),
             job_id=ProcessingJobId("job-1"),
         )
 
@@ -198,14 +207,19 @@ class FakeProcess:
         return self._returncode
 
 
-def _audio_track(storage: LocalCampaignArtifactStorage) -> AudioTrack:
+def _audio_track(
+    storage: LocalCampaignArtifactStorage,
+    *,
+    uri: str = "campaign-1/records/normalized/audio-track-1.wav",
+) -> AudioTrack:
     storage.ensure_campaign_layout(CampaignId("campaign-1"))
-    path = storage.path_for_uri("campaign-1/records/session.wav")
+    path = storage.path_for_uri(uri)
+    path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(b"session")
     return AudioTrack(
         id=AudioTrackId("audio-track-1"),
         campaign_id=CampaignId("campaign-1"),
-        artifact=ArtifactRef(uri="campaign-1/records/session.wav"),
+        artifact=ArtifactRef(uri=uri),
         metadata=AudioMetadata(duration_seconds=3.0),
         title="Session",
     )

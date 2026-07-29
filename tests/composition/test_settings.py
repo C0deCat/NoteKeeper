@@ -31,3 +31,28 @@ def test_settings_load_provider_keys_from_dotenv(
     assert settings.ffmpeg_bin == Path("C:/tools/ffmpeg-7.1.1/bin")
     assert "deepseek-secret" not in settings_repr
     assert "hf-secret" not in settings_repr
+
+
+def test_settings_load_normalized_audio_configuration(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".env").write_text(
+        "\n".join(
+            (
+                "NOTEKEEPER_NORMALIZED_AUDIO_SAMPLE_RATE_HZ=22050",
+                "NOTEKEEPER_NORMALIZED_AUDIO_CHANNELS=2",
+                "NOTEKEEPER_NORMALIZED_AUDIO_CODEC=pcm_s24le",
+                "NOTEKEEPER_NORMALIZED_AUDIO_CONTAINER=wav",
+            ),
+        ),
+        encoding="utf-8",
+    )
+
+    settings = NoteKeeperSettings()
+
+    assert settings.normalized_audio_sample_rate_hz == 22050
+    assert settings.normalized_audio_channels == 2
+    assert settings.normalized_audio_codec == "pcm_s24le"
+    assert settings.normalized_audio_container == "wav"

@@ -11,6 +11,7 @@ from typing import Any
 from notekeeper.application.ports import (
     AudioMetadataReader,
     AudioProcessor,
+    AudioRecordingNormalizer,
     AudioTrackRepository,
     CampaignArtifactStorage,
     CampaignFolderScanner,
@@ -28,6 +29,7 @@ from notekeeper.application.ports import (
     SourceAudioMetadataReader,
     Tokenizer,
     Transcriber,
+    TransientAudioCleaner,
     TranscriptRepository,
     VoiceSampleRepository,
 )
@@ -36,9 +38,15 @@ from notekeeper.infrastructure.deepseek import (
     LocalDeepSeekRequestLogger,
     NoOpDeepSeekRequestLogger,
 )
-from notekeeper.infrastructure.cleanup import LocalJobCleaner
+from notekeeper.infrastructure.cleanup import (
+    LocalJobCleaner,
+    LocalTransientAudioCleaner,
+)
 from notekeeper.infrastructure.errors import InfrastructureError
-from notekeeper.infrastructure.ffmpeg import FfmpegAudioProcessor
+from notekeeper.infrastructure.ffmpeg import (
+    FfmpegAudioProcessor,
+    FfmpegRecordingNormalizer,
+)
 from notekeeper.infrastructure.filesystem import (
     LocalAudioMetadataReader,
     LocalCampaignArtifactStorage,
@@ -80,6 +88,7 @@ class InfrastructureBundle:
     folder_scanner: CampaignFolderScanner
     metadata_reader: AudioMetadataReader
     source_metadata_reader: SourceAudioMetadataReader
+    audio_normalizer: AudioRecordingNormalizer
     prepared_audio_manifest_store: PreparedAudioManifestStore
     audio_processor: AudioProcessor
     transcriber: Transcriber
@@ -95,6 +104,7 @@ class InfrastructureBundle:
     job_repository: JobRepository
     speaker_mapping_repository: SpeakerMappingRepository
     job_cleaner: JobCleaner
+    transient_audio_cleaner: TransientAudioCleaner
     clock: Clock
     id_generator: IdGenerator
 
@@ -120,6 +130,15 @@ def build_infrastructure(
     source_metadata_reader = LocalSourceAudioMetadataReader(
         ffprobe_path=resolved_settings.ffprobe_path,
     )
+    audio_normalizer = FfmpegRecordingNormalizer(
+        artifact_storage,
+        ffmpeg_path=resolved_settings.ffmpeg_path,
+        ffprobe_path=resolved_settings.ffprobe_path,
+        sample_rate_hz=resolved_settings.normalized_audio_sample_rate_hz,
+        channels=resolved_settings.normalized_audio_channels,
+        codec=resolved_settings.normalized_audio_codec,
+        container=resolved_settings.normalized_audio_container,
+    )
     prepared_audio_manifest_store = LocalPreparedAudioManifestStore(artifact_storage)
     clock = SystemClock()
     id_generator = UuidGenerator()
@@ -128,11 +147,15 @@ def build_infrastructure(
         prepared_audio_manifest_store,
         ffmpeg_path=resolved_settings.ffmpeg_path,
         processing_work_root=resolved_settings.processing_work_root,
-        sample_rate_hz=resolved_settings.prepared_audio_sample_rate_hz,
-        channels=resolved_settings.prepared_audio_channels,
-        codec=resolved_settings.prepared_audio_codec,
-        container=resolved_settings.prepared_audio_container,
+        sample_rate_hz=resolved_settings.normalized_audio_sample_rate_hz,
+        channels=resolved_settings.normalized_audio_channels,
+        codec=resolved_settings.normalized_audio_codec,
+        container=resolved_settings.normalized_audio_container,
         now=clock.now,
+    )
+    transient_audio_cleaner = LocalTransientAudioCleaner(
+        artifact_storage,
+        resolved_settings.processing_work_root,
     )
     transcriber = WhisperXTranscriber(
         artifact_storage,
@@ -193,6 +216,7 @@ def build_infrastructure(
         folder_scanner=folder_scanner,
         metadata_reader=metadata_reader,
         source_metadata_reader=source_metadata_reader,
+        audio_normalizer=audio_normalizer,
         prepared_audio_manifest_store=prepared_audio_manifest_store,
         audio_processor=audio_processor,
         transcriber=transcriber,
@@ -212,6 +236,7 @@ def build_infrastructure(
             artifact_storage,
             resolved_settings.processing_work_root,
         ),
+        transient_audio_cleaner=transient_audio_cleaner,
         clock=clock,
         id_generator=id_generator,
     )

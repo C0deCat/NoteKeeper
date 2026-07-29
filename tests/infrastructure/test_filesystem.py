@@ -103,11 +103,11 @@ def test_prepared_audio_manifest_store_saves_and_reads_json(tmp_path: Path) -> N
     payload = {
         "schema_version": 1,
         "prepared_artifact": {
-            "uri": "campaign-1/records/prepared/job-1/prepared.wav",
+            "uri": "campaign-1/records/transient/job-1/prepared.wav",
             "kind": "file",
         },
         "source_session_artifact": {
-            "uri": "campaign-1/records/session.wav",
+            "uri": "campaign-1/records/normalized/audio-track-1.wav",
             "kind": "file",
         },
     }
@@ -118,7 +118,9 @@ def test_prepared_audio_manifest_store_saves_and_reads_json(tmp_path: Path) -> N
         payload=payload,
     )
 
-    assert artifact.uri == "campaign-1/records/prepared/job-1/manifest.json"
+    assert artifact.uri == (
+        "campaign-1/records/manifests/job-1/prepared-audio.json"
+    )
     assert store.read(artifact) == payload
     raw_payload = json.loads((tmp_path / artifact.uri).read_text(encoding="utf-8"))
     assert raw_payload["prepared_artifact"]["uri"].startswith("campaign-1/")

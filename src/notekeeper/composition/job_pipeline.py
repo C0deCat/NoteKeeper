@@ -35,6 +35,7 @@ def build_processing_pipeline(
                 infrastructure.settings.whisperx_diarization_enabled
             ),
         ),
+        transient_audio_cleaner=infrastructure.transient_audio_cleaner,
     )
 
 

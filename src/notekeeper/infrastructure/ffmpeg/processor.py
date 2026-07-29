@@ -56,11 +56,12 @@ class FfmpegAudioProcessor(AudioProcessor):
         self._storage = storage
         self._manifest_store = manifest_store
         self._ffmpeg_path = executable
-        self._processing_work_root = Path(
+        processing_root = Path(
             processing_work_root
             if processing_work_root is not None
             else storage.storage_root / "_work" / "ffmpeg",
         )
+        self._processing_work_root = processing_root
         self._sample_rate_hz = sample_rate_hz
         self._channels = channels
         self._codec = safe_name(codec, "codec")
@@ -97,7 +98,7 @@ class FfmpegAudioProcessor(AudioProcessor):
         prepared_path.parent.mkdir(parents=True, exist_ok=True)
 
         command_metadata: list[dict[str, Any]] = []
-        total_duration = audio_track.metadata.duration_seconds + sum(
+        total_duration = sum(
             sample.metadata.duration_seconds for sample in voice_samples
         )
         normalized_duration = 0.0
@@ -106,21 +107,6 @@ class FfmpegAudioProcessor(AudioProcessor):
                 ProcessingStage.NORMALIZING_AUDIO,
                 timing_available=True,
             )
-        normalized_session_path = work_dir / f"normalized-session.{self._container}"
-        command_metadata.append(
-            self._normalize_audio(
-                source_path=session_path,
-                output_path=normalized_session_path,
-                source_artifact=audio_track.artifact,
-                source_role="session",
-                duration_seconds=audio_track.metadata.duration_seconds,
-                completed_duration_seconds=normalized_duration,
-                total_duration_seconds=total_duration,
-                progress=progress,
-            ),
-        )
-        normalized_duration += audio_track.metadata.duration_seconds
-
         normalized_sample_paths: list[Path] = []
         for index, (sample, sample_path) in enumerate(
             zip(voice_samples, sample_paths, strict=True),
@@ -152,7 +138,7 @@ class FfmpegAudioProcessor(AudioProcessor):
             )
         command_metadata.append(
             self._concatenate_audio(
-                input_paths=(normalized_session_path, *normalized_sample_paths),
+                input_paths=(session_path, *normalized_sample_paths),
                 output_path=prepared_path,
                 output_artifact_uri=prepared_uri,
                 work_dir=work_dir,
@@ -487,7 +473,7 @@ class FfmpegAudioProcessor(AudioProcessor):
 
     def _prepared_uri(self, campaign_name: str, job_name: str) -> str:
         return (
-            f"{campaign_name}/records/prepared/"
+            f"{campaign_name}/records/transient/"
             f"{job_name}/prepared.{self._container}"
         )
 
