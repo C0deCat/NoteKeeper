@@ -9,6 +9,7 @@ from notekeeper.application.ports import (
     IdGenerator,
     JobRepository,
     ProgressTrackerFactory,
+    RecapGuidances,
     RecapGenerator,
     RecapRepository,
     Tokenizer,
@@ -27,6 +28,7 @@ class GenerateRecap:
         transcript_repository: TranscriptRepository,
         recap_repository: RecapRepository,
         tokenizer: Tokenizer,
+        recap_guidances: RecapGuidances,
         recap_generator: RecapGenerator,
         clock: Clock,
         id_generator: IdGenerator,
@@ -37,6 +39,7 @@ class GenerateRecap:
         self._transcript_repository = transcript_repository
         self._recap_repository = recap_repository
         self._tokenizer = tokenizer
+        self._recap_guidances = recap_guidances
         self._recap_generator = recap_generator
         self._clock = clock
         self._id_generator = id_generator
@@ -71,6 +74,7 @@ class GenerateRecap:
                 transcript,
                 id_generator=self._id_generator,
                 tokenizer=self._tokenizer,
+                recap_guidances=self._recap_guidances,
                 recap_generator=self._recap_generator,
                 recap_repository=self._recap_repository,
                 job_id=job.id,

@@ -324,11 +324,26 @@ class Tokenizer(Protocol):
     ) -> tuple[TranscriptChunk, ...]: ...
 
 
+class RecapGuidances(Protocol):
+    def get_chunk_recap_guidances(self, campaign_id: CampaignId) -> str: ...
+
+    def get_combined_recap_guidances(self, campaign_id: CampaignId) -> str: ...
+
+    def save_recap_guidances(
+        self,
+        campaign_id: CampaignId,
+        *,
+        chunk_recap_guidances: str,
+        combined_recap_guidances: str,
+    ) -> None: ...
+
+
 class RecapGenerator(Protocol):
     def generate_chunk(
         self,
         chunk: TranscriptChunk,
         *,
+        guidance: str,
         context: RecapGenerationContext,
     ) -> str: ...
 
@@ -336,6 +351,7 @@ class RecapGenerator(Protocol):
         self,
         chunks: tuple[RecapChunk, ...],
         *,
+        guidance: str,
         context: RecapGenerationContext,
     ) -> str: ...
 
@@ -457,6 +473,7 @@ __all__ = [
     "ProgressEventStream",
     "ProgressTracker",
     "ProgressTrackerFactory",
+    "RecapGuidances",
     "RecapGenerator",
     "RecapRepository",
     "SpeakerIdentifier",

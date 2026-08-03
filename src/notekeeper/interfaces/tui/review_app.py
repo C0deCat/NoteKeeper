@@ -48,7 +48,7 @@ class ReviewMappingsScreen(ModalScreen[tuple[ManualSpeakerMappingCommand, ...] |
         )
 
     def compose(self) -> ComposeResult:
-        with Vertical(classes="modal"):
+        with Vertical(classes="modal review-modal"):
             yield Label("Review Mapping")
             yield Static(warnings_text(self.job), classes="metadata")
             with Vertical(classes="review-mappings"):
@@ -85,13 +85,14 @@ class ReviewMappingsScreen(ModalScreen[tuple[ManualSpeakerMappingCommand, ...] |
             if not self.unresolved_labels:
                 yield Static("No unresolved speaker labels", classes="review-error")
             yield Static("", id="review-error", classes="review-error")
-            yield Button(
-                "Submit",
-                id="submit",
-                variant="primary",
-                disabled=not self.unresolved_labels,
-            )
-            yield Button("Cancel", id="cancel")
+            with Horizontal(classes="review-actions"):
+                yield Button(
+                    "Submit",
+                    id="submit",
+                    variant="primary",
+                    disabled=not self.unresolved_labels,
+                )
+                yield Button("Cancel", id="cancel")
 
     def on_switch_changed(self, event: Switch.Changed) -> None:
         switch_id = event.switch.id

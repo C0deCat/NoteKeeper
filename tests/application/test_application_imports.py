@@ -34,6 +34,18 @@ def test_application_reexports_public_api() -> None:
     assert application.CreateProcessingJobForAudioTrackResult is (
         results.CreateProcessingJobForAudioTrackResult
     )
+    assert application.GetRecapGuidances is use_cases.GetRecapGuidances
+    assert application.GetRecapGuidancesCommand is (
+        commands.GetRecapGuidancesCommand
+    )
+    assert application.GetRecapGuidancesResult is results.GetRecapGuidancesResult
+    assert application.UpdateRecapGuidances is use_cases.UpdateRecapGuidances
+    assert application.UpdateRecapGuidancesCommand is (
+        commands.UpdateRecapGuidancesCommand
+    )
+    assert application.UpdateRecapGuidancesResult is (
+        results.UpdateRecapGuidancesResult
+    )
     assert application.DeleteProcessingJob is use_cases.DeleteProcessingJob
     assert application.DeleteProcessingJobCommand is (
         commands.DeleteProcessingJobCommand
@@ -59,6 +71,8 @@ def test_application_reexports_public_api() -> None:
 
 def test_use_case_packages_reexport_expected_classes() -> None:
     assert use_cases.CreateCampaign is campaign_use_cases.CreateCampaign
+    assert use_cases.GetRecapGuidances is campaign_use_cases.GetRecapGuidances
+    assert use_cases.UpdateRecapGuidances is campaign_use_cases.UpdateRecapGuidances
     assert use_cases.AddParticipantToCampaign is (
         campaign_use_cases.AddParticipantToCampaign
     )

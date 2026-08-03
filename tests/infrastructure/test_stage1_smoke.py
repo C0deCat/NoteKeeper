@@ -99,6 +99,23 @@ class FakeDeepSeekClient:
         return DeepSeekChatCompletion(text=self.responses.pop(0))
 
 
+class FakeRecapGuidances:
+    def get_chunk_recap_guidances(self, campaign_id: CampaignId) -> str:
+        return "chunk prompt"
+
+    def get_combined_recap_guidances(self, campaign_id: CampaignId) -> str:
+        return "combine prompt"
+
+    def save_recap_guidances(
+        self,
+        campaign_id: CampaignId,
+        *,
+        chunk_recap_guidances: str,
+        combined_recap_guidances: str,
+    ) -> None:
+        return None
+
+
 class FixedClock:
     def __init__(self) -> None:
         self._now = datetime(2026, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
@@ -247,9 +264,8 @@ def test_stage1_processing_smoke_with_fake_external_boundaries(
         SampleBasedSpeakerIdentifier(),
         speaker_mappings,
         TiktokenTranscriptTokenizer(max_token_count=500),
+        FakeRecapGuidances(),
         DeepSeekRecapGenerator(
-            chunk_recap_prompt="chunk prompt",
-            combine_chunks_prompt="combine prompt",
             model_name="test-model",
             api_key=None,
             retry_count=0,

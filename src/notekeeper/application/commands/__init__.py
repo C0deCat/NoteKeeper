@@ -186,6 +186,18 @@ class GenerateRecapCommand:
 
 
 @dataclass(frozen=True, slots=True)
+class GetRecapGuidancesCommand:
+    campaign_id: str
+
+
+@dataclass(frozen=True, slots=True)
+class UpdateRecapGuidancesCommand:
+    campaign_id: str
+    chunk_recap_guidances: str | None = None
+    combined_recap_guidances: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class ExportTranscriptMarkdownCommand:
     transcript_id: str
 
@@ -241,6 +253,7 @@ __all__ = [
     "ExportRecapMarkdownCommand",
     "ExportTranscriptMarkdownCommand",
     "GenerateRecapCommand",
+    "GetRecapGuidancesCommand",
     "GetCampaignCommand",
     "GetJobStatusCommand",
     "ListAudioTracksCommand",
@@ -263,5 +276,6 @@ __all__ = [
     "UpdateAudioTrackCommand",
     "UpdateCampaignCommand",
     "UpdateParticipantCommand",
+    "UpdateRecapGuidancesCommand",
     "UpdateVoiceSampleCommand",
 ]

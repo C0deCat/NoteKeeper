@@ -24,8 +24,6 @@ class DeepSeekRecapGenerator(RecapGenerator):
     def __init__(
         self,
         *,
-        chunk_recap_prompt: str,
-        combine_chunks_prompt: str,
         api_key: str | None = None,
         base_url: str = "https://api.deepseek.com",
         model_name: str = "deepseek-v4-pro",
@@ -37,14 +35,6 @@ class DeepSeekRecapGenerator(RecapGenerator):
         request_logger: DeepSeekRequestLogger | None = None,
         sleep: Callable[[float], None] | None = None,
     ) -> None:
-        self._chunk_recap_prompt = self._require_text(
-            chunk_recap_prompt,
-            "chunk_recap_prompt",
-        )
-        self._combine_chunks_prompt = self._require_text(
-            combine_chunks_prompt,
-            "combine_chunks_prompt",
-        )
         self._model_name = self._require_text(model_name, "model_name")
         self._temperature = self._require_non_negative_float(
             temperature,
@@ -73,11 +63,15 @@ class DeepSeekRecapGenerator(RecapGenerator):
         self,
         chunk: TranscriptChunk,
         *,
+        guidance: str,
         context: RecapGenerationContext,
     ) -> str:
         return self._complete(
             (
-                {"role": "system", "content": self._chunk_recap_prompt},
+                {
+                    "role": "system",
+                    "content": self._require_text(guidance, "chunk recap guidance"),
+                },
                 {"role": "user", "content": self._chunk_user_message(chunk)},
             ),
             context=context,
@@ -88,11 +82,18 @@ class DeepSeekRecapGenerator(RecapGenerator):
         self,
         chunks: tuple[RecapChunk, ...],
         *,
+        guidance: str,
         context: RecapGenerationContext,
     ) -> str:
         return self._complete(
             (
-                {"role": "system", "content": self._combine_chunks_prompt},
+                {
+                    "role": "system",
+                    "content": self._require_text(
+                        guidance,
+                        "combined recap guidance",
+                    ),
+                },
                 {"role": "user", "content": self._combined_user_message(chunks)},
             ),
             context=context,

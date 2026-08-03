@@ -26,6 +26,8 @@ from notekeeper.application import (
     ExportTranscriptMarkdownCommand,
     GenerateRecap,
     GenerateRecapCommand,
+    GetRecapGuidances,
+    GetRecapGuidancesCommand,
     GetJobStatus,
     GetJobStatusCommand,
     InspectAudioMetadata,
@@ -36,6 +38,7 @@ from notekeeper.application import (
     ListJobsForCampaign,
     ListJobsForCampaignCommand,
     ManualSpeakerMappingCommand,
+    NotFoundError,
     NormalizedAudioResult,
     PreviewRecapMarkdown,
     PreviewRecapMarkdownCommand,
@@ -62,6 +65,8 @@ from notekeeper.application import (
     TranscriptChunk,
     UpdateAudioTrack,
     UpdateAudioTrackCommand,
+    UpdateRecapGuidances,
+    UpdateRecapGuidancesCommand,
 )
 from notekeeper.domain import (
     ArtifactRef,
@@ -427,12 +432,42 @@ class FakeTokenizer:
         )
 
 
+class FakeRecapGuidances:
+    def __init__(self) -> None:
+        self.chunk = "chunk guidance"
+        self.combined = "combined guidance"
+        self.chunk_reads: list[CampaignId] = []
+        self.combined_reads: list[CampaignId] = []
+        self.saved: list[tuple[CampaignId, str, str]] = []
+
+    def get_chunk_recap_guidances(self, campaign_id: CampaignId) -> str:
+        self.chunk_reads.append(campaign_id)
+        return self.chunk
+
+    def get_combined_recap_guidances(self, campaign_id: CampaignId) -> str:
+        self.combined_reads.append(campaign_id)
+        return self.combined
+
+    def save_recap_guidances(
+        self,
+        campaign_id: CampaignId,
+        *,
+        chunk_recap_guidances: str,
+        combined_recap_guidances: str,
+    ) -> None:
+        self.chunk = chunk_recap_guidances
+        self.combined = combined_recap_guidances
+        self.saved.append((campaign_id, self.chunk, self.combined))
+
+
 class FakeRecapGenerator:
     def __init__(self) -> None:
         self.generated_chunks: list[TranscriptChunk] = []
         self.generated_contexts: list[RecapGenerationContext] = []
+        self.generated_guidances: list[str] = []
         self.combined_chunks: tuple[RecapChunk, ...] = ()
         self.combined_contexts: list[RecapGenerationContext] = []
+        self.combined_guidances: list[str] = []
         self.generate_error: PortExecutionError | None = None
         self.combine_error: PortExecutionError | None = None
 
@@ -440,10 +475,12 @@ class FakeRecapGenerator:
         self,
         chunk: TranscriptChunk,
         *,
+        guidance: str,
         context: RecapGenerationContext,
     ) -> str:
         self.generated_chunks.append(chunk)
         self.generated_contexts.append(context)
+        self.generated_guidances.append(guidance)
         if self.generate_error is not None:
             raise self.generate_error
 
@@ -453,10 +490,12 @@ class FakeRecapGenerator:
         self,
         chunks: tuple[RecapChunk, ...],
         *,
+        guidance: str,
         context: RecapGenerationContext,
     ) -> str:
         self.combined_chunks = chunks
         self.combined_contexts.append(context)
+        self.combined_guidances.append(guidance)
         if self.combine_error is not None:
             raise self.combine_error
 
@@ -544,6 +583,7 @@ class Harness:
         self.speaker_identifier = FakeSpeakerIdentifier()
         self.speaker_mappings = FakeSpeakerMappingRepository()
         self.tokenizer = FakeTokenizer()
+        self.recap_guidances = FakeRecapGuidances()
         self.recap_generator = FakeRecapGenerator()
         self.artifact_storage = FakeArtifactStorage()
         self.folder_scanner = FakeCampaignFolderScanner()
@@ -605,6 +645,7 @@ class Harness:
             self.speaker_identifier,
             self.speaker_mappings,
             self.tokenizer,
+            self.recap_guidances,
             self.recap_generator,
             self.clock,
             self.ids,
@@ -630,6 +671,7 @@ class Harness:
             self.jobs,
             self.speaker_mappings,
             self.tokenizer,
+            self.recap_guidances,
             self.recap_generator,
             self.clock,
             self.ids,
@@ -657,7 +699,11 @@ class Harness:
 def test_campaign_use_cases_create_campaign_add_participant_and_voice_sample() -> None:
     harness = Harness()
 
-    campaign = CreateCampaign(harness.campaigns, harness.ids).execute(
+    campaign = CreateCampaign(
+        harness.campaigns,
+        harness.ids,
+        harness.recap_guidances,
+    ).execute(
         CreateCampaignCommand(name="Storm King's Thunder"),
     ).campaign
     participant_result = AddParticipantToCampaign(
@@ -684,6 +730,8 @@ def test_campaign_use_cases_create_campaign_add_participant_and_voice_sample() -
     )
 
     assert campaign.id == CampaignId("campaign-1")
+    assert harness.recap_guidances.chunk_reads == [campaign.id]
+    assert harness.recap_guidances.combined_reads == [campaign.id]
     assert participant_result.participant.id == ParticipantId("participant-1")
     assert sample_result.voice_sample.id == VoiceSampleId("voice-sample-1")
     assert sample_result.voice_sample.metadata.checksum == "checksum:samples/alice.wav"
@@ -692,9 +740,64 @@ def test_campaign_use_cases_create_campaign_add_participant_and_voice_sample() -
     )
 
 
+def test_get_and_partially_update_campaign_recap_guidances() -> None:
+    harness = Harness()
+    campaign = harness.ready_campaign()
+
+    current = GetRecapGuidances(
+        harness.campaigns,
+        harness.recap_guidances,
+    ).execute(GetRecapGuidancesCommand(campaign_id=str(campaign.id)))
+    updated = UpdateRecapGuidances(
+        harness.campaigns,
+        harness.recap_guidances,
+    ).execute(
+        UpdateRecapGuidancesCommand(
+            campaign_id=str(campaign.id),
+            chunk_recap_guidances="updated chunk",
+        ),
+    )
+
+    assert current.chunk_recap_guidances == "chunk guidance"
+    assert current.combined_recap_guidances == "combined guidance"
+    assert updated.chunk_recap_guidances == "updated chunk"
+    assert updated.combined_recap_guidances == "combined guidance"
+    assert harness.recap_guidances.saved == [
+        (campaign.id, "updated chunk", "combined guidance"),
+    ]
+
+
+def test_recap_guidance_use_cases_validate_campaign_and_updates() -> None:
+    harness = Harness()
+    campaign = harness.ready_campaign()
+    get_guidances = GetRecapGuidances(harness.campaigns, harness.recap_guidances)
+    update_guidances = UpdateRecapGuidances(
+        harness.campaigns,
+        harness.recap_guidances,
+    )
+
+    with pytest.raises(NotFoundError, match="was not found"):
+        get_guidances.execute(GetRecapGuidancesCommand(campaign_id="missing"))
+    with pytest.raises(InvalidOperationError, match="at least one"):
+        update_guidances.execute(
+            UpdateRecapGuidancesCommand(campaign_id=str(campaign.id)),
+        )
+    with pytest.raises(InvalidOperationError, match="must not be empty"):
+        update_guidances.execute(
+            UpdateRecapGuidancesCommand(
+                campaign_id=str(campaign.id),
+                combined_recap_guidances="  ",
+            ),
+        )
+
+
 def test_add_voice_sample_imports_local_source_for_participant() -> None:
     harness = Harness()
-    campaign = CreateCampaign(harness.campaigns, harness.ids).execute(
+    campaign = CreateCampaign(
+        harness.campaigns,
+        harness.ids,
+        harness.recap_guidances,
+    ).execute(
         CreateCampaignCommand(name="Storm King's Thunder"),
     ).campaign
     participant = AddParticipantToCampaign(
@@ -1771,6 +1874,7 @@ def test_generate_recap_and_export_markdown_use_artifact_storage() -> None:
         harness.transcripts,
         harness.recaps,
         harness.tokenizer,
+        harness.recap_guidances,
         harness.recap_generator,
         harness.clock,
         harness.ids,
@@ -1798,6 +1902,10 @@ def test_generate_recap_and_export_markdown_use_artifact_storage() -> None:
         == recap_result.recap.id
     )
     assert harness.recap_generator.generated_contexts[0].job_id == job.id
+    assert harness.recap_generator.generated_guidances == ["chunk guidance"]
+    assert harness.recap_generator.combined_guidances == ["combined guidance"]
+    assert harness.recap_guidances.chunk_reads == [transcript.campaign_id]
+    assert harness.recap_guidances.combined_reads == [transcript.campaign_id]
     transcript_content = harness.artifact_storage.saved["transcript-transcript-1.md"][0]
     recap_content = harness.artifact_storage.saved["recap-recap-1.md"][0]
     assert "[00:00:00 - 00:00:05] **Alice:** We enter the crypt." in transcript_content
@@ -1822,6 +1930,7 @@ def test_generate_recap_rejects_job_without_transcript() -> None:
             harness.transcripts,
             harness.recaps,
             harness.tokenizer,
+            harness.recap_guidances,
             harness.recap_generator,
             harness.clock,
             harness.ids,
@@ -1866,6 +1975,7 @@ def test_generate_recap_failure_preserves_existing_job_recap() -> None:
             harness.transcripts,
             harness.recaps,
             harness.tokenizer,
+            harness.recap_guidances,
             harness.recap_generator,
             harness.clock,
             harness.ids,

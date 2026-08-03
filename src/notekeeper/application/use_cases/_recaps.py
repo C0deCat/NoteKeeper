@@ -4,6 +4,7 @@ from collections.abc import Callable
 
 from notekeeper.application.ports import (
     IdGenerator,
+    RecapGuidances,
     RecapGenerator,
     RecapRepository,
     Tokenizer,
@@ -19,12 +20,19 @@ def generate_recap_for_transcript(
     *,
     id_generator: IdGenerator,
     tokenizer: Tokenizer,
+    recap_guidances: RecapGuidances,
     recap_generator: RecapGenerator,
     recap_repository: RecapRepository,
     target_token_count: int = DEFAULT_RECAP_CHUNK_TOKEN_TARGET,
     job_id: ProcessingJobId | None = None,
     progress_callback: Callable[[float], None] | None = None,
 ) -> Recap:
+    chunk_guidance = recap_guidances.get_chunk_recap_guidances(
+        transcript.campaign_id,
+    )
+    combined_guidance = recap_guidances.get_combined_recap_guidances(
+        transcript.campaign_id,
+    )
     recap_id = RecapId(id_generator.recap_id())
     chunks = tokenizer.split_transcript(
         transcript,
@@ -37,6 +45,7 @@ def generate_recap_for_transcript(
             RecapChunk(
                 markdown=recap_generator.generate_chunk(
                     chunk,
+                    guidance=chunk_guidance,
                     context=RecapGenerationContext(
                         campaign_id=transcript.campaign_id,
                         transcript_id=transcript.id,
@@ -57,6 +66,7 @@ def generate_recap_for_transcript(
         transcript_id=transcript.id,
         markdown=recap_generator.combine_chunks(
             recap_chunks_tuple,
+            guidance=combined_guidance,
             context=RecapGenerationContext(
                 campaign_id=transcript.campaign_id,
                 transcript_id=transcript.id,

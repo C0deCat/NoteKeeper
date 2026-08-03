@@ -23,6 +23,7 @@ def build_processing_pipeline(
         infrastructure.speaker_identifier,
         infrastructure.speaker_mapping_repository,
         infrastructure.tokenizer,
+        infrastructure.recap_guidances,
         infrastructure.recap_generator,
         infrastructure.clock,
         infrastructure.id_generator,

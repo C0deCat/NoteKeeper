@@ -365,6 +365,20 @@ class GenerateRecapResult:
 
 
 @dataclass(frozen=True, slots=True)
+class GetRecapGuidancesResult:
+    campaign_id: str
+    chunk_recap_guidances: str
+    combined_recap_guidances: str
+
+
+@dataclass(frozen=True, slots=True)
+class UpdateRecapGuidancesResult:
+    campaign_id: str
+    chunk_recap_guidances: str
+    combined_recap_guidances: str
+
+
+@dataclass(frozen=True, slots=True)
 class ExportMarkdownResult:
     artifact: ArtifactRef
 
@@ -450,6 +464,7 @@ __all__ = [
     "DeleteVoiceSampleResult",
     "ExportMarkdownResult",
     "GenerateRecapResult",
+    "GetRecapGuidancesResult",
     "GetCampaignResult",
     "GetJobStatusResult",
     "InspectAudioMetadataResult",
@@ -480,5 +495,6 @@ __all__ = [
     "UpdateAudioTrackResult",
     "UpdateCampaignResult",
     "UpdateParticipantResult",
+    "UpdateRecapGuidancesResult",
     "UpdateVoiceSampleResult",
 ]

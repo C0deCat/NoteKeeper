@@ -14,6 +14,7 @@ from . import (
     participant_app,
     recap_app,
     recording_app,
+    recap_prompts_app,
     review_app,
     sample_app,
     transcript_app,
@@ -51,6 +52,10 @@ def build_app(
     cli.add_typer(review_app.create_app(runtime_factory), name="review")
     cli.add_typer(transcript_app.create_app(runtime_factory), name="transcript")
     cli.add_typer(recap_app.create_app(runtime_factory), name="recap")
+    cli.add_typer(
+        recap_prompts_app.create_app(runtime_factory),
+        name="recap-prompts",
+    )
     diagnostics_app.register_command(cli, runtime_factory)
     app.add_typer(cli, name="cli")
     return app

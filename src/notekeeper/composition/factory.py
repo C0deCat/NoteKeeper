@@ -2,11 +2,8 @@
 
 from __future__ import annotations
 
-import json
 import os
 from dataclasses import dataclass
-from pathlib import Path
-from typing import Any
 
 from notekeeper.application.ports import (
     AudioMetadataReader,
@@ -22,6 +19,7 @@ from notekeeper.application.ports import (
     JobRepository,
     ParticipantRepository,
     PreparedAudioManifestStore,
+    RecapGuidances,
     RecapGenerator,
     RecapRepository,
     SpeakerIdentifier,
@@ -42,12 +40,12 @@ from notekeeper.infrastructure.cleanup import (
     LocalJobCleaner,
     LocalTransientAudioCleaner,
 )
-from notekeeper.infrastructure.errors import InfrastructureError
 from notekeeper.infrastructure.ffmpeg import (
     FfmpegAudioProcessor,
     FfmpegRecordingNormalizer,
 )
 from notekeeper.infrastructure.filesystem import (
+    JsonCampaignRecapGuidances,
     LocalAudioMetadataReader,
     LocalCampaignArtifactStorage,
     LocalCampaignFolderScanner,
@@ -75,8 +73,6 @@ from notekeeper.infrastructure.tokenization import TiktokenTranscriptTokenizer
 
 from .settings import NoteKeeperSettings
 
-CHUNK_RECAP_PROMPT_KEY = "chunk_recap_prompt"
-COMBINE_CHUNKS_PROMPT_KEY = "combine_chunks_prompt"
 _FFMPEG_DLL_DIRECTORY_HANDLES: list[object] = []
 _CONFIGURED_FFMPEG_DLL_DIRECTORIES: set[str] = set()
 
@@ -94,6 +90,7 @@ class InfrastructureBundle:
     transcriber: Transcriber
     speaker_identifier: SpeakerIdentifier
     tokenizer: Tokenizer
+    recap_guidances: RecapGuidances
     recap_generator: RecapGenerator
     campaign_repository: CampaignRepository
     participant_repository: ParticipantRepository
@@ -114,7 +111,6 @@ def build_infrastructure(
 ) -> InfrastructureBundle:
     resolved_settings = settings or NoteKeeperSettings()
     _configure_ffmpeg_dll_directory(resolved_settings)
-    recap_prompts = _load_recap_prompts(resolved_settings.recap_prompts_file)
     database = SQLiteDatabase(resolved_settings.sqlite_path)
     database.initialize()
 
@@ -188,6 +184,7 @@ def build_infrastructure(
         encoding_name=resolved_settings.tokenizer_encoding_name,
         max_token_count=resolved_settings.tokenizer_max_token_count,
     )
+    recap_guidances = JsonCampaignRecapGuidances(artifact_storage)
     deepseek_request_logger = (
         LocalDeepSeekRequestLogger(
             artifact_storage,
@@ -198,8 +195,6 @@ def build_infrastructure(
         else NoOpDeepSeekRequestLogger()
     )
     recap_generator = DeepSeekRecapGenerator(
-        chunk_recap_prompt=recap_prompts[CHUNK_RECAP_PROMPT_KEY],
-        combine_chunks_prompt=recap_prompts[COMBINE_CHUNKS_PROMPT_KEY],
         api_key=resolved_settings.deepseek_api_key,
         base_url=resolved_settings.deepseek_base_url,
         model_name=resolved_settings.deepseek_model_name,
@@ -222,6 +217,7 @@ def build_infrastructure(
         transcriber=transcriber,
         speaker_identifier=speaker_identifier,
         tokenizer=tokenizer,
+        recap_guidances=recap_guidances,
         recap_generator=recap_generator,
         campaign_repository=SQLiteCampaignRepository(database),
         participant_repository=SQLiteParticipantRepository(database),
@@ -253,34 +249,3 @@ def _configure_ffmpeg_dll_directory(settings: NoteKeeperSettings) -> None:
     handle = os.add_dll_directory(ffmpeg_bin)
     _FFMPEG_DLL_DIRECTORY_HANDLES.append(handle)
     _CONFIGURED_FFMPEG_DLL_DIRECTORIES.add(ffmpeg_bin)
-
-
-def _load_recap_prompts(path: Path) -> dict[str, str]:
-    if not path.is_file():
-        raise InfrastructureError(f"recap prompts file does not exist: {path}")
-
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        raise InfrastructureError(f"could not read recap prompts file: {path}") from exc
-
-    if not isinstance(payload, dict):
-        raise InfrastructureError("recap prompts file must contain a JSON object")
-
-    return {
-        CHUNK_RECAP_PROMPT_KEY: _required_prompt(
-            payload,
-            CHUNK_RECAP_PROMPT_KEY,
-        ),
-        COMBINE_CHUNKS_PROMPT_KEY: _required_prompt(
-            payload,
-            COMBINE_CHUNKS_PROMPT_KEY,
-        ),
-    }
-
-
-def _required_prompt(payload: dict[str, Any], key: str) -> str:
-    value = payload.get(key)
-    if not isinstance(value, str) or not value.strip():
-        raise InfrastructureError(f"recap prompts file is missing prompt: {key}")
-    return value.strip()

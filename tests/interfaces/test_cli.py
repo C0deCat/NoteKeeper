@@ -1,5 +1,7 @@
+import json
 from dataclasses import replace
 from datetime import datetime
+from pathlib import Path
 from types import SimpleNamespace
 
 from typer.testing import CliRunner
@@ -10,6 +12,8 @@ from notekeeper.application import (
     ExportMarkdownResult,
     GenerateRecapCommand,
     GenerateRecapResult,
+    GetRecapGuidancesCommand,
+    GetRecapGuidancesResult,
     GetJobStatusResult,
     InspectAudioMetadataResult,
     ListAudioTracksResult,
@@ -25,6 +29,8 @@ from notekeeper.application import (
     RestartFailedProcessingJobResult,
     SyncCampaignFolderCommand,
     SyncCampaignFolderResult,
+    UpdateRecapGuidancesResult,
+    UpdateRecapGuidancesCommand,
 )
 from notekeeper.domain import (
     ArtifactRef,
@@ -130,6 +136,20 @@ class FakeRuntime:
             get_job_status=FakeUseCase(GetJobStatusResult(job=job)),
             review_speaker_mappings=FakeUseCase(GetJobStatusResult(job=job)),
             generate_recap=FakeUseCase(None),
+            get_recap_guidances=FakeUseCase(
+                GetRecapGuidancesResult(
+                    campaign_id="campaign-1",
+                    chunk_recap_guidances="chunk prompt",
+                    combined_recap_guidances="combined prompt",
+                ),
+            ),
+            update_recap_guidances=FakeUseCase(
+                UpdateRecapGuidancesResult(
+                    campaign_id="campaign-1",
+                    chunk_recap_guidances="new chunk prompt",
+                    combined_recap_guidances="new combined prompt",
+                ),
+            ),
             export_transcript_markdown=FakeUseCase(
                 ExportMarkdownResult(artifact=ArtifactRef(uri="exports/t.md")),
             ),
@@ -169,7 +189,6 @@ class FakeRuntime:
             storage_root="artifacts",
             sqlite_path="notekeeper.sqlite3",
             processing_work_root="work",
-            recap_prompts_file="recap_prompts.json",
             whisperx_model_name="small",
             whisperx_device="cpu",
             whisperx_compute_type="int8",
@@ -226,6 +245,79 @@ def test_cli_campaign_sync_uses_runtime_use_case() -> None:
     command = runtime.use_cases.sync_campaign_folder.commands[0]
     assert isinstance(command, SyncCampaignFolderCommand)
     assert command.campaign_id == "campaign-1"
+
+
+def test_cli_recap_prompts_show_outputs_campaign_json() -> None:
+    runtime = FakeRuntime()
+    app = build_app(lambda: runtime, lambda value: None)
+
+    result = CliRunner().invoke(
+        app,
+        ["cli", "recap-prompts", "show", "campaign-1"],
+    )
+
+    assert result.exit_code == 0
+    assert json.loads(result.output) == {
+        "chunk_recap_prompt": "chunk prompt",
+        "combine_chunks_prompt": "combined prompt",
+    }
+    command = runtime.use_cases.get_recap_guidances.commands[0]
+    assert isinstance(command, GetRecapGuidancesCommand)
+    assert command.campaign_id == "campaign-1"
+
+
+def test_cli_recap_prompts_set_reads_both_utf8_files(tmp_path: Path) -> None:
+    runtime = FakeRuntime()
+    chunk_file = tmp_path / "chunk.txt"
+    combined_file = tmp_path / "combined.txt"
+    chunk_file.write_text("Новый chunk", encoding="utf-8")
+    combined_file.write_text("Новый combined", encoding="utf-8")
+    app = build_app(lambda: runtime, lambda value: None)
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "cli",
+            "recap-prompts",
+            "set",
+            "campaign-1",
+            "--chunk-file",
+            str(chunk_file),
+            "--combined-file",
+            str(combined_file),
+        ],
+    )
+
+    assert result.exit_code == 0
+    command = runtime.use_cases.update_recap_guidances.commands[0]
+    assert isinstance(command, UpdateRecapGuidancesCommand)
+    assert command.chunk_recap_guidances == "Новый chunk"
+    assert command.combined_recap_guidances == "Новый combined"
+
+
+def test_cli_recap_prompts_set_reports_unreadable_file(tmp_path: Path) -> None:
+    runtime = FakeRuntime()
+    combined_file = tmp_path / "combined.txt"
+    combined_file.write_text("combined", encoding="utf-8")
+    app = build_app(lambda: runtime, lambda value: None)
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "cli",
+            "recap-prompts",
+            "set",
+            "campaign-1",
+            "--chunk-file",
+            str(tmp_path / "missing.txt"),
+            "--combined-file",
+            str(combined_file),
+        ],
+    )
+
+    assert result.exit_code == 1
+    assert "could not read prompt file" in result.output
+    assert runtime.use_cases.update_recap_guidances.commands == []
 
 
 def test_cli_job_create_uses_existing_audio_track_use_case() -> None:

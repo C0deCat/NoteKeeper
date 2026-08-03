@@ -51,6 +51,7 @@ from . import (
     transcript_app,
 )
 from .campaign_management_screen import ManageCampaignsScreen
+from .campaign_settings_screen import CampaignSettingsScreen
 from .clear_failed_jobs_screen import ClearFailedJobsScreen
 from .common import format_duration, sync_result_status
 from .identifier_data_table import IdentifierDataTable
@@ -118,6 +119,7 @@ class NoteKeeperTui(App[None]):
         with Horizontal(id="topbar"):
             yield Select((), prompt="Campaign", id="campaign-select")
             yield Button("Manage Campaign", id="manage-campaign")
+            yield Button("Settings", id="settings")
             yield Static("Ready", id="status")
         with ItemGrid(
             id="campaign-actions",
@@ -229,6 +231,8 @@ class NoteKeeperTui(App[None]):
             self.refresh_dashboard()
         elif button_id == "manage-campaign":
             self._open_manage_campaigns()
+        elif button_id == "settings":
+            self._open_settings()
         elif button_id == "sync-folder":
             self._with_campaign(self._sync_campaign_folder)
         elif button_id == "add-player":
@@ -737,6 +741,7 @@ class NoteKeeperTui(App[None]):
 
         self._set_button_disabled("refresh", False)
         self._set_button_disabled("manage-campaign", False)
+        self._set_button_disabled("settings", not campaign_selected)
         self._set_button_disabled("diagnostics", False)
         self._set_button_disabled("sync-folder", not campaign_selected)
         self._set_button_disabled("add-player", not campaign_selected)
@@ -924,6 +929,26 @@ class NoteKeeperTui(App[None]):
         self.push_screen(
             ManageCampaignsScreen(self.runtime, self._selected_campaign_id),
             self._finish_manage_campaigns,
+        )
+
+    def _open_settings(self) -> None:
+        campaign_id = self._selected_campaign_id
+        if campaign_id is None:
+            self._set_status("Select a campaign")
+            return
+        try:
+            campaign = self.runtime.use_cases.get_campaign.execute(
+                GetCampaignCommand(campaign_id=campaign_id),
+            ).campaign
+        except (ApplicationError, DomainError, ValueError) as exc:
+            self._set_status(str(exc))
+            return
+        self.push_screen(
+            CampaignSettingsScreen(
+                self.runtime,
+                campaign_id,
+                campaign.name,
+            ),
         )
 
     def _finish_manage_campaigns(self, campaign_id: str | None) -> None:

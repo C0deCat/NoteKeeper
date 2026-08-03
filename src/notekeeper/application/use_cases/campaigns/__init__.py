@@ -8,6 +8,7 @@ from .delete_campaign import DeleteCampaign
 from .delete_participant import DeleteParticipant
 from .delete_voice_sample import DeleteVoiceSample
 from .get_campaign import GetCampaign
+from .get_recap_guidances import GetRecapGuidances
 from .list_audio_tracks import ListAudioTracks
 from .list_campaigns import ListCampaigns
 from .list_participants import ListParticipants
@@ -17,6 +18,7 @@ from .sync_campaign_folder import SyncCampaignFolder
 from .update_audio_track import UpdateAudioTrack
 from .update_campaign import UpdateCampaign
 from .update_participant import UpdateParticipant
+from .update_recap_guidances import UpdateRecapGuidances
 from .update_voice_sample import UpdateVoiceSample
 
 __all__ = [
@@ -28,6 +30,7 @@ __all__ = [
     "DeleteParticipant",
     "DeleteVoiceSample",
     "GetCampaign",
+    "GetRecapGuidances",
     "ListAudioTracks",
     "ListCampaigns",
     "ListParticipants",
@@ -37,5 +40,6 @@ __all__ = [
     "UpdateAudioTrack",
     "UpdateCampaign",
     "UpdateParticipant",
+    "UpdateRecapGuidances",
     "UpdateVoiceSample",
 ]

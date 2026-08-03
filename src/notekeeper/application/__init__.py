@@ -16,6 +16,7 @@ from .commands import (
     ExportTranscriptMarkdownCommand,
     GenerateRecapCommand,
     GetCampaignCommand,
+    GetRecapGuidancesCommand,
     GetJobStatusCommand,
     InspectAudioMetadataCommand,
     InspectLocalAudioFileCommand,
@@ -37,6 +38,7 @@ from .commands import (
     UpdateAudioTrackCommand,
     UpdateCampaignCommand,
     UpdateParticipantCommand,
+    UpdateRecapGuidancesCommand,
     UpdateVoiceSampleCommand,
 )
 from .errors import (
@@ -63,6 +65,7 @@ from .results import (
     ExportMarkdownResult,
     GenerateRecapResult,
     GetCampaignResult,
+    GetRecapGuidancesResult,
     GetJobStatusResult,
     InspectAudioMetadataResult,
     InspectLocalAudioFileResult,
@@ -92,6 +95,7 @@ from .results import (
     UpdateAudioTrackResult,
     UpdateCampaignResult,
     UpdateParticipantResult,
+    UpdateRecapGuidancesResult,
     UpdateVoiceSampleResult,
 )
 from .use_cases import (
@@ -110,6 +114,7 @@ from .use_cases import (
     ExportTranscriptMarkdown,
     GenerateRecap,
     GetCampaign,
+    GetRecapGuidances,
     GetJobStatus,
     InspectAudioMetadata,
     InspectLocalAudioFile,
@@ -130,6 +135,7 @@ from .use_cases import (
     UpdateAudioTrack,
     UpdateCampaign,
     UpdateParticipant,
+    UpdateRecapGuidances,
     UpdateVoiceSample,
 )
 
@@ -182,6 +188,9 @@ __all__ = [
     "GetCampaign",
     "GetCampaignCommand",
     "GetCampaignResult",
+    "GetRecapGuidances",
+    "GetRecapGuidancesCommand",
+    "GetRecapGuidancesResult",
     "GetJobStatus",
     "GetJobStatusCommand",
     "GetJobStatusResult",
@@ -255,6 +264,9 @@ __all__ = [
     "UpdateParticipant",
     "UpdateParticipantCommand",
     "UpdateParticipantResult",
+    "UpdateRecapGuidances",
+    "UpdateRecapGuidancesCommand",
+    "UpdateRecapGuidancesResult",
     "UpdateVoiceSample",
     "UpdateVoiceSampleCommand",
     "UpdateVoiceSampleResult",

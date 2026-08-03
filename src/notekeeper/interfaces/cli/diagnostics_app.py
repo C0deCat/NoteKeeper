@@ -13,7 +13,6 @@ def register_command(app: typer.Typer, runtime_factory: RuntimeFactory) -> None:
         typer.echo(f"storage_root={snapshot.storage_root}")
         typer.echo(f"sqlite_path={snapshot.sqlite_path}")
         typer.echo(f"processing_work_root={snapshot.processing_work_root}")
-        typer.echo(f"recap_prompts_file={snapshot.recap_prompts_file}")
         typer.echo(f"whisperx_model={snapshot.whisperx_model_name}")
         typer.echo(f"whisperx_device={snapshot.whisperx_device}")
         typer.echo(f"whisperx_compute_type={snapshot.whisperx_compute_type}")

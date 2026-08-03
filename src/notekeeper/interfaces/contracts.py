@@ -21,6 +21,7 @@ from notekeeper.application import (
     ExportTranscriptMarkdown,
     GenerateRecap,
     GetCampaign,
+    GetRecapGuidances,
     GetJobStatus,
     InspectAudioMetadata,
     InspectLocalAudioFile,
@@ -41,6 +42,7 @@ from notekeeper.application import (
     UpdateAudioTrack,
     UpdateCampaign,
     UpdateParticipant,
+    UpdateRecapGuidances,
 )
 from notekeeper.domain import ArtifactRef
 from notekeeper.application.ports import DashboardEventStream, ProgressEventStream
@@ -73,6 +75,8 @@ class Stage1UseCases:
     get_job_status: GetJobStatus
     review_speaker_mappings: ReviewSpeakerMappings
     generate_recap: GenerateRecap
+    get_recap_guidances: GetRecapGuidances
+    update_recap_guidances: UpdateRecapGuidances
     export_transcript_markdown: ExportTranscriptMarkdown
     export_recap_markdown: ExportRecapMarkdown
     preview_transcript_markdown: PreviewTranscriptMarkdown
@@ -90,7 +94,6 @@ class RuntimeDiagnostics:
     storage_root: str
     sqlite_path: str
     processing_work_root: str
-    recap_prompts_file: str
     whisperx_model_name: str
     whisperx_device: str
     whisperx_compute_type: str

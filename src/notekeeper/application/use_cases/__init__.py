@@ -9,6 +9,7 @@ from .campaigns import (
     DeleteParticipant,
     DeleteVoiceSample,
     GetCampaign,
+    GetRecapGuidances,
     ListAudioTracks,
     ListCampaigns,
     ListParticipants,
@@ -18,6 +19,7 @@ from .campaigns import (
     UpdateAudioTrack,
     UpdateCampaign,
     UpdateParticipant,
+    UpdateRecapGuidances,
     UpdateVoiceSample,
 )
 from .export import (
@@ -58,6 +60,7 @@ __all__ = [
     "ExportTranscriptMarkdown",
     "GenerateRecap",
     "GetCampaign",
+    "GetRecapGuidances",
     "GetJobStatus",
     "InspectAudioMetadata",
     "InspectLocalAudioFile",
@@ -78,5 +81,6 @@ __all__ = [
     "UpdateAudioTrack",
     "UpdateCampaign",
     "UpdateParticipant",
+    "UpdateRecapGuidances",
     "UpdateVoiceSample",
 ]

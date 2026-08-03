@@ -21,6 +21,11 @@ ModalScreen {
     margin-left: 1;
 }
 
+#settings {
+    width: 12;
+    margin-left: 1;
+}
+
 #status {
     width: 38;
     content-align: right middle;
@@ -118,10 +123,47 @@ ModalScreen {
     margin-right: 1;
 }
 
-.review-mappings {
-    height: auto;
-    max-height: 32;
+.settings-menu Button {
+    width: 100%;
+    margin-top: 1;
+}
+
+.recap-prompt-editor {
+    width: 90%;
+}
+
+#recap-prompt-text {
+    height: 10;
+    border: solid $accent;
+    margin: 1 0;
+}
+
+#recap-prompt-status {
+    min-height: 1;
+    color: $error;
+    margin-bottom: 1;
+}
+
+.review-modal {
+    height: 90%;
+    overflow-y: hidden;
+}
+
+.review-modal > .metadata {
+    height: 5;
     overflow-y: auto;
+}
+
+.review-mappings {
+    height: 1fr;
+    min-height: 1;
+    overflow-y: auto;
+}
+
+.review-actions {
+    height: auto;
+    min-height: 3;
+    align: left middle;
 }
 
 .review-mapping {

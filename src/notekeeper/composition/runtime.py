@@ -21,6 +21,7 @@ from notekeeper.application import (
     ExportTranscriptMarkdown,
     GenerateRecap,
     GetCampaign,
+    GetRecapGuidances,
     GetJobStatus,
     InspectAudioMetadata,
     InspectLocalAudioFile,
@@ -42,6 +43,7 @@ from notekeeper.application import (
     UpdateAudioTrack,
     UpdateCampaign,
     UpdateParticipant,
+    UpdateRecapGuidances,
 )
 from notekeeper.application.errors import ApplicationError
 from notekeeper.application.ports import DashboardEventStream, ProgressEventStream
@@ -76,7 +78,6 @@ class NoteKeeperRuntime:
             storage_root=_path_text(self.settings.storage_root),
             sqlite_path=_path_text(self.settings.sqlite_path),
             processing_work_root=_path_text(self.settings.processing_work_root),
-            recap_prompts_file=_path_text(self.settings.recap_prompts_file),
             whisperx_model_name=self.settings.whisperx_model_name,
             whisperx_device=self.settings.whisperx_device,
             whisperx_compute_type=self.settings.whisperx_compute_type,
@@ -162,6 +163,7 @@ def build_stage1_use_cases(
         create_campaign=CreateCampaign(
             infrastructure.campaign_repository,
             infrastructure.id_generator,
+            infrastructure.recap_guidances,
             infrastructure.artifact_storage,
         ),
         get_campaign=GetCampaign(infrastructure.campaign_repository),
@@ -254,6 +256,7 @@ def build_stage1_use_cases(
             infrastructure.job_repository,
             infrastructure.speaker_mapping_repository,
             infrastructure.tokenizer,
+            infrastructure.recap_guidances,
             infrastructure.recap_generator,
             infrastructure.clock,
             infrastructure.id_generator,
@@ -264,10 +267,19 @@ def build_stage1_use_cases(
             infrastructure.transcript_repository,
             infrastructure.recap_repository,
             infrastructure.tokenizer,
+            infrastructure.recap_guidances,
             infrastructure.recap_generator,
             infrastructure.clock,
             infrastructure.id_generator,
             progress_tracker_factory=progress_tracker_factory,
+        ),
+        get_recap_guidances=GetRecapGuidances(
+            infrastructure.campaign_repository,
+            infrastructure.recap_guidances,
+        ),
+        update_recap_guidances=UpdateRecapGuidances(
+            infrastructure.campaign_repository,
+            infrastructure.recap_guidances,
         ),
         export_transcript_markdown=ExportTranscriptMarkdown(
             infrastructure.transcript_repository,

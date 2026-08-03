@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 from textual.containers import VerticalScroll
 from textual.coordinate import Coordinate
-from textual.widgets import Button, DataTable, Input, Select, Static, Switch
+from textual.widgets import Button, DataTable, Input, Select, Static, Switch, TextArea
 
 from notekeeper.application import (
     ClearFailedJobsForCampaignCommand,
@@ -24,6 +24,8 @@ from notekeeper.application import (
     GenerateRecapResult,
     GetCampaignCommand,
     GetCampaignResult,
+    GetRecapGuidancesResult,
+    GetRecapGuidancesCommand,
     GetJobStatusResult,
     InspectAudioMetadataResult,
     InspectLocalAudioFileResult,
@@ -41,6 +43,8 @@ from notekeeper.application import (
     UpdateAudioTrackCommand,
     UpdateCampaignResult,
     UpdateParticipantCommand,
+    UpdateRecapGuidancesResult,
+    UpdateRecapGuidancesCommand,
 )
 from notekeeper.domain import (
     ArtifactRef,
@@ -66,6 +70,7 @@ from notekeeper.interfaces.tui import (
     VoiceSampleScreen,
 )
 from notekeeper.interfaces.tui.campaign_management_screen import ManageCampaignsScreen
+from notekeeper.interfaces.tui.campaign_settings_screen import CampaignSettingsScreen
 from notekeeper.interfaces.tui.clear_failed_jobs_screen import ClearFailedJobsScreen
 from notekeeper.interfaces.tui.identifier_data_table import compact_identifier
 from notekeeper.interfaces.tui.job_action_confirmation_screen import (
@@ -75,6 +80,9 @@ from notekeeper.interfaces.tui.object_action_confirmation_screen import (
     ObjectActionConfirmationScreen,
 )
 from notekeeper.interfaces.tui.preview_app import MarkdownPreviewScreen
+from notekeeper.interfaces.tui.recap_prompt_editor_screen import (
+    RecapPromptEditorScreen,
+)
 from notekeeper.interfaces.tui.remove_voice_sample_screen import (
     RemoveVoiceSampleScreen,
 )
@@ -371,6 +379,20 @@ class FakeRuntime:
                 list_jobs,
                 self.dashboard_events,
             ),
+            get_recap_guidances=FakeUseCase(
+                GetRecapGuidancesResult(
+                    campaign_id="campaign-1",
+                    chunk_recap_guidances="chunk prompt",
+                    combined_recap_guidances="combined prompt",
+                ),
+            ),
+            update_recap_guidances=FakeUseCase(
+                UpdateRecapGuidancesResult(
+                    campaign_id="campaign-1",
+                    chunk_recap_guidances="updated chunk prompt",
+                    combined_recap_guidances="updated combined prompt",
+                ),
+            ),
             export_transcript_markdown=FakeUseCase(None),
             export_recap_markdown=FakeUseCase(None),
             preview_transcript_markdown=FakeUseCase(None),
@@ -402,7 +424,6 @@ class FakeRuntime:
             storage_root="artifacts",
             sqlite_path="notekeeper.sqlite3",
             processing_work_root="work",
-            recap_prompts_file="recap_prompts.json",
             whisperx_model_name="small",
             whisperx_device="cpu",
             whisperx_compute_type="int8",
@@ -1251,6 +1272,67 @@ def test_tui_campaign_actions_wrap_by_available_width() -> None:
     asyncio.run(run())
 
 
+def test_tui_campaign_settings_edit_each_recap_prompt_independently() -> None:
+    async def run() -> None:
+        runtime = FakeRuntime()
+        app = NoteKeeperTui(runtime)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            topbar_buttons = [button.id for button in app.query("#topbar Button")]
+            assert topbar_buttons == ["manage-campaign", "settings"]
+            assert app.query_one("#settings", Button).disabled is False
+
+            await pilot.click("#settings")
+            await pilot.pause()
+            assert isinstance(app.screen, CampaignSettingsScreen)
+            assert app.screen.query_one("#chunk-recap-prompt", Button)
+            assert app.screen.query_one("#combined-recap-prompt", Button)
+
+            await pilot.click("#chunk-recap-prompt")
+            await pilot.pause()
+            assert isinstance(app.screen, RecapPromptEditorScreen)
+            editor = app.screen.query_one("#recap-prompt-text", TextArea)
+            assert editor.text == "chunk prompt"
+            assert isinstance(
+                runtime.use_cases.get_recap_guidances.commands[-1],
+                GetRecapGuidancesCommand,
+            )
+            editor.text = "updated chunk"
+            await pilot.pause()
+            assert app.screen.query_one("#save", Button).disabled is False
+            await pilot.click("#save")
+            await pilot.pause()
+            assert isinstance(app.screen, CampaignSettingsScreen)
+            chunk_command = runtime.use_cases.update_recap_guidances.commands[-1]
+            assert isinstance(chunk_command, UpdateRecapGuidancesCommand)
+            assert chunk_command.chunk_recap_guidances == "updated chunk"
+            assert chunk_command.combined_recap_guidances is None
+
+            await pilot.click("#combined-recap-prompt")
+            await pilot.pause()
+            assert isinstance(app.screen, RecapPromptEditorScreen)
+            editor = app.screen.query_one("#recap-prompt-text", TextArea)
+            assert editor.text == "combined prompt"
+            editor.text = "  "
+            await pilot.pause()
+            assert app.screen.query_one("#save", Button).disabled is True
+            await pilot.click("#cancel")
+            await pilot.pause()
+            assert isinstance(app.screen, CampaignSettingsScreen)
+
+    asyncio.run(run())
+
+
+def test_tui_settings_are_disabled_without_campaigns() -> None:
+    async def run() -> None:
+        app = NoteKeeperTui(FakeRuntime(has_campaigns=False))
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            assert app.query_one("#settings", Button).disabled is True
+
+    asyncio.run(run())
+
+
 def test_tui_manages_campaigns_in_a_modal() -> None:
     async def run() -> None:
         runtime = FakeRuntime()
@@ -1631,6 +1713,51 @@ def test_tui_review_screen_defaults_to_custom_labels_without_players() -> None:
                     ),
                 ),
             ]
+
+    asyncio.run(run())
+
+
+def test_tui_review_screen_keeps_actions_visible_with_many_speakers() -> None:
+    async def run() -> None:
+        runtime = FakeRuntime()
+        job = runtime.use_cases.list_jobs_for_campaign.result.jobs[0]
+        warnings = tuple(
+            PipelineWarning(
+                kind=PipelineWarningKind.UNRESOLVED_SPEAKER_LABEL,
+                message=f"SPEAKER_{index:02d} is unresolved",
+                speaker_label=SpeakerLabel.anonymous(f"SPEAKER_{index:02d}"),
+            )
+            for index in range(12)
+        )
+        waiting_job = replace(
+            job,
+            status=JobStatus.WAITING_FOR_REVIEW,
+            transcript_id="transcript-1",
+            warnings=warnings,
+        )
+        app = NoteKeeperTui(runtime)
+
+        async with app.run_test(size=(100, 30)) as pilot:
+            app.push_screen(ReviewMappingsScreen(waiting_job, ()))
+            await pilot.pause()
+            screen = app.screen
+
+            assert isinstance(screen, ReviewMappingsScreen)
+            modal = screen.query_one(".review-modal")
+            mappings = screen.query_one(".review-mappings")
+            actions = screen.query_one(".review-actions")
+            submit = screen.query_one("#submit", Button)
+            cancel = screen.query_one("#cancel", Button)
+
+            assert mappings.max_scroll_y > 0
+            assert actions.region.y >= mappings.region.bottom
+            assert submit.region.bottom <= modal.region.bottom
+            assert cancel.region.bottom <= modal.region.bottom
+
+            action_region = actions.region
+            mappings.scroll_end(animate=False)
+            await pilot.pause()
+            assert actions.region == action_region
 
     asyncio.run(run())
 

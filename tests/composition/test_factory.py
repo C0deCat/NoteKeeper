@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from dataclasses import fields
 from pathlib import Path
 from typing import get_type_hints
@@ -21,6 +20,7 @@ from notekeeper.application.ports import (
     JobRepository,
     ParticipantRepository,
     PreparedAudioManifestStore,
+    RecapGuidances,
     RecapGenerator,
     RecapRepository,
     SpeakerIdentifier,
@@ -48,6 +48,7 @@ from notekeeper.infrastructure.deepseek import (
 )
 from notekeeper.infrastructure.ffmpeg import FfmpegAudioProcessor
 from notekeeper.infrastructure.filesystem import (
+    JsonCampaignRecapGuidances,
     LocalAudioMetadataReader,
     LocalCampaignArtifactStorage,
     LocalCampaignFolderScanner,
@@ -85,6 +86,7 @@ def test_infrastructure_bundle_uses_port_types_only() -> None:
         "transcriber": Transcriber,
         "speaker_identifier": SpeakerIdentifier,
         "tokenizer": Tokenizer,
+        "recap_guidances": RecapGuidances,
         "recap_generator": RecapGenerator,
         "campaign_repository": CampaignRepository,
         "participant_repository": ParticipantRepository,
@@ -106,6 +108,7 @@ def test_infrastructure_bundle_uses_port_types_only() -> None:
         LocalCampaignArtifactStorage,
         LocalCampaignFolderScanner,
         LocalPreparedAudioManifestStore,
+        JsonCampaignRecapGuidances,
         LocalJobCleaner,
         SampleBasedSpeakerIdentifier,
         TiktokenTranscriptTokenizer,
@@ -131,6 +134,7 @@ def test_infrastructure_implementations_inherit_ports() -> None:
         LocalCampaignFolderScanner: CampaignFolderScanner,
         LocalAudioMetadataReader: AudioMetadataReader,
         LocalPreparedAudioManifestStore: PreparedAudioManifestStore,
+        JsonCampaignRecapGuidances: RecapGuidances,
         FfmpegAudioProcessor: AudioProcessor,
         WhisperXTranscriber: Transcriber,
         SampleBasedSpeakerIdentifier: SpeakerIdentifier,
@@ -157,21 +161,20 @@ def test_infrastructure_error_is_port_execution_error() -> None:
     assert issubclass(InfrastructureError, PortExecutionError)
 
 
-def test_build_infrastructure_loads_recap_prompts(
+def test_build_infrastructure_wires_campaign_recap_guidances_without_loading_prompts(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    prompts_file = _prompt_file(tmp_path, "chunk prompt", "combine prompt")
     captured: dict[str, object] = {}
 
     class CapturingRecapGenerator(RecapGenerator):
         def __init__(self, **kwargs) -> None:
             captured.update(kwargs)
 
-        def generate_chunk(self, chunk, *, context):
+        def generate_chunk(self, chunk, *, guidance, context):
             return "chunk"
 
-        def combine_chunks(self, chunks, *, context):
+        def combine_chunks(self, chunks, *, guidance, context):
             return "combined"
 
     monkeypatch.setattr(
@@ -184,15 +187,15 @@ def test_build_infrastructure_loads_recap_prompts(
         NoteKeeperSettings(
             storage_root=tmp_path / "artifacts",
             sqlite_path=tmp_path / "notekeeper.sqlite3",
-            recap_prompts_file=prompts_file,
             deepseek_api_key="secret-key",
         ),
     )
 
     assert isinstance(bundle.tokenizer, TiktokenTranscriptTokenizer)
+    assert isinstance(bundle.recap_guidances, JsonCampaignRecapGuidances)
     assert isinstance(bundle.recap_generator, CapturingRecapGenerator)
-    assert captured["chunk_recap_prompt"] == "chunk prompt"
-    assert captured["combine_chunks_prompt"] == "combine prompt"
+    assert "chunk_recap_prompt" not in captured
+    assert "combine_chunks_prompt" not in captured
     assert captured["api_key"] == "secret-key"
     assert isinstance(captured["request_logger"], NoOpDeepSeekRequestLogger)
 
@@ -201,17 +204,16 @@ def test_build_infrastructure_can_enable_deepseek_request_logging(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    prompts_file = _prompt_file(tmp_path, "chunk prompt", "combine prompt")
     captured: dict[str, object] = {}
 
     class CapturingRecapGenerator(RecapGenerator):
         def __init__(self, **kwargs) -> None:
             captured.update(kwargs)
 
-        def generate_chunk(self, chunk, *, context):
+        def generate_chunk(self, chunk, *, guidance, context):
             return "chunk"
 
-        def combine_chunks(self, chunks, *, context):
+        def combine_chunks(self, chunks, *, guidance, context):
             return "combined"
 
     monkeypatch.setattr(
@@ -224,7 +226,6 @@ def test_build_infrastructure_can_enable_deepseek_request_logging(
         NoteKeeperSettings(
             storage_root=tmp_path / "artifacts",
             sqlite_path=tmp_path / "notekeeper.sqlite3",
-            recap_prompts_file=prompts_file,
             deepseek_request_logging_enabled=True,
             deepseek_log_full_payloads=True,
         ),
@@ -237,7 +238,6 @@ def test_build_infrastructure_configures_ffmpeg_dll_directory_on_windows(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    prompts_file = _prompt_file(tmp_path, "chunk prompt", "combine prompt")
     ffmpeg_bin = tmp_path / "ffmpeg" / "bin"
     configured_paths: list[str] = []
 
@@ -248,10 +248,10 @@ def test_build_infrastructure_configures_ffmpeg_dll_directory_on_windows(
         def __init__(self, **kwargs) -> None:
             pass
 
-        def generate_chunk(self, chunk, *, context):
+        def generate_chunk(self, chunk, *, guidance, context):
             return "chunk"
 
-        def combine_chunks(self, chunks, *, context):
+        def combine_chunks(self, chunks, *, guidance, context):
             return "combined"
 
     monkeypatch.setattr(factory_module.os, "name", "nt")
@@ -272,7 +272,6 @@ def test_build_infrastructure_configures_ffmpeg_dll_directory_on_windows(
         NoteKeeperSettings(
             storage_root=tmp_path / "artifacts",
             sqlite_path=tmp_path / "notekeeper.sqlite3",
-            recap_prompts_file=prompts_file,
             ffmpeg_bin=ffmpeg_bin,
         ),
     )
@@ -285,17 +284,16 @@ def test_build_infrastructure_skips_ffmpeg_dll_directory_without_setting(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    prompts_file = _prompt_file(tmp_path, "chunk prompt", "combine prompt")
     configured_paths: list[str] = []
 
     class CapturingRecapGenerator(RecapGenerator):
         def __init__(self, **kwargs) -> None:
             pass
 
-        def generate_chunk(self, chunk, *, context):
+        def generate_chunk(self, chunk, *, guidance, context):
             return "chunk"
 
-        def combine_chunks(self, chunks, *, context):
+        def combine_chunks(self, chunks, *, guidance, context):
             return "combined"
 
     monkeypatch.setattr(factory_module.os, "name", "nt")
@@ -314,52 +312,8 @@ def test_build_infrastructure_skips_ffmpeg_dll_directory_without_setting(
         NoteKeeperSettings(
             storage_root=tmp_path / "artifacts",
             sqlite_path=tmp_path / "notekeeper.sqlite3",
-            recap_prompts_file=prompts_file,
             ffmpeg_bin=None,
         ),
     )
 
     assert configured_paths == []
-
-
-def test_build_infrastructure_rejects_missing_recap_prompts_file(
-    tmp_path: Path,
-) -> None:
-    with pytest.raises(InfrastructureError, match="recap prompts file does not exist"):
-        build_infrastructure(
-            NoteKeeperSettings(
-                storage_root=tmp_path / "artifacts",
-                sqlite_path=tmp_path / "notekeeper.sqlite3",
-                recap_prompts_file=tmp_path / "missing.json",
-            ),
-        )
-
-
-def test_build_infrastructure_rejects_malformed_recap_prompts_file(
-    tmp_path: Path,
-) -> None:
-    prompts_file = tmp_path / "recap_prompts.json"
-    prompts_file.write_text("[]", encoding="utf-8")
-
-    with pytest.raises(InfrastructureError, match="must contain a JSON object"):
-        build_infrastructure(
-            NoteKeeperSettings(
-                storage_root=tmp_path / "artifacts",
-                sqlite_path=tmp_path / "notekeeper.sqlite3",
-                recap_prompts_file=prompts_file,
-            ),
-        )
-
-
-def _prompt_file(tmp_path: Path, chunk_prompt: str, combine_prompt: str) -> Path:
-    prompts_file = tmp_path / "recap_prompts.json"
-    prompts_file.write_text(
-        json.dumps(
-            {
-                "chunk_recap_prompt": chunk_prompt,
-                "combine_chunks_prompt": combine_prompt,
-            },
-        ),
-        encoding="utf-8",
-    )
-    return prompts_file

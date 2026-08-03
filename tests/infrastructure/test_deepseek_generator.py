@@ -63,6 +63,7 @@ def test_deepseek_generator_sends_chunk_prompt_and_returns_markdown() -> None:
             time_range=TimeRange(0, 5),
             source_segment_indexes=(0,),
         ),
+        guidance="chunk prompt",
         context=_context(),
     )
 
@@ -90,6 +91,7 @@ def test_deepseek_generator_combines_partial_recaps_with_metadata() -> None:
                 source_segment_indexes=(0, 1),
             ),
         ),
+        guidance="combine prompt",
         context=_context(chunk_index=None),
     )
 
@@ -109,6 +111,7 @@ def test_deepseek_generator_retries_after_temporary_failure() -> None:
 
     markdown = generator.generate_chunk(
         TranscriptChunk(text="hello"),
+        guidance="chunk prompt",
         context=_context(),
     )
 
@@ -122,7 +125,11 @@ def test_deepseek_generator_wraps_exhausted_retries() -> None:
     generator = _generator(client, retry_count=1, sleep=lambda _: None)
 
     with pytest.raises(InfrastructureError, match="after 2 attempts"):
-        generator.generate_chunk(TranscriptChunk(text="hello"), context=_context())
+        generator.generate_chunk(
+            TranscriptChunk(text="hello"),
+            guidance="chunk prompt",
+            context=_context(),
+        )
 
 
 def test_deepseek_generator_rejects_empty_response() -> None:
@@ -130,19 +137,25 @@ def test_deepseek_generator_rejects_empty_response() -> None:
     generator = _generator(client, retry_count=0)
 
     with pytest.raises(InfrastructureError, match="empty"):
-        generator.generate_chunk(TranscriptChunk(text="hello"), context=_context())
+        generator.generate_chunk(
+            TranscriptChunk(text="hello"),
+            guidance="chunk prompt",
+            context=_context(),
+        )
 
 
 def test_deepseek_generator_requires_api_key_for_real_client() -> None:
     generator = DeepSeekRecapGenerator(
-        chunk_recap_prompt="chunk prompt",
-        combine_chunks_prompt="combine prompt",
         api_key=None,
         retry_count=0,
     )
 
     with pytest.raises(InfrastructureError, match="API key"):
-        generator.generate_chunk(TranscriptChunk(text="hello"), context=_context())
+        generator.generate_chunk(
+            TranscriptChunk(text="hello"),
+            guidance="chunk prompt",
+            context=_context(),
+        )
 
 
 def test_deepseek_request_logger_omits_full_payload_by_default(
@@ -165,6 +178,7 @@ def test_deepseek_request_logger_omits_full_payload_by_default(
 
     generator.generate_chunk(
         TranscriptChunk(text="secret transcript text"),
+        guidance="chunk prompt",
         context=_context(),
     )
 
@@ -191,6 +205,7 @@ def test_deepseek_request_logger_can_include_full_payloads(
 
     generator.generate_chunk(
         TranscriptChunk(text="secret transcript text"),
+        guidance="chunk prompt",
         context=_context(),
     )
 
@@ -219,6 +234,7 @@ def test_deepseek_request_logger_records_retry_attempts(tmp_path: Path) -> None:
 
     markdown = generator.generate_chunk(
         TranscriptChunk(text="hello"),
+        guidance="chunk prompt",
         context=_context(),
     )
 
@@ -241,8 +257,6 @@ def _generator(
     sleep=None,
 ) -> DeepSeekRecapGenerator:
     return DeepSeekRecapGenerator(
-        chunk_recap_prompt="chunk prompt",
-        combine_chunks_prompt="combine prompt",
         model_name="test-model",
         temperature=0.3,
         timeout_seconds=99,

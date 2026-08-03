@@ -57,4 +57,3 @@ class NoteKeeperSettings(BaseSettings):
     deepseek_retry_backoff_seconds: float = 1.0
     deepseek_request_logging_enabled: bool = False
     deepseek_log_full_payloads: bool = False
-    recap_prompts_file: Path = Field(default=Path("data") / "recap_prompts.json")

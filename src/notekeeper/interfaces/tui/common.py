@@ -56,7 +56,6 @@ def diagnostics_text(diagnostics: RuntimeDiagnostics) -> str:
         f"storage root: {diagnostics.storage_root}",
         f"sqlite path: {diagnostics.sqlite_path}",
         f"processing work root: {diagnostics.processing_work_root}",
-        f"recap prompts file: {diagnostics.recap_prompts_file}",
         f"whisperx model: {diagnostics.whisperx_model_name}",
         f"whisperx device: {diagnostics.whisperx_device}",
         f"whisperx compute type: {diagnostics.whisperx_compute_type}",
