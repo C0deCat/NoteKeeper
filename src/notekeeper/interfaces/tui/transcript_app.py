@@ -1,5 +1,9 @@
 """Transcript preview and export actions."""
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 from notekeeper.application import (
     ApplicationError,
     ExportTranscriptMarkdownCommand,
@@ -9,8 +13,11 @@ from notekeeper.domain import DomainError
 
 from .preview_app import MarkdownPreviewScreen
 
+if TYPE_CHECKING:
+    from .tui import NoteKeeperTui
 
-def preview_transcript(app) -> None:
+
+def preview_transcript(app: NoteKeeperTui) -> None:
     job = app._selected_job()
     if job is None or job.transcript_id is None:
         app._set_status("No transcript")
@@ -24,7 +31,7 @@ def preview_transcript(app) -> None:
         app._set_status(str(exc))
 
 
-def export_transcript(app) -> None:
+def export_transcript(app: NoteKeeperTui) -> None:
     job = app._selected_job()
     if job is None or job.transcript_id is None:
         app._set_status("No transcript")

@@ -20,6 +20,7 @@ from notekeeper.application.errors import PortExecutionError
 from notekeeper.application.ports import (
     JobProcessExecutor,
     JobRepository,
+    DashboardEventHub,
     ProgressEventHub,
     TransientAudioCleaner,
 )
@@ -36,11 +37,13 @@ class LocalProcessJobExecutor(JobProcessExecutor):
         settings: Any,
         job_repository: JobRepository,
         progress_events: ProgressEventHub | None = None,
+        dashboard_events: DashboardEventHub | None = None,
         transient_audio_cleaner: TransientAudioCleaner | None = None,
     ) -> None:
         self._settings = settings
         self._job_repository = job_repository
         self._progress_events = progress_events
+        self._dashboard_events = dashboard_events
         self._transient_audio_cleaner = transient_audio_cleaner
         self._context = multiprocessing.get_context("spawn")
         self._processes: dict[str, BaseProcess] = {}
@@ -75,6 +78,10 @@ class LocalProcessJobExecutor(JobProcessExecutor):
                                 self._terminal_operations.add(key)
                         if self._progress_events is not None:
                             self._progress_events.publish(payload)
+                        continue
+                    if kind == "dashboard":
+                        if self._dashboard_events is not None:
+                            self._dashboard_events.publish(payload)
                         continue
                     message = (kind, payload)
             except EOFError:
@@ -171,6 +178,8 @@ class LocalProcessJobExecutor(JobProcessExecutor):
 
 
 def _execute_job(settings: Any, job_id: str, result_writer) -> None:
+    from dataclasses import replace
+
     from .process_message_writer import ProcessMessageWriter
 
     writer = ProcessMessageWriter(result_writer)
@@ -178,10 +187,18 @@ def _execute_job(settings: Any, job_id: str, result_writer) -> None:
         from .factory import build_infrastructure
         from .job_pipeline import build_processing_pipeline
         from notekeeper.infrastructure.runtime import (
+            EventPublishingJobRepository,
             StreamingProgressTrackerFactory,
         )
 
         infrastructure = build_infrastructure(settings)
+        infrastructure = replace(
+            infrastructure,
+            job_repository=EventPublishingJobRepository(
+                infrastructure.job_repository,
+                writer,
+            ),
+        )
         pipeline = build_processing_pipeline(
             infrastructure,
             progress_tracker_factory=StreamingProgressTrackerFactory(writer),

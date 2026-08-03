@@ -1,5 +1,9 @@
 """Recap generation, preview, and export actions."""
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 from notekeeper.application import (
     ApplicationError,
     ExportRecapMarkdownCommand,
@@ -10,8 +14,11 @@ from notekeeper.domain import DomainError
 
 from .preview_app import MarkdownPreviewScreen
 
+if TYPE_CHECKING:
+    from .tui import NoteKeeperTui
 
-def recreate_recap(app) -> None:
+
+def recreate_recap(app: NoteKeeperTui) -> None:
     job = app._selected_job()
     if job is None or job.transcript_id is None:
         app._set_status("No transcript")
@@ -29,7 +36,7 @@ def recreate_recap(app) -> None:
     )
 
 
-def preview_recap(app) -> None:
+def preview_recap(app: NoteKeeperTui) -> None:
     job = app._selected_job()
     if job is None or job.recap_id is None:
         app._set_status("No recap")
@@ -43,7 +50,7 @@ def preview_recap(app) -> None:
         app._set_status(str(exc))
 
 
-def export_recap(app) -> None:
+def export_recap(app: NoteKeeperTui) -> None:
     job = app._selected_job()
     if job is None or job.recap_id is None:
         app._set_status("No recap")

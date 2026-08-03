@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical
 from textual.screen import ModalScreen
@@ -12,13 +14,25 @@ from notekeeper.application import (
     ManualSpeakerMappingCommand,
     ReviewSpeakerMappingsCommand,
 )
-from notekeeper.domain import JobStatus, PipelineWarningKind
+from notekeeper.domain import (
+    JobStatus,
+    Participant,
+    PipelineWarningKind,
+    ProcessingJob,
+)
 
 from .common import warnings_text
 
+if TYPE_CHECKING:
+    from .tui import NoteKeeperTui
+
 
 class ReviewMappingsScreen(ModalScreen[tuple[ManualSpeakerMappingCommand, ...] | None]):
-    def __init__(self, job, participants) -> None:
+    def __init__(
+        self,
+        job: ProcessingJob,
+        participants: tuple[Participant, ...],
+    ) -> None:
         super().__init__()
         self.job = job
         self.participants = participants
@@ -133,7 +147,7 @@ class ReviewMappingsScreen(ModalScreen[tuple[ManualSpeakerMappingCommand, ...] |
         self.query_one("#review-error", Static).update(message)
 
 
-def open_review(app, campaign_id: str) -> None:
+def open_review(app: NoteKeeperTui, campaign_id: str) -> None:
     job = app._selected_job()
     if job is None:
         app._set_status("Select a job")
@@ -151,10 +165,15 @@ def open_review(app, campaign_id: str) -> None:
     )
 
 
-def review_selected_job(app, mappings: tuple[ManualSpeakerMappingCommand, ...]) -> None:
+def review_selected_job(
+    app: NoteKeeperTui,
+    mappings: tuple[ManualSpeakerMappingCommand, ...],
+) -> None:
     job = app._selected_job()
     if job is None or not mappings:
         return
+    app._review_job_id = str(job.id)
+    app._update_action_buttons()
     app._watch_progress(str(job.id))
     app.run_worker(
         lambda: app.runtime.use_cases.review_speaker_mappings.execute(

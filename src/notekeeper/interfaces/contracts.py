@@ -43,7 +43,7 @@ from notekeeper.application import (
     UpdateParticipant,
 )
 from notekeeper.domain import ArtifactRef
-from notekeeper.application.ports import ProgressEventStream
+from notekeeper.application.ports import DashboardEventStream, ProgressEventStream
 
 
 @dataclass(frozen=True, slots=True)
@@ -106,6 +106,7 @@ class RuntimeDiagnostics:
 class InterfaceRuntime(Protocol):
     use_cases: Stage1UseCases
     progress_events: ProgressEventStream
+    dashboard_events: DashboardEventStream
 
     def diagnostics(self, campaign_id: str | None = None) -> RuntimeDiagnostics: ...
 

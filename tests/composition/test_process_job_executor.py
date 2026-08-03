@@ -6,6 +6,11 @@ from types import SimpleNamespace
 import psutil
 import pytest
 
+from notekeeper.application import (
+    DashboardChangedEvent,
+    DashboardRefreshScope,
+    RunProcessingJobResult,
+)
 from notekeeper.application.errors import PortExecutionError
 from notekeeper.composition.process_job_executor import (
     LocalProcessJobExecutor,
@@ -18,6 +23,7 @@ from notekeeper.domain import (
     ProcessingJob,
     ProcessingJobId,
 )
+from notekeeper.infrastructure.runtime import InMemoryDashboardEventHub
 
 
 def test_process_executor_cleans_transient_audio_after_child_crash() -> None:
@@ -45,6 +51,41 @@ def test_process_executor_cleans_transient_audio_after_child_crash() -> None:
         executor.execute(job.id)
 
     assert cleaner.calls == [(job.campaign_id, job.id)]
+
+
+def test_process_executor_forwards_dashboard_events_from_child() -> None:
+    job = ProcessingJob(
+        id=ProcessingJobId("job-1"),
+        campaign_id=CampaignId("campaign-1"),
+        audio_track_id=AudioTrackId("audio-track-1"),
+        status=JobStatus.RUNNING,
+        created_at=datetime(2026, 1, 1),
+        updated_at=datetime(2026, 1, 1),
+    )
+    event = DashboardChangedEvent(
+        campaign_id="campaign-1",
+        scope=DashboardRefreshScope.CAMPAIGN_CONTENT,
+    )
+    result = RunProcessingJobResult(
+        job=job,
+        transcript=None,
+        recap=None,
+        warnings=(),
+    )
+    dashboard_events = InMemoryDashboardEventHub()
+    received: list[DashboardChangedEvent] = []
+    dashboard_events.subscribe(received.append)
+    executor = LocalProcessJobExecutor(
+        SimpleNamespace(),
+        _JobRepository(job),
+        dashboard_events=dashboard_events,
+    )
+    executor._context = _MessageProcessContext(
+        (("dashboard", event), ("result", result)),
+    )
+
+    assert executor.execute(job.id) == result
+    assert received == [event]
 
 
 def test_terminate_process_tree_stops_parent_and_child() -> None:
@@ -105,9 +146,35 @@ class _CrashedProcessContext:
         return _CrashedProcess()
 
 
+class _MessageProcessContext:
+    def __init__(self, messages) -> None:
+        self._messages = messages
+
+    def Pipe(self, *, duplex: bool):
+        assert duplex is False
+        return _MessageReader(self._messages), _ClosedWriter()
+
+    def Process(self, **kwargs):
+        return _SuccessfulProcess()
+
+
 class _EmptyReader:
     def poll(self, timeout: float | None = None) -> bool:
         return False
+
+    def close(self) -> None:
+        return None
+
+
+class _MessageReader:
+    def __init__(self, messages) -> None:
+        self._messages = list(messages)
+
+    def poll(self, timeout: float | None = None) -> bool:
+        return bool(self._messages)
+
+    def recv(self):
+        return self._messages.pop(0)
 
     def close(self) -> None:
         return None
@@ -130,3 +197,7 @@ class _CrashedProcess:
 
     def join(self, timeout: float | None = None) -> None:
         return None
+
+
+class _SuccessfulProcess(_CrashedProcess):
+    exitcode = 0

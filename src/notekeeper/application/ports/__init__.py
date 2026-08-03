@@ -9,6 +9,7 @@ from typing import Any, Protocol
 
 from notekeeper.application.results import (
     CampaignFolderSnapshot,
+    DashboardChangedEvent,
     NormalizedAudioResult,
     PreparedAudioResult,
     ProgressEvent,
@@ -41,7 +42,20 @@ from notekeeper.domain import (
 )
 
 ProgressEventListener = Callable[[ProgressEvent], None]
+DashboardEventListener = Callable[[DashboardChangedEvent], None]
 Unsubscribe = Callable[[], None]
+
+
+class DashboardEventPublisher(Protocol):
+    def publish(self, event: DashboardChangedEvent) -> None: ...
+
+
+class DashboardEventStream(Protocol):
+    def subscribe(self, listener: DashboardEventListener) -> Unsubscribe: ...
+
+
+class DashboardEventHub(DashboardEventPublisher, DashboardEventStream, Protocol):
+    pass
 
 
 class ProgressEventPublisher(Protocol):
@@ -426,6 +440,10 @@ __all__ = [
     "CampaignRepository",
     "Clock",
     "FailedJobCleaner",
+    "DashboardEventHub",
+    "DashboardEventListener",
+    "DashboardEventPublisher",
+    "DashboardEventStream",
     "JobCleaner",
     "JobExecutionController",
     "JobProcessExecutor",

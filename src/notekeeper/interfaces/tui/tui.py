@@ -5,20 +5,30 @@ from __future__ import annotations
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from pathlib import Path
+from typing import cast
 
+from textual import events
 from textual.app import App, ComposeResult
 from textual.css.query import NoMatches
+from textual.message import Message
 from textual.containers import Horizontal, ItemGrid, Vertical, VerticalScroll
 from textual.worker import Worker, WorkerState
 from textual.widgets import Button, DataTable, Footer, Header, Label, ProgressBar, Select, Static
 
 from notekeeper.application import (
     ApplicationError,
+    CancelProcessingJobResult,
     ClearFailedJobsForCampaignCommand,
+    ClearFailedJobsForCampaignResult,
+    DashboardChangedEvent,
+    DashboardRefreshScope,
+    DeleteProcessingJobResult,
+    GenerateRecapResult,
     GetCampaignCommand,
     ListCampaignsCommand,
     ListJobsForCampaignCommand,
     ProgressEvent,
+    SyncCampaignFolderResult,
 )
 from notekeeper.domain import (
     AudioTrack,
@@ -60,6 +70,12 @@ class DashboardWarning:
 SelectedObject = ProcessingJob | AudioTrack | Participant | DashboardWarning
 
 
+class DashboardInvalidated(Message):
+    def __init__(self, event: DashboardChangedEvent) -> None:
+        super().__init__()
+        self.event = event
+
+
 class NoteKeeperTui(App[None]):
     """Dashboard-first Textual interface for Stage 1."""
 
@@ -90,6 +106,12 @@ class NoteKeeperTui(App[None]):
         self._recap_generation_in_progress = False
         self._active_progress_events: dict[str, ProgressEvent] = {}
         self._progress_unsubscribes: dict[str, Callable[[], None]] = {}
+        self._dashboard_unsubscribe: Callable[[], None] | None = None
+        self._dashboard_refresh_scheduled = False
+        self._pending_full_refresh = False
+        self._pending_content_refresh = False
+        self._pending_selected_job_id: str | None = None
+        self._review_job_id: str | None = None
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -166,6 +188,9 @@ class NoteKeeperTui(App[None]):
         yield Footer()
 
     def on_mount(self) -> None:
+        self._dashboard_unsubscribe = self.runtime.dashboard_events.subscribe(
+            self._on_dashboard_changed,
+        )
         self.query_one("#progress-panel", Vertical).display = False
         self._setup_tables()
         self.refresh_dashboard()
@@ -280,48 +305,51 @@ class NoteKeeperTui(App[None]):
                 self._set_status("Recreating recap")
             else:
                 self._set_status("Running")
-                if event.worker.group == "job":
-                    self.set_timer(
-                        0.1,
-                        lambda: self.refresh_dashboard(update_campaigns=False),
-                    )
         elif event.state is WorkerState.SUCCESS:
+            if event.worker.group == "review":
+                self._review_job_id = None
+                self._update_action_buttons()
             if event.worker.group in {"job", "recap", "review"}:
                 self._hide_progress_if_inactive()
             if event.worker.group == "sync":
-                message = sync_result_status(event.worker.result)
-                self.refresh_dashboard(update_campaigns=False)
+                result = cast(SyncCampaignFolderResult, event.worker.result)
+                message = sync_result_status(result)
                 self._set_status(message)
                 self.notify(message)
             elif event.worker.group == "cleanup":
                 self._clear_failed_jobs_in_progress = False
-                deleted_count = len(event.worker.result.deleted_job_ids)
-                self.refresh_dashboard(update_campaigns=False)
+                result = cast(
+                    ClearFailedJobsForCampaignResult,
+                    event.worker.result,
+                )
+                deleted_count = len(result.deleted_job_ids)
                 message = f"Cleared {deleted_count} failed jobs"
                 self._set_status(message)
                 self.notify(message)
             elif event.worker.group == "job-delete":
                 self._job_delete_in_progress = False
-                self.refresh_dashboard(update_campaigns=False)
-                message = f"Deleted job {event.worker.result.job_id}"
+                result = cast(DeleteProcessingJobResult, event.worker.result)
+                message = f"Deleted job {result.job_id}"
                 self._set_status(message)
                 self.notify(message)
             elif event.worker.group == "job-cancel":
                 self._job_cancel_in_progress = False
-                self.refresh_dashboard(update_campaigns=False)
-                message = f"Canceled job {event.worker.result.job.id}"
+                result = cast(CancelProcessingJobResult, event.worker.result)
+                message = f"Canceled job {result.job.id}"
                 self._set_status(message)
                 self.notify(message)
             elif event.worker.group == "recap":
                 self._recap_generation_in_progress = False
-                self.refresh_dashboard(update_campaigns=False)
-                message = f"Recreated recap {event.worker.result.recap.id}"
+                result = cast(GenerateRecapResult, event.worker.result)
+                message = f"Recreated recap {result.recap.id}"
                 self._set_status(message)
                 self.notify(message)
             else:
                 self._set_status("Done")
-                self.refresh_dashboard(update_campaigns=False)
         elif event.state is WorkerState.ERROR:
+            if event.worker.group == "review":
+                self._review_job_id = None
+                self._update_action_buttons()
             if event.worker.group in {"job", "recap", "review"}:
                 self._hide_progress_if_inactive()
             if event.worker.group == "cleanup":
@@ -340,6 +368,9 @@ class NoteKeeperTui(App[None]):
             self._set_status(message)
             self.notify(message, severity="error")
         elif event.state is WorkerState.CANCELLED:
+            if event.worker.group == "review":
+                self._review_job_id = None
+                self._update_action_buttons()
             if event.worker.group in {"job", "recap", "review"}:
                 self._hide_progress_if_inactive()
             if event.worker.group == "cleanup":
@@ -355,11 +386,16 @@ class NoteKeeperTui(App[None]):
                 self._recap_generation_in_progress = False
                 self._update_action_buttons()
 
-    def refresh_dashboard(self, *, update_campaigns: bool = True) -> None:
+    def refresh_dashboard(
+        self,
+        *,
+        update_campaigns: bool = True,
+        announce: bool = True,
+    ) -> None:
         try:
             if update_campaigns:
                 self._refresh_campaign_select()
-            self._refresh_campaign_panels()
+            self._refresh_campaign_panels(announce=announce)
         except (ApplicationError, DomainError, ValueError) as exc:
             self._set_status(str(exc))
 
@@ -393,7 +429,7 @@ class NoteKeeperTui(App[None]):
                 self._selected_object = None
             select.value = self._selected_campaign_id
 
-    def _refresh_campaign_panels(self) -> None:
+    def _refresh_campaign_panels(self, *, announce: bool = True) -> None:
         if self._selected_campaign_id is None:
             self._selected_object = None
             self._dashboard_jobs = {}
@@ -405,7 +441,8 @@ class NoteKeeperTui(App[None]):
             self._campaign_is_processing_ready = False
             self._failed_job_count = 0
             self._clear_tables()
-            self._set_status("No campaign")
+            if announce:
+                self._set_status("No campaign")
             self._update_action_buttons()
             return
 
@@ -561,8 +598,51 @@ class NoteKeeperTui(App[None]):
                 else (ordered_audio_tracks[0] if ordered_audio_tracks else None)
             )
         self._sync_table_selection()
-        self._set_status(f"{len(ordered_jobs)} jobs")
+        if announce:
+            self._set_status(f"{len(ordered_jobs)} jobs")
         self._update_action_buttons()
+
+    def _on_dashboard_changed(self, event: DashboardChangedEvent) -> None:
+        self.post_message(DashboardInvalidated(event))
+
+    def on_dashboard_invalidated(self, message: DashboardInvalidated) -> None:
+        event = message.event
+        if event.scope is DashboardRefreshScope.CAMPAIGN_LIST:
+            self._pending_full_refresh = True
+        elif event.campaign_id == self._selected_campaign_id:
+            self._pending_content_refresh = True
+        else:
+            return
+        if len(self.screen_stack) > 1:
+            return
+        self._schedule_dashboard_refresh()
+
+    def on_screen_resume(self, event: events.ScreenResume) -> None:
+        if self._pending_full_refresh or self._pending_content_refresh:
+            self._schedule_dashboard_refresh()
+
+    def _schedule_dashboard_refresh(self) -> None:
+        if self._dashboard_refresh_scheduled:
+            return
+        self._dashboard_refresh_scheduled = True
+        self.call_later(self._flush_dashboard_refresh)
+
+    def _flush_dashboard_refresh(self) -> None:
+        update_campaigns = self._pending_full_refresh
+        update_content = update_campaigns or self._pending_content_refresh
+        self._dashboard_refresh_scheduled = False
+        self._pending_full_refresh = False
+        self._pending_content_refresh = False
+        if not update_content:
+            return
+        self.refresh_dashboard(
+            update_campaigns=update_campaigns,
+            announce=False,
+        )
+        pending_job_id = self._pending_selected_job_id
+        if pending_job_id is not None and pending_job_id in self._dashboard_jobs:
+            self._pending_selected_job_id = None
+            self._select_job_after_refresh(pending_job_id)
 
     def _clear_tables(self) -> None:
         self._setup_tables()
@@ -581,7 +661,7 @@ class NoteKeeperTui(App[None]):
 
     def _select_table_row(
         self,
-        table: DataTable,
+        table: DataTable[object],
         row_id: object,
         *,
         announce: bool = False,
@@ -616,7 +696,7 @@ class NoteKeeperTui(App[None]):
 
     def _event_matches_table_cursor(
         self,
-        table: DataTable,
+        table: DataTable[object],
         row_key: object,
     ) -> bool:
         if not table.show_cursor:
@@ -737,6 +817,7 @@ class NoteKeeperTui(App[None]):
             "cancel-job",
             selected_job is None
             or selected_job.status is not JobStatus.RUNNING
+            or str(selected_job.id) == self._review_job_id
             or self._job_cancel_in_progress
             or self._job_delete_in_progress,
         )
@@ -890,7 +971,7 @@ class NoteKeeperTui(App[None]):
             self._clear_failed_jobs,
         )
 
-    def _clear_failed_jobs(self, confirmed: bool) -> None:
+    def _clear_failed_jobs(self, confirmed: bool | None) -> None:
         campaign_id = self._selected_campaign_id
         if not confirmed or campaign_id is None:
             return
@@ -935,12 +1016,12 @@ class NoteKeeperTui(App[None]):
     def _open_diagnostics(self) -> None:
         diagnostics_app.open_diagnostics(self)
 
-    def _selected_job(self):
+    def _selected_job(self) -> ProcessingJob | None:
         if isinstance(self._selected_object, ProcessingJob):
             return self._selected_object
         return None
 
-    def _with_campaign(self, action: Callable[[str], None]) -> None:
+    def _with_campaign(self, action: Callable[[str], object]) -> None:
         if self._selected_campaign_id is None:
             self._set_status("Select a campaign")
             return
@@ -955,9 +1036,7 @@ class NoteKeeperTui(App[None]):
     def _watch_progress(self, operation_id: str) -> None:
         if operation_id in self._progress_unsubscribes:
             return
-        stream = getattr(self.runtime, "progress_events", None)
-        if stream is None:
-            return
+        stream = self.runtime.progress_events
         self._progress_unsubscribes[operation_id] = stream.subscribe(
             operation_id,
             self._on_progress_event,
@@ -999,8 +1078,7 @@ class NoteKeeperTui(App[None]):
             return
         event = self._active_progress_events.get(operation_id)
         if event is None:
-            stream = getattr(self.runtime, "progress_events", None)
-            event = stream.latest(operation_id) if stream is not None else None
+            event = self.runtime.progress_events.latest(operation_id)
         if event is None:
             self._hide_progress()
             return
@@ -1019,6 +1097,9 @@ class NoteKeeperTui(App[None]):
             self._hide_progress()
 
     def on_unmount(self) -> None:
+        if self._dashboard_unsubscribe is not None:
+            self._dashboard_unsubscribe()
+            self._dashboard_unsubscribe = None
         for unsubscribe in tuple(self._progress_unsubscribes.values()):
             unsubscribe()
         self._progress_unsubscribes.clear()

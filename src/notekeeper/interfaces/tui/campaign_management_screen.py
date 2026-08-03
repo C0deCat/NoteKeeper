@@ -16,6 +16,7 @@ from notekeeper.application import (
 )
 from notekeeper.domain import Campaign, DomainError
 
+from ..contracts import InterfaceRuntime
 from .campaign_deletion_screen import CampaignDeletionScreen
 from .identifier_data_table import IdentifierDataTable
 
@@ -23,7 +24,11 @@ from .identifier_data_table import IdentifierDataTable
 class ManageCampaignsScreen(ModalScreen[str | None]):
     """Create, rename, and delete campaigns in one modal."""
 
-    def __init__(self, runtime, selected_campaign_id: str | None) -> None:
+    def __init__(
+        self,
+        runtime: InterfaceRuntime,
+        selected_campaign_id: str | None,
+    ) -> None:
         super().__init__()
         self._runtime = runtime
         self._campaigns_by_id: dict[str, Campaign] = {}
@@ -100,7 +105,11 @@ class ManageCampaignsScreen(ModalScreen[str | None]):
         self._sync_name_input()
         self._update_action_buttons()
 
-    def _select_campaign(self, table: DataTable, row_key: object) -> None:
+    def _select_campaign(
+        self,
+        table: DataTable[object],
+        row_key: object,
+    ) -> None:
         if table.id != "campaigns-table":
             return
         self._selected_campaign_id = str(getattr(row_key, "value", row_key))

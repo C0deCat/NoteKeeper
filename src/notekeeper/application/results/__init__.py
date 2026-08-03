@@ -49,6 +49,17 @@ class ProgressEventKind(str, Enum):
         }
 
 
+class DashboardRefreshScope(str, Enum):
+    CAMPAIGN_LIST = "campaign_list"
+    CAMPAIGN_CONTENT = "campaign_content"
+
+
+@dataclass(frozen=True, slots=True)
+class DashboardChangedEvent:
+    campaign_id: str | None
+    scope: DashboardRefreshScope
+
+
 @dataclass(frozen=True, slots=True)
 class ProgressEvent:
     operation_id: str
@@ -430,6 +441,8 @@ __all__ = [
     "ClearFailedJobsForCampaignResult",
     "CreateCampaignResult",
     "CreateProcessingJobForAudioTrackResult",
+    "DashboardChangedEvent",
+    "DashboardRefreshScope",
     "DeleteAudioTrackResult",
     "DeleteCampaignResult",
     "DeleteParticipantResult",

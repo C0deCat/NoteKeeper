@@ -45,6 +45,7 @@ notekeeper = "notekeeper.composition.main:main"
 
 [dependency-groups]
 dev = [
+    "pyright>=1.1.411",
     "pytest>=9.1.1",
 ]
 
@@ -60,3 +61,16 @@ artifacts = ["src/notekeeper/interfaces/tui/styles.tcss"]
 pythonpath = ["src"]
 testpaths = ["tests"]
 addopts = "-ra"
+
+[tool.pyright]
+include = [
+    "src/notekeeper/interfaces/tui",
+    "src/notekeeper/interfaces/contracts.py",
+]
+extraPaths = ["src"]
+pythonVersion = "3.11"
+typeCheckingMode = "strict"
+reportPrivateUsage = false
+reportUnknownArgumentType = false
+reportUnknownMemberType = false
+reportUnknownVariableType = false

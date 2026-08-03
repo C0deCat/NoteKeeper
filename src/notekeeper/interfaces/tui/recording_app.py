@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from textual.app import ComposeResult
 from textual.containers import Vertical
@@ -19,14 +20,18 @@ from notekeeper.application import (
 )
 from notekeeper.domain import AudioTrack, DomainError
 
+from ..contracts import InterfaceRuntime
 from .audio_file_explorer_screen import AudioFileExplorerScreen
 from .common import metadata_text
 from .object_action_confirmation_screen import ObjectActionConfirmationScreen
 from .rename_screen import RenameScreen
 
+if TYPE_CHECKING:
+    from .tui import NoteKeeperTui
+
 
 class RecordingScreen(ModalScreen[bool]):
-    def __init__(self, runtime, campaign_id: str) -> None:
+    def __init__(self, runtime: InterfaceRuntime, campaign_id: str) -> None:
         super().__init__()
         self.runtime = runtime
         self.campaign_id = campaign_id
@@ -123,7 +128,7 @@ class RecordingScreen(ModalScreen[bool]):
             self.query_one("#choose-file", Button).disabled = False
 
 
-def open_submit_recording(app, campaign_id: str) -> None:
+def open_submit_recording(app: NoteKeeperTui, campaign_id: str) -> None:
     app.push_screen(
         RecordingScreen(app.runtime, campaign_id),
         lambda completed: (
@@ -132,7 +137,10 @@ def open_submit_recording(app, campaign_id: str) -> None:
     )
 
 
-def open_rename_recording(app, audio_track: AudioTrack) -> None:
+def open_rename_recording(
+    app: NoteKeeperTui,
+    audio_track: AudioTrack,
+) -> None:
     current_name = audio_track.title or audio_track.artifact.uri
     app.push_screen(
         RenameScreen("Rename Recording", current_name),
@@ -141,7 +149,7 @@ def open_rename_recording(app, audio_track: AudioTrack) -> None:
 
 
 def _rename_recording(
-    app,
+    app: NoteKeeperTui,
     audio_track: AudioTrack,
     name: str | None,
 ) -> None:
@@ -162,7 +170,10 @@ def _rename_recording(
         app._set_status(str(exc))
 
 
-def confirm_remove_recording(app, audio_track: AudioTrack) -> None:
+def confirm_remove_recording(
+    app: NoteKeeperTui,
+    audio_track: AudioTrack,
+) -> None:
     name = audio_track.title or audio_track.artifact.uri
     app.push_screen(
         ObjectActionConfirmationScreen("recording", name),
@@ -171,9 +182,9 @@ def confirm_remove_recording(app, audio_track: AudioTrack) -> None:
 
 
 def _remove_recording(
-    app,
+    app: NoteKeeperTui,
     audio_track: AudioTrack,
-    confirmed: bool,
+    confirmed: bool | None,
 ) -> None:
     if not confirmed:
         return

@@ -34,6 +34,7 @@ from notekeeper.domain import (
     JobStatus,
     Participant,
     ParticipantId,
+    ProcessingJob,
     ProcessingJobId,
     ProcessingStage,
     SpeakerLabel,
@@ -81,30 +82,48 @@ class ReviewSpeakerMappings:
         if job.transcript_id is None:
             raise InvalidOperationError("processing job has no transcript to review")
 
-        progress = (
-            self._progress_tracker_factory.create(
-                str(job.id),
-                (
-                    ProcessingStage.MAPPING_SPEAKERS,
-                    ProcessingStage.GENERATING_RECAP,
-                ),
-            )
-            if self._progress_tracker_factory is not None
-            else None
+        campaign = _require_campaign(self._campaign_repository, job.campaign_id)
+        transcript = _require_transcript(
+            self._transcript_repository,
+            job.transcript_id,
         )
+        mappings = _build_manual_mappings(campaign, command.mappings)
+        running_job = replace(
+            job,
+            status=JobStatus.RUNNING,
+            updated_at=self._clock.now(),
+            warnings=(),
+            error_message=None,
+        )
+        if not self._job_repository.save_if_status(
+            running_job,
+            JobStatus.WAITING_FOR_REVIEW,
+        ):
+            raise InvalidOperationError(
+                "processing job is no longer waiting for review",
+            )
+
+        progress = None
+        known_warnings = ()
         try:
+            progress = (
+                self._progress_tracker_factory.create(
+                    str(job.id),
+                    (
+                        ProcessingStage.MAPPING_SPEAKERS,
+                        ProcessingStage.GENERATING_RECAP,
+                    ),
+                )
+                if self._progress_tracker_factory is not None
+                else None
+            )
             if progress is not None:
                 progress.start_stage(
                     ProcessingStage.MAPPING_SPEAKERS,
                     timing_available=False,
                 )
-            campaign = _require_campaign(self._campaign_repository, job.campaign_id)
-            transcript = _require_transcript(
-                self._transcript_repository,
-                job.transcript_id,
-            )
-            mappings = _build_manual_mappings(campaign, command.mappings)
             mapped = apply_speaker_mappings(campaign, transcript, mappings)
+            known_warnings = mapped.warnings
             self._transcript_repository.save(mapped.transcript)
             self._speaker_mapping_repository.save_many(
                 _mapping_records(
@@ -119,13 +138,18 @@ class ReviewSpeakerMappings:
 
             if mapped.warnings:
                 waiting_job = replace(
-                    job,
+                    running_job,
+                    status=JobStatus.WAITING_FOR_REVIEW,
                     updated_at=self._clock.now(),
+                    transcript_id=mapped.transcript.id,
                     warnings=mapped.warnings,
                 )
-                self._job_repository.save(waiting_job)
+                waiting_job = self._save_terminal(waiting_job)
                 if progress is not None:
-                    progress.pause()
+                    if waiting_job.status is JobStatus.CANCELED:
+                        progress.cancel()
+                    else:
+                        progress.pause()
                 return ReviewSpeakerMappingsResult(
                     job=waiting_job,
                     transcript=mapped.transcript,
@@ -153,16 +177,19 @@ class ReviewSpeakerMappings:
             if progress is not None:
                 progress.complete_stage()
             completed_job = replace(
-                job,
+                running_job,
                 status=JobStatus.COMPLETED,
                 updated_at=self._clock.now(),
                 transcript_id=mapped.transcript.id,
                 recap_id=recap.id,
                 warnings=(),
             )
-            self._job_repository.save(completed_job)
+            completed_job = self._save_terminal(completed_job)
             if progress is not None:
-                progress.complete()
+                if completed_job.status is JobStatus.CANCELED:
+                    progress.cancel()
+                else:
+                    progress.complete()
             return ReviewSpeakerMappingsResult(
                 job=completed_job,
                 transcript=mapped.transcript,
@@ -170,13 +197,40 @@ class ReviewSpeakerMappings:
                 warnings=(),
                 applied_mappings=mapped.applied_mappings,
             )
-        except Exception:
+        except Exception as exc:
+            failed_job = replace(
+                running_job,
+                status=JobStatus.FAILED,
+                updated_at=self._clock.now(),
+                transcript_id=transcript.id,
+                warnings=known_warnings,
+                error_message=_error_message(exc),
+            )
+            try:
+                failed_job = self._save_terminal(failed_job)
+            except Exception:
+                if progress is not None:
+                    progress.fail()
+                raise
             if progress is not None:
-                progress.fail()
+                if failed_job.status is JobStatus.CANCELED:
+                    progress.cancel()
+                else:
+                    progress.fail()
             raise
         finally:
             if progress is not None:
                 progress.close()
+
+    def _save_terminal(self, job: ProcessingJob) -> ProcessingJob:
+        if self._job_repository.save_if_status(job, JobStatus.RUNNING):
+            return job
+        current = _require_job(self._job_repository, job.id)
+        if current.status is JobStatus.CANCELED:
+            return current
+        raise InvalidOperationError(
+            "processing job status changed during review",
+        )
 
 
 def _build_manual_mappings(
@@ -249,6 +303,11 @@ def _optional_text(value: str | None) -> str | None:
         return None
     stripped = value.strip()
     return stripped or None
+
+
+def _error_message(error: Exception) -> str:
+    message = str(error).strip()
+    return message if message else type(error).__name__
 
 
 def _mapping_records(

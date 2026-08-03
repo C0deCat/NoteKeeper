@@ -5,7 +5,7 @@ from __future__ import annotations
 from threading import Lock
 from typing import Any
 
-from notekeeper.application.results import ProgressEvent
+from notekeeper.application.results import DashboardChangedEvent, ProgressEvent
 
 
 class ProcessMessageWriter:
@@ -13,8 +13,9 @@ class ProcessMessageWriter:
         self._connection = connection
         self._lock = Lock()
 
-    def publish(self, event: ProgressEvent) -> None:
-        self._send("progress", event)
+    def publish(self, event: ProgressEvent | DashboardChangedEvent) -> None:
+        kind = "progress" if isinstance(event, ProgressEvent) else "dashboard"
+        self._send(kind, event)
 
     def result(self, value: Any) -> None:
         self._send("result", value)

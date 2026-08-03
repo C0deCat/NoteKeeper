@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from notekeeper.application import (
@@ -44,9 +44,13 @@ from notekeeper.application import (
     UpdateParticipant,
 )
 from notekeeper.application.errors import ApplicationError
-from notekeeper.application.ports import ProgressEventStream
+from notekeeper.application.ports import DashboardEventStream, ProgressEventStream
 from notekeeper.domain import ArtifactRef
 from notekeeper.infrastructure.runtime import (
+    EventPublishingCampaignRepository,
+    EventPublishingJobCleaner,
+    EventPublishingJobRepository,
+    InMemoryDashboardEventHub,
     InMemoryProgressEventHub,
     StreamingProgressTrackerFactory,
 )
@@ -65,6 +69,7 @@ class NoteKeeperRuntime:
     use_cases: Stage1UseCases
     infrastructure: InfrastructureBundle
     progress_events: ProgressEventStream
+    dashboard_events: DashboardEventStream
 
     def diagnostics(self, campaign_id: str | None = None) -> RuntimeDiagnostics:
         return RuntimeDiagnostics(
@@ -100,14 +105,32 @@ def build_runtime(settings: NoteKeeperSettings | None = None) -> NoteKeeperRunti
     infrastructure = build_infrastructure(settings)
     infrastructure.transient_audio_cleaner.clean_stale()
     progress_events = InMemoryProgressEventHub()
+    dashboard_events = InMemoryDashboardEventHub()
+    infrastructure = replace(
+        infrastructure,
+        campaign_repository=EventPublishingCampaignRepository(
+            infrastructure.campaign_repository,
+            dashboard_events,
+        ),
+        job_repository=EventPublishingJobRepository(
+            infrastructure.job_repository,
+            dashboard_events,
+        ),
+        job_cleaner=EventPublishingJobCleaner(
+            infrastructure.job_cleaner,
+            dashboard_events,
+        ),
+    )
     return NoteKeeperRuntime(
         settings=infrastructure.settings,
         use_cases=build_stage1_use_cases(
             infrastructure,
             progress_events=progress_events,
+            dashboard_events=dashboard_events,
         ),
         infrastructure=infrastructure,
         progress_events=progress_events,
+        dashboard_events=dashboard_events,
     )
 
 
@@ -115,15 +138,18 @@ def build_stage1_use_cases(
     infrastructure: InfrastructureBundle,
     *,
     progress_events: InMemoryProgressEventHub | None = None,
+    dashboard_events: InMemoryDashboardEventHub | None = None,
 ) -> Stage1UseCases:
     progress_events = progress_events or InMemoryProgressEventHub()
+    dashboard_events = dashboard_events or InMemoryDashboardEventHub()
     progress_tracker_factory = StreamingProgressTrackerFactory(progress_events)
     processing_pipeline = build_processing_pipeline(infrastructure)
     process_executor = LocalProcessJobExecutor(
         infrastructure.settings,
         infrastructure.job_repository,
-        progress_events,
-        infrastructure.transient_audio_cleaner,
+        progress_events=progress_events,
+        dashboard_events=dashboard_events,
+        transient_audio_cleaner=infrastructure.transient_audio_cleaner,
     )
     restart_processing_job = RestartProcessingJob(
         infrastructure.campaign_repository,

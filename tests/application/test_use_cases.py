@@ -100,6 +100,7 @@ from notekeeper.infrastructure import InfrastructureError
 class InMemoryRepository:
     def __init__(self) -> None:
         self.items = {}
+        self.saved_statuses: list[JobStatus] = []
 
     def get(self, item_id):
         return self.items.get(item_id)
@@ -109,12 +110,16 @@ class InMemoryRepository:
 
     def save(self, item) -> None:
         self.items[item.id] = item
+        if isinstance(item, ProcessingJob):
+            self.saved_statuses.append(item.status)
 
     def save_if_status(self, item, expected_status) -> bool:
         current = self.items.get(item.id)
         if current is None or current.status is not expected_status:
             return False
         self.items[item.id] = item
+        if isinstance(item, ProcessingJob):
+            self.saved_statuses.append(item.status)
         return True
 
     def delete(self, item_id) -> None:
@@ -1434,6 +1439,7 @@ def test_review_speaker_mappings_completes_job_after_manual_fix() -> None:
     waiting = harness.run_use_case().execute(
         RunProcessingJobCommand(job_id=submitted.job.id),
     )
+    review_status_index = len(harness.jobs.saved_statuses)
 
     result = harness.review_use_case().execute(
         ReviewSpeakerMappingsCommand(
@@ -1462,6 +1468,10 @@ def test_review_speaker_mappings_completes_job_after_manual_fix() -> None:
         SpeakerMappingSource.MANUAL
     )
     assert harness.speaker_mappings.records[-1].diagnostics == {"warning_count": 0}
+    assert harness.jobs.saved_statuses[review_status_index:] == [
+        JobStatus.RUNNING,
+        JobStatus.COMPLETED,
+    ]
 
 
 def test_review_speaker_mappings_completes_with_custom_and_kept_labels() -> None:
@@ -1484,6 +1494,7 @@ def test_review_speaker_mappings_completes_with_custom_and_kept_labels() -> None
     waiting = harness.run_use_case().execute(
         RunProcessingJobCommand(job_id=submitted.job.id),
     )
+    review_status_index = len(harness.jobs.saved_statuses)
 
     result = harness.review_use_case().execute(
         ReviewSpeakerMappingsCommand(
@@ -1513,6 +1524,10 @@ def test_review_speaker_mappings_completes_with_custom_and_kept_labels() -> None
     ]
     manual_records = harness.speaker_mappings.records[-2:]
     assert all(record.mapping.participant_id is None for record in manual_records)
+    assert harness.jobs.saved_statuses[review_status_index:] == [
+        JobStatus.RUNNING,
+        JobStatus.COMPLETED,
+    ]
 
 
 def test_review_speaker_mappings_partial_review_stays_waiting() -> None:
@@ -1531,6 +1546,7 @@ def test_review_speaker_mappings_partial_review_stays_waiting() -> None:
     waiting = harness.run_use_case().execute(
         RunProcessingJobCommand(job_id=submitted.job.id),
     )
+    review_status_index = len(harness.jobs.saved_statuses)
 
     result = harness.review_use_case().execute(
         ReviewSpeakerMappingsCommand(
@@ -1554,6 +1570,111 @@ def test_review_speaker_mappings_partial_review_stays_waiting() -> None:
     assert PipelineWarningKind.UNRESOLVED_SPEAKER_LABEL in {
         warning.kind for warning in result.warnings
     }
+    assert harness.jobs.saved_statuses[review_status_index:] == [
+        JobStatus.RUNNING,
+        JobStatus.WAITING_FOR_REVIEW,
+    ]
+
+
+def test_review_speaker_mappings_marks_running_job_failed_on_error() -> None:
+    harness, waiting_job = _waiting_review_job()
+    harness.recap_generator.generate_error = PortExecutionError("DeepSeek failed")
+    review_status_index = len(harness.jobs.saved_statuses)
+
+    with pytest.raises(PortExecutionError, match="DeepSeek failed"):
+        harness.review_use_case().execute(_review_bob_command(waiting_job))
+
+    saved = harness.jobs.get(waiting_job.id)
+    assert saved.status is JobStatus.FAILED
+    assert saved.error_message == "DeepSeek failed"
+    assert harness.jobs.saved_statuses[review_status_index:] == [
+        JobStatus.RUNNING,
+        JobStatus.FAILED,
+    ]
+
+
+def test_review_speaker_mappings_rejects_concurrent_claim() -> None:
+    harness, waiting_job = _waiting_review_job()
+    original_save_if_status = harness.jobs.save_if_status
+
+    def lose_claim(job, expected_status):
+        if expected_status is JobStatus.WAITING_FOR_REVIEW:
+            current = harness.jobs.get(job.id)
+            harness.jobs.save(replace(current, status=JobStatus.RUNNING))
+            return False
+        return original_save_if_status(job, expected_status)
+
+    harness.jobs.save_if_status = lose_claim
+
+    with pytest.raises(
+        InvalidOperationError,
+        match="no longer waiting for review",
+    ):
+        harness.review_use_case().execute(_review_bob_command(waiting_job))
+
+    assert harness.jobs.get(waiting_job.id).status is JobStatus.RUNNING
+
+
+def test_review_speaker_mappings_does_not_overwrite_concurrent_cancel() -> None:
+    harness, waiting_job = _waiting_review_job()
+    original_save_if_status = harness.jobs.save_if_status
+    review_status_index = len(harness.jobs.saved_statuses)
+
+    def cancel_before_terminal_save(job, expected_status):
+        if (
+            expected_status is JobStatus.RUNNING
+            and job.status is JobStatus.COMPLETED
+        ):
+            current = harness.jobs.get(job.id)
+            harness.jobs.save(replace(current, status=JobStatus.CANCELED))
+            return False
+        return original_save_if_status(job, expected_status)
+
+    harness.jobs.save_if_status = cancel_before_terminal_save
+
+    result = harness.review_use_case().execute(_review_bob_command(waiting_job))
+
+    assert result.job.status is JobStatus.CANCELED
+    assert harness.jobs.get(waiting_job.id).status is JobStatus.CANCELED
+    assert harness.jobs.saved_statuses[review_status_index:] == [
+        JobStatus.RUNNING,
+        JobStatus.CANCELED,
+    ]
+
+
+def _waiting_review_job() -> tuple[Harness, ProcessingJob]:
+    harness = Harness()
+    harness.ready_campaign("Alice", "Bob")
+    harness.transcriber.segments = (
+        segment(0, 0, 1, "SPEAKER_00", "Alice speaks"),
+        segment(1, 1, 2, "SPEAKER_01", "Bob speaks"),
+    )
+    harness.speaker_identifier.mappings = (
+        confirmed_mapping("SPEAKER_00", "Alice", "participant-1"),
+    )
+    submitted = harness.submit_use_case().execute(
+        SubmitRecordingForProcessingCommand(
+            campaign_id="campaign-1",
+            artifact_uri="sessions/session-1.wav",
+        ),
+    )
+    waiting = harness.run_use_case().execute(
+        RunProcessingJobCommand(job_id=submitted.job.id),
+    )
+    return harness, waiting.job
+
+
+def _review_bob_command(job: ProcessingJob) -> ReviewSpeakerMappingsCommand:
+    return ReviewSpeakerMappingsCommand(
+        job_id=job.id,
+        mappings=(
+            ManualSpeakerMappingCommand(
+                anonymous_label="SPEAKER_01",
+                participant_id="participant-2",
+                confidence=1.0,
+            ),
+        ),
+    )
 
 
 @pytest.mark.parametrize(

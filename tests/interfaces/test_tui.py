@@ -14,6 +14,8 @@ from notekeeper.application import (
     CreateProcessingJobForAudioTrackCommand,
     CreateProcessingJobForAudioTrackResult,
     CreateCampaignResult,
+    DashboardChangedEvent,
+    DashboardRefreshScope,
     DeleteAudioTrackCommand,
     DeleteCampaignResult,
     DeleteParticipantCommand,
@@ -79,6 +81,10 @@ from notekeeper.interfaces.tui.remove_voice_sample_screen import (
 from notekeeper.interfaces.tui.rename_screen import RenameScreen
 from notekeeper.interfaces.tui.review_app import ReviewMappingsScreen
 from notekeeper.interfaces.tui.tui import DashboardWarning
+from notekeeper.infrastructure.runtime import (
+    InMemoryDashboardEventHub,
+    InMemoryProgressEventHub,
+)
 
 
 class FakeUseCase:
@@ -98,9 +104,15 @@ def assert_modal_is_centered(screen) -> None:
 
 
 class FakeRestartUseCase(FakeUseCase):
-    def __init__(self, result, list_jobs_use_case: FakeUseCase) -> None:
+    def __init__(
+        self,
+        result,
+        list_jobs_use_case: FakeUseCase,
+        dashboard_events: InMemoryDashboardEventHub,
+    ) -> None:
         super().__init__(result)
         self.list_jobs_use_case = list_jobs_use_case
+        self.dashboard_events = dashboard_events
 
     def execute(self, command):
         result = super().execute(command)
@@ -108,12 +120,23 @@ class FakeRestartUseCase(FakeUseCase):
         self.list_jobs_use_case.result = ListJobsForCampaignResult(
             jobs=(*existing_jobs, result.job),
         )
+        self.dashboard_events.publish(
+            DashboardChangedEvent(
+                campaign_id=str(result.job.campaign_id),
+                scope=DashboardRefreshScope.CAMPAIGN_CONTENT,
+            ),
+        )
         return result
 
 
 class FakeClearFailedJobsUseCase:
-    def __init__(self, list_jobs_use_case: FakeUseCase) -> None:
+    def __init__(
+        self,
+        list_jobs_use_case: FakeUseCase,
+        dashboard_events: InMemoryDashboardEventHub,
+    ) -> None:
         self.list_jobs_use_case = list_jobs_use_case
+        self.dashboard_events = dashboard_events
         self.commands = []
 
     def execute(self, command):
@@ -132,15 +155,26 @@ class FakeClearFailedJobsUseCase:
                 if str(job.id) not in deleted_job_ids
             ),
         )
+        self.dashboard_events.publish(
+            DashboardChangedEvent(
+                campaign_id=command.campaign_id,
+                scope=DashboardRefreshScope.CAMPAIGN_CONTENT,
+            ),
+        )
         return ClearFailedJobsForCampaignResult(
             deleted_job_ids=deleted_job_ids,
         )
 
 
 class FakeGenerateRecapUseCase(FakeUseCase):
-    def __init__(self, list_jobs_use_case: FakeUseCase) -> None:
+    def __init__(
+        self,
+        list_jobs_use_case: FakeUseCase,
+        dashboard_events: InMemoryDashboardEventHub,
+    ) -> None:
         super().__init__(None)
         self.list_jobs_use_case = list_jobs_use_case
+        self.dashboard_events = dashboard_events
 
     def execute(self, command):
         result = super().execute(command)
@@ -148,6 +182,12 @@ class FakeGenerateRecapUseCase(FakeUseCase):
             jobs=tuple(
                 result.job if str(job.id) == str(result.job.id) else job
                 for job in self.list_jobs_use_case.result.jobs
+            ),
+        )
+        self.dashboard_events.publish(
+            DashboardChangedEvent(
+                campaign_id=str(result.job.campaign_id),
+                scope=DashboardRefreshScope.CAMPAIGN_CONTENT,
             ),
         )
         return result
@@ -219,6 +259,8 @@ class FakeDeleteCampaignUseCase:
 
 class FakeRuntime:
     def __init__(self, *, has_campaigns: bool = True) -> None:
+        self.dashboard_events = InMemoryDashboardEventHub()
+        self.progress_events = InMemoryProgressEventHub()
         campaign = Campaign(id=CampaignId("campaign-1"), name="Demo")
         participant = Participant(
             id=ParticipantId("participant-1"),
@@ -316,12 +358,19 @@ class FakeRuntime:
                     job=restarted_job,
                 ),
                 list_jobs,
+                self.dashboard_events,
             ),
-            clear_failed_jobs_for_campaign=FakeClearFailedJobsUseCase(list_jobs),
+            clear_failed_jobs_for_campaign=FakeClearFailedJobsUseCase(
+                list_jobs,
+                self.dashboard_events,
+            ),
             list_jobs_for_campaign=list_jobs,
             get_job_status=FakeJobStatusUseCase((job, second_job, restarted_job)),
             review_speaker_mappings=FakeUseCase(GetJobStatusResult(job=job)),
-            generate_recap=FakeGenerateRecapUseCase(list_jobs),
+            generate_recap=FakeGenerateRecapUseCase(
+                list_jobs,
+                self.dashboard_events,
+            ),
             export_transcript_markdown=FakeUseCase(None),
             export_recap_markdown=FakeUseCase(None),
             preview_transcript_markdown=FakeUseCase(None),
@@ -384,6 +433,73 @@ def test_tui_dashboard_loads_campaign_data() -> None:
             assert recordings_table.show_cursor is False
             assert app.query_one("#players-table", DataTable).show_cursor is False
             assert app.query_one("#warnings-table", DataTable).show_cursor is False
+
+    asyncio.run(run())
+
+
+def test_tui_dashboard_refreshes_from_events_without_overwriting_status() -> None:
+    async def run() -> None:
+        runtime = FakeRuntime()
+        pending, failed = runtime.use_cases.list_jobs_for_campaign.result.jobs
+        waiting = replace(
+            failed,
+            status=JobStatus.WAITING_FOR_REVIEW,
+            error_message=None,
+        )
+        runtime.use_cases.list_jobs_for_campaign.result = ListJobsForCampaignResult(
+            jobs=(pending, waiting),
+        )
+        app = NoteKeeperTui(runtime)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app._set_status("Processing")
+            jobs_table = app.query_one("#jobs-table", DataTable)
+            for status in (
+                JobStatus.RUNNING,
+                JobStatus.WAITING_FOR_REVIEW,
+                JobStatus.RUNNING,
+            ):
+                updated = replace(waiting, status=status)
+                runtime.use_cases.list_jobs_for_campaign.result = (
+                    ListJobsForCampaignResult(jobs=(pending, updated))
+                )
+                runtime.dashboard_events.publish(
+                    DashboardChangedEvent(
+                        campaign_id="campaign-1",
+                        scope=DashboardRefreshScope.CAMPAIGN_CONTENT,
+                    ),
+                )
+                await pilot.pause()
+                await pilot.pause()
+                assert jobs_table.get_row_at(0)[1] == status.value
+                assert isinstance(app._selected_object, ProcessingJob)
+                assert app._selected_object.status is status
+            assert "Processing" in str(app.query_one("#status", Static).render())
+
+            completed = replace(waiting, status=JobStatus.COMPLETED)
+            runtime.use_cases.list_jobs_for_campaign.result = (
+                ListJobsForCampaignResult(jobs=(pending, completed))
+            )
+            runtime.dashboard_events.publish(
+                DashboardChangedEvent(
+                    campaign_id="campaign-2",
+                    scope=DashboardRefreshScope.CAMPAIGN_CONTENT,
+                ),
+            )
+            await pilot.pause()
+            assert jobs_table.get_row_at(0)[1] == JobStatus.RUNNING.value
+
+            campaign_reads = len(runtime.use_cases.list_campaigns.commands)
+            runtime.dashboard_events.publish(
+                DashboardChangedEvent(
+                    campaign_id="campaign-2",
+                    scope=DashboardRefreshScope.CAMPAIGN_LIST,
+                ),
+            )
+            await pilot.pause()
+            await pilot.pause()
+            assert len(runtime.use_cases.list_campaigns.commands) > campaign_reads
+            assert jobs_table.get_row_at(0)[1] == JobStatus.COMPLETED.value
 
     asyncio.run(run())
 
@@ -693,6 +809,10 @@ def test_tui_job_delete_and_cancel_buttons_follow_job_status() -> None:
             await pilot.pause()
             assert app.query_one("#delete-job", Button).disabled is True
             assert app.query_one("#cancel-job", Button).disabled is False
+
+            app._review_job_id = str(running.id)
+            app._update_action_buttons()
+            assert app.query_one("#cancel-job", Button).disabled is True
 
     asyncio.run(run())
 

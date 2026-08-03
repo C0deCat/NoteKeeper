@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from textual.app import ComposeResult
 from textual.containers import Vertical
 from textual.screen import ModalScreen
@@ -17,6 +19,9 @@ from notekeeper.domain import DomainError, Participant
 
 from .object_action_confirmation_screen import ObjectActionConfirmationScreen
 from .rename_screen import RenameScreen
+
+if TYPE_CHECKING:
+    from .tui import NoteKeeperTui
 
 
 class AddParticipantScreen(ModalScreen[str | None]):
@@ -34,7 +39,11 @@ class AddParticipantScreen(ModalScreen[str | None]):
             self.dismiss(None)
 
 
-def add_participant(app, campaign_id: str, display_name: str | None) -> None:
+def add_participant(
+    app: NoteKeeperTui,
+    campaign_id: str,
+    display_name: str | None,
+) -> None:
     if not display_name:
         return
     try:
@@ -49,7 +58,10 @@ def add_participant(app, campaign_id: str, display_name: str | None) -> None:
         app._set_status(str(exc))
 
 
-def open_rename_participant(app, participant: Participant) -> None:
+def open_rename_participant(
+    app: NoteKeeperTui,
+    participant: Participant,
+) -> None:
     app.push_screen(
         RenameScreen("Rename Player", participant.display_name),
         lambda name: _rename_participant(app, participant, name),
@@ -57,7 +69,7 @@ def open_rename_participant(app, participant: Participant) -> None:
 
 
 def _rename_participant(
-    app,
+    app: NoteKeeperTui,
     participant: Participant,
     name: str | None,
 ) -> None:
@@ -76,7 +88,10 @@ def _rename_participant(
         app._set_status(str(exc))
 
 
-def confirm_remove_participant(app, participant: Participant) -> None:
+def confirm_remove_participant(
+    app: NoteKeeperTui,
+    participant: Participant,
+) -> None:
     app.push_screen(
         ObjectActionConfirmationScreen("player", participant.display_name),
         lambda confirmed: _remove_participant(app, participant, confirmed),
@@ -84,9 +99,9 @@ def confirm_remove_participant(app, participant: Participant) -> None:
 
 
 def _remove_participant(
-    app,
+    app: NoteKeeperTui,
     participant: Participant,
-    confirmed: bool,
+    confirmed: bool | None,
 ) -> None:
     if not confirmed:
         return

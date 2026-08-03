@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from notekeeper.domain import AudioMetadata
+from notekeeper.application import SyncCampaignFolderResult
+from notekeeper.domain import AudioMetadata, ProcessingJob
 
 from ..contracts import RuntimeDiagnostics
 
@@ -26,14 +27,14 @@ def metadata_text(metadata: AudioMetadata) -> str:
     return "\n".join(lines)
 
 
-def warnings_text(job) -> str:
+def warnings_text(job: ProcessingJob) -> str:
     lines = [f"{warning.kind.value}: {warning.message}" for warning in job.warnings]
     if job.error_message:
         lines.append(f"error: {job.error_message}")
     return "\n".join(lines) if lines else "No warnings"
 
 
-def sync_result_status(result) -> str:
+def sync_result_status(result: SyncCampaignFolderResult) -> str:
     message = (
         "Synced: "
         f"players +{result.participants_created}, "

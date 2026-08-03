@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from textual.app import ComposeResult
 from textual.containers import Vertical
@@ -19,15 +20,19 @@ from notekeeper.application import (
 )
 from notekeeper.domain import DomainError, Participant
 
+from ..contracts import InterfaceRuntime
 from .audio_file_explorer_screen import AudioFileExplorerScreen
 from .common import metadata_text
 from .remove_voice_sample_screen import RemoveVoiceSampleScreen
+
+if TYPE_CHECKING:
+    from .tui import NoteKeeperTui
 
 
 class VoiceSampleScreen(ModalScreen[bool]):
     def __init__(
         self,
-        runtime,
+        runtime: InterfaceRuntime,
         campaign_id: str,
         participants: tuple[tuple[str, str], ...],
     ) -> None:
@@ -108,7 +113,7 @@ class VoiceSampleScreen(ModalScreen[bool]):
             self.query_one("#metadata", Static).update(str(exc))
 
 
-def open_add_sample(app, campaign_id: str) -> None:
+def open_add_sample(app: NoteKeeperTui, campaign_id: str) -> None:
     participants = app.runtime.use_cases.list_participants.execute(
         ListParticipantsCommand(campaign_id=campaign_id),
     ).participants
@@ -124,7 +129,7 @@ def open_add_sample(app, campaign_id: str) -> None:
     )
 
 
-def open_remove_sample(app, participant: Participant) -> None:
+def open_remove_sample(app: NoteKeeperTui, participant: Participant) -> None:
     try:
         samples = app.runtime.use_cases.list_voice_samples.execute(
             ListVoiceSamplesCommand(
@@ -147,7 +152,7 @@ def open_remove_sample(app, participant: Participant) -> None:
 
 
 def _remove_sample(
-    app,
+    app: NoteKeeperTui,
     participant: Participant,
     sample_id: str | None,
 ) -> None:
