@@ -409,7 +409,7 @@ class NoteKeeperTui(App[None]):
             "recordings-table",
             ("ID", "Title", "Duration", "Jobs", "Latest Status"),
         )
-        self._reset_table("players-table", ("ID", "Name", "Voice Sample", "Ready"))
+        self._reset_table("players-table", ("ID", "Name", "Voice Samples", "Ready"))
         self._reset_table("warnings-table", ("Job", "Kind", "Message"))
 
     def _refresh_campaign_select(self) -> None:
@@ -475,7 +475,11 @@ class NoteKeeperTui(App[None]):
         )
         ordered_audio_tracks = tuple(reversed(audio_tracks))
         ordered_participants = tuple(reversed(participants))
-        sample_participants = {str(sample.participant_id) for sample in voice_samples}
+        sample_counts: dict[str, int] = {}
+        for sample in voice_samples:
+            participant_id = str(sample.participant_id)
+            sample_counts[participant_id] = sample_counts.get(participant_id, 0) + 1
+        sample_participants = set(sample_counts)
         self._participant_ids_with_samples = sample_participants
         jobs_by_track: dict[str, list[ProcessingJob]] = {}
         for job in ordered_jobs:
@@ -540,14 +544,15 @@ class NoteKeeperTui(App[None]):
 
         players_table = self._reset_table(
             "players-table",
-            ("ID", "Name", "Voice Sample", "Ready"),
+            ("ID", "Name", "Voice Samples", "Ready"),
         )
         for participant in ordered_participants:
-            has_sample = str(participant.id) in sample_participants
+            sample_count = sample_counts.get(str(participant.id), 0)
+            has_sample = sample_count > 0
             players_table.add_identifier_row(
                 str(participant.id),
                 participant.display_name,
-                "yes" if has_sample else "no",
+                str(sample_count),
                 "ready" if has_sample else "missing",
                 identifier_indices=(0,),
                 key=str(participant.id),

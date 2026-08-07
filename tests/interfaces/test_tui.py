@@ -458,6 +458,73 @@ def test_tui_dashboard_loads_campaign_data() -> None:
     asyncio.run(run())
 
 
+def test_tui_dashboard_shows_voice_sample_counts_for_players() -> None:
+    async def run() -> None:
+        runtime = FakeRuntime()
+        campaign = runtime.use_cases.get_campaign.result.campaign
+        participants = (
+            campaign.participants[0],
+            Participant(
+                id=ParticipantId("participant-2"),
+                campaign_id=campaign.id,
+                display_name="Bob",
+            ),
+            Participant(
+                id=ParticipantId("participant-3"),
+                campaign_id=campaign.id,
+                display_name="Charlie",
+            ),
+        )
+        metadata = AudioMetadata(duration_seconds=10, format="wav")
+        voice_samples = (
+            VoiceSample(
+                id="sample-1",
+                campaign_id=campaign.id,
+                participant_id="participant-1",
+                artifact=ArtifactRef(uri="players/Alice/sample.wav"),
+                metadata=metadata,
+            ),
+            VoiceSample(
+                id="sample-2",
+                campaign_id=campaign.id,
+                participant_id="participant-2",
+                artifact=ArtifactRef(uri="players/Bob/sample-1.wav"),
+                metadata=metadata,
+            ),
+            VoiceSample(
+                id="sample-3",
+                campaign_id=campaign.id,
+                participant_id="participant-2",
+                artifact=ArtifactRef(uri="players/Bob/sample-2.wav"),
+                metadata=metadata,
+            ),
+        )
+        runtime.use_cases.get_campaign.result = GetCampaignResult(
+            campaign=replace(
+                campaign,
+                participants=participants,
+                voice_samples=voice_samples,
+            ),
+        )
+
+        app = NoteKeeperTui(runtime)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            players_table = app.query_one("#players-table", DataTable)
+
+            assert [column.label.plain for column in players_table.columns.values()] == [
+                "ID",
+                "Name",
+                "Voice Samples",
+                "Ready",
+            ]
+            assert players_table.get_row_at(0)[2:] == ["0", "missing"]
+            assert players_table.get_row_at(1)[2:] == ["2", "ready"]
+            assert players_table.get_row_at(2)[2:] == ["1", "ready"]
+
+    asyncio.run(run())
+
+
 def test_tui_dashboard_refreshes_from_events_without_overwriting_status() -> None:
     async def run() -> None:
         runtime = FakeRuntime()
