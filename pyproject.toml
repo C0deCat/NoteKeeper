@@ -6,6 +6,7 @@ readme = "README.md"
 requires-python = ">=3.11,<3.12"
 dependencies = [
     "fastapi>=0.138.2",
+    "filelock>=3.20.0",
     "openai>=2.44.0",
     "psutil>=7.0.0",
     "pydantic>=2.13.4",
@@ -66,6 +67,7 @@ addopts = "-ra"
 include = [
     "src/notekeeper/interfaces/tui",
     "src/notekeeper/interfaces/contracts.py",
+    "tests/typing/guarded_campaign_mutation_typing.py",
 ]
 extraPaths = ["src"]
 pythonVersion = "3.11"

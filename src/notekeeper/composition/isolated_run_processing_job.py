@@ -1,22 +1,21 @@
-"""Application-facing processing use case backed by an isolated process."""
+"""Compatibility facade for queueing processing jobs."""
 
 from notekeeper.application import (
-    RunProcessingJob,
-    RunProcessingJobCommand,
-    RunProcessingJobResult,
+    QueueProcessingJob,
+    QueueProcessingJobCommand,
+    QueueProcessingJobResult,
 )
-from notekeeper.application.ports import JobProcessExecutor
-from notekeeper.domain import ProcessingJobId
 
 
-class IsolatedRunProcessingJob(RunProcessingJob):
-    def __init__(self, pipeline, executor: JobProcessExecutor) -> None:
-        self._pipeline = pipeline
-        self._executor = executor
+class IsolatedRunProcessingJob:
+    def __init__(self, queue_processing_job: QueueProcessingJob) -> None:
+        self._queue_processing_job = queue_processing_job
 
-    def execute(self, command: RunProcessingJobCommand) -> RunProcessingJobResult:
-        running_job = self._pipeline.start(command)
-        return self._executor.execute(running_job.id)
+    def execute(
+        self,
+        command: QueueProcessingJobCommand,
+    ) -> QueueProcessingJobResult:
+        return self._queue_processing_job.execute(command)
 
 
 __all__ = ["IsolatedRunProcessingJob"]

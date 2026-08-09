@@ -2,6 +2,15 @@
 
 from .audio_sources import resolve_audio_source
 from .artifact_cleanup import delete_artifact_with_warning
+from .campaign_mutation_policy import (
+    ACTIVE_CAMPAIGN_JOB_STATUSES,
+    CampaignMutationPolicy,
+)
+from .guarded_campaign_mutation import (
+    CampaignMutationCommand,
+    CampaignMutationUseCase,
+    GuardedCampaignMutation,
+)
 
 from notekeeper.application.errors import NotFoundError
 from notekeeper.application.ports import (
@@ -82,5 +91,10 @@ __all__ = [
     "_require_recap",
     "_require_transcript",
     "delete_artifact_with_warning",
+    "ACTIVE_CAMPAIGN_JOB_STATUSES",
+    "CampaignMutationPolicy",
+    "CampaignMutationCommand",
+    "CampaignMutationUseCase",
+    "GuardedCampaignMutation",
     "resolve_audio_source",
 ]

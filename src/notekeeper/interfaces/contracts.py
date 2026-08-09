@@ -6,17 +6,22 @@ from dataclasses import dataclass
 from typing import Protocol
 
 from notekeeper.application import (
-    AddParticipantToCampaign,
-    AddVoiceSample,
+    AddParticipantToCampaignCommand,
+    AddParticipantToCampaignResult,
+    AddVoiceSampleCommand,
+    AddVoiceSampleResult,
     CancelProcessingJob,
     ClearFailedJobsForCampaign,
     CreateCampaign,
     CreateProcessingJobForAudioTrack,
-    DeleteAudioTrack,
+    DeleteAudioTrackCommand,
+    DeleteAudioTrackResult,
     DeleteCampaign,
-    DeleteParticipant,
+    DeleteParticipantCommand,
+    DeleteParticipantResult,
     DeleteProcessingJob,
-    DeleteVoiceSample,
+    DeleteVoiceSampleCommand,
+    DeleteVoiceSampleResult,
     ExportRecapMarkdown,
     ExportTranscriptMarkdown,
     GenerateRecap,
@@ -32,20 +37,29 @@ from notekeeper.application import (
     ListVoiceSamples,
     PreviewRecapMarkdown,
     PreviewTranscriptMarkdown,
-    RegisterAudioTrack,
+    QueueProcessingJob,
+    RegisterAudioTrackCommand,
+    RegisterAudioTrackResult,
     RestartFailedProcessingJob,
     RestartProcessingJob,
     ReviewSpeakerMappings,
-    RunProcessingJob,
-    SubmitRecordingForProcessing,
-    SyncCampaignFolder,
-    UpdateAudioTrack,
-    UpdateCampaign,
-    UpdateParticipant,
+    SubmitRecordingForProcessingCommand,
+    SubmitRecordingForProcessingResult,
+    SyncCampaignFolderCommand,
+    SyncCampaignFolderResult,
+    UpdateAudioTrackCommand,
+    UpdateAudioTrackResult,
+    UpdateCampaignCommand,
+    UpdateCampaignResult,
+    UpdateParticipantCommand,
+    UpdateParticipantResult,
     UpdateRecapGuidances,
+    UpdateVoiceSampleCommand,
+    UpdateVoiceSampleResult,
 )
-from notekeeper.domain import ArtifactRef
+from notekeeper.domain import ArtifactRef, ProcessingJob
 from notekeeper.application.ports import DashboardEventStream, ProgressEventStream
+from notekeeper.application.use_cases.utils import CampaignMutationUseCase
 
 
 @dataclass(frozen=True, slots=True)
@@ -53,22 +67,52 @@ class Stage1UseCases:
     create_campaign: CreateCampaign
     get_campaign: GetCampaign
     list_campaigns: ListCampaigns
-    update_campaign: UpdateCampaign
+    update_campaign: CampaignMutationUseCase[
+        UpdateCampaignCommand,
+        UpdateCampaignResult,
+    ]
     delete_campaign: DeleteCampaign
-    add_participant: AddParticipantToCampaign
+    add_participant: CampaignMutationUseCase[
+        AddParticipantToCampaignCommand,
+        AddParticipantToCampaignResult,
+    ]
     list_participants: ListParticipants
-    update_participant: UpdateParticipant
-    delete_participant: DeleteParticipant
-    add_voice_sample: AddVoiceSample
+    update_participant: CampaignMutationUseCase[
+        UpdateParticipantCommand,
+        UpdateParticipantResult,
+    ]
+    delete_participant: CampaignMutationUseCase[
+        DeleteParticipantCommand,
+        DeleteParticipantResult,
+    ]
+    add_voice_sample: CampaignMutationUseCase[
+        AddVoiceSampleCommand,
+        AddVoiceSampleResult,
+    ]
     list_voice_samples: ListVoiceSamples
-    delete_voice_sample: DeleteVoiceSample
-    register_audio_track: RegisterAudioTrack
+    delete_voice_sample: CampaignMutationUseCase[
+        DeleteVoiceSampleCommand,
+        DeleteVoiceSampleResult,
+    ]
+    register_audio_track: CampaignMutationUseCase[
+        RegisterAudioTrackCommand,
+        RegisterAudioTrackResult,
+    ]
     list_audio_tracks: ListAudioTracks
-    update_audio_track: UpdateAudioTrack
-    delete_audio_track: DeleteAudioTrack
+    update_audio_track: CampaignMutationUseCase[
+        UpdateAudioTrackCommand,
+        UpdateAudioTrackResult,
+    ]
+    delete_audio_track: CampaignMutationUseCase[
+        DeleteAudioTrackCommand,
+        DeleteAudioTrackResult,
+    ]
     create_processing_job_for_audio_track: CreateProcessingJobForAudioTrack
-    submit_recording_for_processing: SubmitRecordingForProcessing
-    run_processing_job: RunProcessingJob
+    submit_recording_for_processing: CampaignMutationUseCase[
+        SubmitRecordingForProcessingCommand,
+        SubmitRecordingForProcessingResult,
+    ]
+    run_processing_job: QueueProcessingJob
     restart_failed_processing_job: RestartFailedProcessingJob
     clear_failed_jobs_for_campaign: ClearFailedJobsForCampaign
     list_jobs_for_campaign: ListJobsForCampaign
@@ -83,7 +127,18 @@ class Stage1UseCases:
     preview_recap_markdown: PreviewRecapMarkdown
     inspect_audio_metadata: InspectAudioMetadata
     inspect_local_audio_file: InspectLocalAudioFile
-    sync_campaign_folder: SyncCampaignFolder
+    sync_campaign_folder: CampaignMutationUseCase[
+        SyncCampaignFolderCommand,
+        SyncCampaignFolderResult,
+    ]
+    queue_processing_job: QueueProcessingJob | None = None
+    update_voice_sample: (
+        CampaignMutationUseCase[
+            UpdateVoiceSampleCommand,
+            UpdateVoiceSampleResult,
+        ]
+        | None
+    ) = None
     restart_processing_job: RestartProcessingJob | None = None
     delete_processing_job: DeleteProcessingJob | None = None
     cancel_processing_job: CancelProcessingJob | None = None
@@ -110,6 +165,12 @@ class InterfaceRuntime(Protocol):
     use_cases: Stage1UseCases
     progress_events: ProgressEventStream
     dashboard_events: DashboardEventStream
+
+    def start_job_manager(self, *, recover_queued: bool = True) -> None: ...
+
+    def shutdown_job_manager(self) -> None: ...
+
+    def wait_for_job(self, job_id: str) -> ProcessingJob: ...
 
     def diagnostics(self, campaign_id: str | None = None) -> RuntimeDiagnostics: ...
 

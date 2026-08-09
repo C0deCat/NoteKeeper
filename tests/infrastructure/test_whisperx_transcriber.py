@@ -203,6 +203,48 @@ def test_whisperx_transcriber_runs_fake_runner_and_persists_raw_payload(
     assert raw_payload["whisperx"]["final"]["segments"][0]["text"] == "Alice speaks"
 
 
+def test_whisperx_transcriber_reports_completed_cuda_phase(tmp_path: Path) -> None:
+    storage = LocalCampaignArtifactStorage(tmp_path)
+    completed: list[str] = []
+    transcriber = WhisperXTranscriber(
+        storage,
+        runner=FakeWhisperXRunner(),
+        device="cuda",
+        on_gpu_phase_completed=lambda: completed.append("gpu"),
+    )
+
+    transcriber.transcribe(
+        _prepared_audio(storage),
+        transcript_id=TranscriptId("transcript-1"),
+        campaign_id=CampaignId("campaign-1"),
+        audio_track_id=AudioTrackId("audio-track-1"),
+    )
+
+    assert completed == ["gpu"]
+
+
+def test_whisperx_transcriber_does_not_report_gpu_phase_for_cpu(
+    tmp_path: Path,
+) -> None:
+    storage = LocalCampaignArtifactStorage(tmp_path)
+    completed: list[str] = []
+    transcriber = WhisperXTranscriber(
+        storage,
+        runner=FakeWhisperXRunner(),
+        device="cpu",
+        on_gpu_phase_completed=lambda: completed.append("gpu"),
+    )
+
+    transcriber.transcribe(
+        _prepared_audio(storage),
+        transcript_id=TranscriptId("transcript-1"),
+        campaign_id=CampaignId("campaign-1"),
+        audio_track_id=AudioTrackId("audio-track-1"),
+    )
+
+    assert completed == []
+
+
 def test_whisperx_transcriber_wraps_runner_failures(tmp_path: Path) -> None:
     storage = LocalCampaignArtifactStorage(tmp_path)
     transcriber = WhisperXTranscriber(

@@ -33,35 +33,46 @@ from notekeeper.application import (
     ListVoiceSamples,
     PreviewRecapMarkdown,
     PreviewTranscriptMarkdown,
+    QueueProcessingJob,
     RegisterAudioTrack,
-    RestartFailedProcessingJob,
     RestartProcessingJob,
     ReviewSpeakerMappings,
-    RunProcessingJob,
     SubmitRecordingForProcessing,
     SyncCampaignFolder,
     UpdateAudioTrack,
     UpdateCampaign,
     UpdateParticipant,
     UpdateRecapGuidances,
+    UpdateVoiceSample,
 )
 from notekeeper.application.errors import ApplicationError
-from notekeeper.application.ports import DashboardEventStream, ProgressEventStream
-from notekeeper.domain import ArtifactRef
+from notekeeper.application.ports import (
+    DashboardEventStream,
+    JobManager,
+    ProgressEventHub,
+    ProgressEventStream,
+)
+from notekeeper.application.use_cases.utils import (
+    CampaignMutationPolicy,
+    GuardedCampaignMutation,
+)
+from notekeeper.domain import ArtifactRef, ProcessingJob, ProcessingJobId
 from notekeeper.infrastructure.runtime import (
     EventPublishingCampaignRepository,
     EventPublishingJobCleaner,
     EventPublishingJobRepository,
     InMemoryDashboardEventHub,
     InMemoryProgressEventHub,
+    LocalCampaignMutationGuard,
+    MutationGuardingCampaignRepository,
+    PersistedProgressEventHub,
     StreamingProgressTrackerFactory,
 )
-from notekeeper.interfaces import InterfaceRuntime, RuntimeDiagnostics, Stage1UseCases
+from notekeeper.interfaces import RuntimeDiagnostics, Stage1UseCases
 
 from .factory import InfrastructureBundle, build_infrastructure
-from .isolated_run_processing_job import IsolatedRunProcessingJob
 from .job_pipeline import build_processing_pipeline
-from .process_job_executor import LocalProcessJobExecutor
+from .process_job_executor import LocalJobManager
 from .settings import NoteKeeperSettings
 
 
@@ -72,6 +83,16 @@ class NoteKeeperRuntime:
     infrastructure: InfrastructureBundle
     progress_events: ProgressEventStream
     dashboard_events: DashboardEventStream
+    job_manager: LocalJobManager
+
+    def start_job_manager(self, *, recover_queued: bool = True) -> None:
+        self.job_manager.start(recover_queued=recover_queued)
+
+    def shutdown_job_manager(self) -> None:
+        self.job_manager.shutdown()
+
+    def wait_for_job(self, job_id: str) -> ProcessingJob:
+        return self.job_manager.wait_for_terminal(ProcessingJobId(job_id))
 
     def diagnostics(self, campaign_id: str | None = None) -> RuntimeDiagnostics:
         return RuntimeDiagnostics(
@@ -105,7 +126,9 @@ class NoteKeeperRuntime:
 def build_runtime(settings: NoteKeeperSettings | None = None) -> NoteKeeperRuntime:
     infrastructure = build_infrastructure(settings)
     infrastructure.transient_audio_cleaner.clean_stale()
-    progress_events = InMemoryProgressEventHub()
+    progress_events = PersistedProgressEventHub(
+        infrastructure.progress_event_snapshot_store,
+    )
     dashboard_events = InMemoryDashboardEventHub()
     infrastructure = replace(
         infrastructure,
@@ -122,35 +145,63 @@ def build_runtime(settings: NoteKeeperSettings | None = None) -> NoteKeeperRunti
             dashboard_events,
         ),
     )
+    processing_pipeline = build_processing_pipeline(infrastructure)
+    mutation_policy = _build_campaign_mutation_policy(infrastructure)
+    job_manager = _build_local_job_manager(
+        infrastructure,
+        processing_pipeline,
+        progress_events,
+        dashboard_events,
+    )
     return NoteKeeperRuntime(
         settings=infrastructure.settings,
         use_cases=build_stage1_use_cases(
             infrastructure,
             progress_events=progress_events,
             dashboard_events=dashboard_events,
+            job_manager=job_manager,
+            mutation_policy=mutation_policy,
         ),
         infrastructure=infrastructure,
         progress_events=progress_events,
         dashboard_events=dashboard_events,
+        job_manager=job_manager,
     )
 
 
 def build_stage1_use_cases(
     infrastructure: InfrastructureBundle,
     *,
-    progress_events: InMemoryProgressEventHub | None = None,
+    progress_events: ProgressEventHub | None = None,
     dashboard_events: InMemoryDashboardEventHub | None = None,
+    job_manager: JobManager | None = None,
+    mutation_policy: CampaignMutationPolicy | None = None,
 ) -> Stage1UseCases:
     progress_events = progress_events or InMemoryProgressEventHub()
     dashboard_events = dashboard_events or InMemoryDashboardEventHub()
     progress_tracker_factory = StreamingProgressTrackerFactory(progress_events)
     processing_pipeline = build_processing_pipeline(infrastructure)
-    process_executor = LocalProcessJobExecutor(
-        infrastructure.settings,
+    mutation_policy = mutation_policy or _build_campaign_mutation_policy(
+        infrastructure
+    )
+    infrastructure = replace(
+        infrastructure,
+        campaign_repository=MutationGuardingCampaignRepository(
+            infrastructure.campaign_repository,
+            mutation_policy,
+        ),
+    )
+    job_manager = job_manager or _build_local_job_manager(
+        infrastructure,
+        processing_pipeline,
+        progress_events,
+        dashboard_events,
+    )
+    queue_processing_job = QueueProcessingJob(
         infrastructure.job_repository,
-        progress_events=progress_events,
-        dashboard_events=dashboard_events,
-        transient_audio_cleaner=infrastructure.transient_audio_cleaner,
+        job_manager,
+        mutation_policy,
+        infrastructure.clock,
     )
     restart_processing_job = RestartProcessingJob(
         infrastructure.campaign_repository,
@@ -168,44 +219,79 @@ def build_stage1_use_cases(
         ),
         get_campaign=GetCampaign(infrastructure.campaign_repository),
         list_campaigns=ListCampaigns(infrastructure.campaign_repository),
-        update_campaign=UpdateCampaign(infrastructure.campaign_repository),
+        update_campaign=GuardedCampaignMutation(
+            UpdateCampaign(infrastructure.campaign_repository),
+            mutation_policy,
+        ),
         delete_campaign=DeleteCampaign(
             infrastructure.campaign_repository,
             infrastructure.artifact_storage,
+            mutation_policy,
         ),
-        add_participant=AddParticipantToCampaign(
-            infrastructure.campaign_repository,
-            infrastructure.id_generator,
+        add_participant=GuardedCampaignMutation(
+            AddParticipantToCampaign(
+                infrastructure.campaign_repository,
+                infrastructure.id_generator,
+            ),
+            mutation_policy,
         ),
         list_participants=ListParticipants(infrastructure.campaign_repository),
-        update_participant=UpdateParticipant(infrastructure.campaign_repository),
-        delete_participant=DeleteParticipant(infrastructure.campaign_repository),
-        add_voice_sample=AddVoiceSample(
-            infrastructure.campaign_repository,
-            infrastructure.metadata_reader,
-            infrastructure.source_metadata_reader,
-            infrastructure.artifact_storage,
-            infrastructure.id_generator,
+        update_participant=GuardedCampaignMutation(
+            UpdateParticipant(infrastructure.campaign_repository),
+            mutation_policy,
+        ),
+        delete_participant=GuardedCampaignMutation(
+            DeleteParticipant(infrastructure.campaign_repository),
+            mutation_policy,
+        ),
+        add_voice_sample=GuardedCampaignMutation(
+            AddVoiceSample(
+                infrastructure.campaign_repository,
+                infrastructure.metadata_reader,
+                infrastructure.source_metadata_reader,
+                infrastructure.artifact_storage,
+                infrastructure.id_generator,
+            ),
+            mutation_policy,
         ),
         list_voice_samples=ListVoiceSamples(infrastructure.campaign_repository),
-        delete_voice_sample=DeleteVoiceSample(infrastructure.campaign_repository),
-        register_audio_track=RegisterAudioTrack(
-            infrastructure.campaign_repository,
-            infrastructure.metadata_reader,
-            infrastructure.id_generator,
-            audio_normalizer=infrastructure.audio_normalizer,
-            artifact_storage=infrastructure.artifact_storage,
+        delete_voice_sample=GuardedCampaignMutation(
+            DeleteVoiceSample(infrastructure.campaign_repository),
+            mutation_policy,
+        ),
+        update_voice_sample=GuardedCampaignMutation(
+            UpdateVoiceSample(
+                infrastructure.campaign_repository,
+                infrastructure.metadata_reader,
+            ),
+            mutation_policy,
+        ),
+        register_audio_track=GuardedCampaignMutation(
+            RegisterAudioTrack(
+                infrastructure.campaign_repository,
+                infrastructure.metadata_reader,
+                infrastructure.id_generator,
+                audio_normalizer=infrastructure.audio_normalizer,
+                artifact_storage=infrastructure.artifact_storage,
+            ),
+            mutation_policy,
         ),
         list_audio_tracks=ListAudioTracks(infrastructure.campaign_repository),
-        update_audio_track=UpdateAudioTrack(
-            infrastructure.campaign_repository,
-            infrastructure.metadata_reader,
-            audio_normalizer=infrastructure.audio_normalizer,
-            artifact_storage=infrastructure.artifact_storage,
+        update_audio_track=GuardedCampaignMutation(
+            UpdateAudioTrack(
+                infrastructure.campaign_repository,
+                infrastructure.metadata_reader,
+                audio_normalizer=infrastructure.audio_normalizer,
+                artifact_storage=infrastructure.artifact_storage,
+            ),
+            mutation_policy,
         ),
-        delete_audio_track=DeleteAudioTrack(
-            infrastructure.campaign_repository,
-            infrastructure.job_repository,
+        delete_audio_track=GuardedCampaignMutation(
+            DeleteAudioTrack(
+                infrastructure.campaign_repository,
+                infrastructure.job_repository,
+            ),
+            mutation_policy,
         ),
         create_processing_job_for_audio_track=CreateProcessingJobForAudioTrack(
             infrastructure.campaign_repository,
@@ -214,21 +300,22 @@ def build_stage1_use_cases(
             infrastructure.clock,
             infrastructure.id_generator,
         ),
-        submit_recording_for_processing=SubmitRecordingForProcessing(
-            infrastructure.campaign_repository,
-            infrastructure.audio_track_repository,
-            infrastructure.job_repository,
-            infrastructure.metadata_reader,
-            infrastructure.source_metadata_reader,
-            infrastructure.artifact_storage,
-            infrastructure.clock,
-            infrastructure.id_generator,
-            audio_normalizer=infrastructure.audio_normalizer,
+        submit_recording_for_processing=GuardedCampaignMutation(
+            SubmitRecordingForProcessing(
+                infrastructure.campaign_repository,
+                infrastructure.audio_track_repository,
+                infrastructure.job_repository,
+                infrastructure.metadata_reader,
+                infrastructure.source_metadata_reader,
+                infrastructure.artifact_storage,
+                infrastructure.clock,
+                infrastructure.id_generator,
+                audio_normalizer=infrastructure.audio_normalizer,
+            ),
+            mutation_policy,
         ),
-        run_processing_job=IsolatedRunProcessingJob(
-            processing_pipeline,
-            process_executor,
-        ),
+        queue_processing_job=queue_processing_job,
+        run_processing_job=queue_processing_job,
         restart_failed_processing_job=restart_processing_job,
         clear_failed_jobs_for_campaign=ClearFailedJobsForCampaign(
             infrastructure.campaign_repository,
@@ -242,7 +329,8 @@ def build_stage1_use_cases(
         cancel_processing_job=CancelProcessingJob(
             infrastructure.job_repository,
             infrastructure.clock,
-            process_executor,
+            job_manager,
+            infrastructure.speaker_review_submission_repository,
         ),
         list_jobs_for_campaign=ListJobsForCampaign(
             infrastructure.campaign_repository,
@@ -252,15 +340,10 @@ def build_stage1_use_cases(
         review_speaker_mappings=ReviewSpeakerMappings(
             infrastructure.campaign_repository,
             infrastructure.transcript_repository,
-            infrastructure.recap_repository,
             infrastructure.job_repository,
-            infrastructure.speaker_mapping_repository,
-            infrastructure.tokenizer,
-            infrastructure.recap_guidances,
-            infrastructure.recap_generator,
+            infrastructure.speaker_review_submission_repository,
+            job_manager,
             infrastructure.clock,
-            infrastructure.id_generator,
-            progress_tracker_factory=progress_tracker_factory,
         ),
         generate_recap=GenerateRecap(
             infrastructure.job_repository,
@@ -280,6 +363,7 @@ def build_stage1_use_cases(
         update_recap_guidances=UpdateRecapGuidances(
             infrastructure.campaign_repository,
             infrastructure.recap_guidances,
+            mutation_policy,
         ),
         export_transcript_markdown=ExportTranscriptMarkdown(
             infrastructure.transcript_repository,
@@ -297,17 +381,53 @@ def build_stage1_use_cases(
         inspect_local_audio_file=InspectLocalAudioFile(
             infrastructure.source_metadata_reader,
         ),
-        sync_campaign_folder=SyncCampaignFolder(
-            infrastructure.campaign_repository,
-            infrastructure.job_repository,
-            infrastructure.folder_scanner,
-            infrastructure.metadata_reader,
-            infrastructure.id_generator,
-            audio_normalizer=infrastructure.audio_normalizer,
-            artifact_storage=infrastructure.artifact_storage,
+        sync_campaign_folder=GuardedCampaignMutation(
+            SyncCampaignFolder(
+                infrastructure.campaign_repository,
+                infrastructure.job_repository,
+                infrastructure.folder_scanner,
+                infrastructure.metadata_reader,
+                infrastructure.id_generator,
+                audio_normalizer=infrastructure.audio_normalizer,
+                artifact_storage=infrastructure.artifact_storage,
+            ),
+            mutation_policy,
         ),
         restart_processing_job=restart_processing_job,
     )
+
+
+def _build_campaign_mutation_policy(
+    infrastructure: InfrastructureBundle,
+) -> CampaignMutationPolicy:
+    guard = LocalCampaignMutationGuard(_job_lock_root(infrastructure.settings))
+    return CampaignMutationPolicy(infrastructure.job_repository, guard)
+
+
+def _build_local_job_manager(
+    infrastructure: InfrastructureBundle,
+    processing_pipeline,
+    progress_events: ProgressEventHub,
+    dashboard_events: InMemoryDashboardEventHub,
+) -> LocalJobManager:
+    return LocalJobManager(
+        infrastructure.settings,
+        processing_pipeline,
+        infrastructure.job_repository,
+        infrastructure.clock,
+        lock_root=_job_lock_root(infrastructure.settings),
+        progress_events=progress_events,
+        dashboard_events=dashboard_events,
+        transient_audio_cleaner=infrastructure.transient_audio_cleaner,
+        review_submission_repository=(
+            infrastructure.speaker_review_submission_repository
+        ),
+    )
+
+
+def _job_lock_root(settings: NoteKeeperSettings) -> Path:
+    sqlite_path = settings.sqlite_path.resolve(strict=False)
+    return sqlite_path.parent / f".{sqlite_path.name}.locks"
 
 
 def _recent_messages(

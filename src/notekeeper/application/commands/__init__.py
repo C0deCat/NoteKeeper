@@ -156,6 +156,11 @@ class RunProcessingJobCommand:
 
 
 @dataclass(frozen=True, slots=True)
+class QueueProcessingJobCommand:
+    job_id: str
+
+
+@dataclass(frozen=True, slots=True)
 class RestartProcessingJobCommand:
     job_id: str
 
@@ -266,6 +271,7 @@ __all__ = [
     "InspectLocalAudioFileCommand",
     "PreviewRecapMarkdownCommand",
     "PreviewTranscriptMarkdownCommand",
+    "QueueProcessingJobCommand",
     "RegisterAudioTrackCommand",
     "ReviewSpeakerMappingsCommand",
     "RestartFailedProcessingJobCommand",

@@ -12,6 +12,7 @@ from notekeeper.domain import (
     AudioMetadata,
     Campaign,
     CampaignId,
+    AudioTrackId,
     Participant,
     ParticipantId,
     PipelineWarning,
@@ -335,6 +336,21 @@ class RunProcessingJobResult:
 
 
 @dataclass(frozen=True, slots=True)
+class QueueProcessingJobResult:
+    job: ProcessingJob
+
+
+@dataclass(frozen=True, slots=True)
+class SpeakerReviewSubmission:
+    job_id: ProcessingJobId
+    transcript_id: TranscriptId
+    mappings: tuple[SpeakerMapping, ...]
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "mappings", tuple(self.mappings))
+
+
+@dataclass(frozen=True, slots=True)
 class RestartProcessingJobResult:
     campaign: Campaign
     audio_track: AudioTrack
@@ -480,6 +496,7 @@ __all__ = [
     "PreparedVoiceSampleRange",
     "ProgressEvent",
     "ProgressEventKind",
+    "QueueProcessingJobResult",
     "RecapGenerationContext",
     "RegisterAudioTrackResult",
     "ReviewSpeakerMappingsResult",
@@ -489,6 +506,7 @@ __all__ = [
     "ScannedAudioTrackArtifact",
     "ScannedVoiceSampleArtifact",
     "SpeakerMappingRecord",
+    "SpeakerReviewSubmission",
     "SubmitRecordingForProcessingResult",
     "SyncCampaignFolderResult",
     "TranscriptChunk",

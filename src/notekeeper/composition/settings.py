@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from pydantic import Field
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from notekeeper.infrastructure.filesystem.scanner import DEFAULT_AUDIO_EXTENSIONS
@@ -24,6 +24,8 @@ class NoteKeeperSettings(BaseSettings):
     ffmpeg_path: str = "ffmpeg"
     ffprobe_path: str = "ffprobe"
     processing_work_root: Path = Field(default=Path("data") / "processing-work")
+    max_concurrent_jobs: int = Field(default=4, ge=1)
+    max_concurrent_gpu_jobs: int = Field(default=1, ge=1)
     normalized_audio_sample_rate_hz: int = 16000
     normalized_audio_channels: int = 1
     normalized_audio_codec: str = "pcm_s16le"
@@ -57,3 +59,11 @@ class NoteKeeperSettings(BaseSettings):
     deepseek_retry_backoff_seconds: float = 1.0
     deepseek_request_logging_enabled: bool = False
     deepseek_log_full_payloads: bool = False
+
+    @model_validator(mode="after")
+    def validate_job_capacity(self) -> "NoteKeeperSettings":
+        if self.max_concurrent_gpu_jobs > self.max_concurrent_jobs:
+            raise ValueError(
+                "max_concurrent_gpu_jobs must not exceed max_concurrent_jobs"
+            )
+        return self

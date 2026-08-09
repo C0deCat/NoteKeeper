@@ -12,7 +12,9 @@ def test_runner_reports_model_and_measured_stages(monkeypatch) -> None:
     progress = RecordingProgress()
     whisperx = FakeWhisperX()
     runner = DefaultWhisperXRunner()
+    released_devices: list[str] = []
     monkeypatch.setattr(runner, "_import_whisperx", lambda: whisperx)
+    monkeypatch.setattr(runner, "_release_cuda_memory", released_devices.append)
     monkeypatch.setattr(
         runner_module,
         "patch_speechbrain_inspect_lazy_imports",
@@ -32,7 +34,7 @@ def test_runner_reports_model_and_measured_stages(monkeypatch) -> None:
     payload = runner.run(
         Path("audio.wav"),
         model_name="tiny",
-        device="cpu",
+        device="cuda",
         compute_type="int8",
         batch_size=1,
         language="en",
@@ -60,6 +62,7 @@ def test_runner_reports_model_and_measured_stages(monkeypatch) -> None:
     ]
     assert progress.fractions == [0.5, 1.0, 0.5, 1.0, 0.5, 0.99]
     assert progress.completed == 6
+    assert released_devices == ["cuda"]
 
 
 class RecordingProgress:

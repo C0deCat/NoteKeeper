@@ -88,6 +88,12 @@ CREATE TABLE IF NOT EXISTS jobs (
 CREATE INDEX IF NOT EXISTS idx_jobs_campaign
     ON jobs (campaign_id);
 
+CREATE INDEX IF NOT EXISTS idx_jobs_campaign_status
+    ON jobs (campaign_id, status);
+
+CREATE INDEX IF NOT EXISTS idx_jobs_status_updated
+    ON jobs (status, updated_at);
+
 CREATE INDEX IF NOT EXISTS idx_jobs_audio_track
     ON jobs (audio_track_id);
 
@@ -109,6 +115,23 @@ CREATE INDEX IF NOT EXISTS idx_speaker_mappings_job
 
 CREATE INDEX IF NOT EXISTS idx_speaker_mappings_transcript
     ON speaker_mappings (transcript_id);
+
+CREATE TABLE IF NOT EXISTS speaker_review_submissions (
+    job_id TEXT PRIMARY KEY,
+    transcript_id TEXT NOT NULL,
+    mappings_json TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS progress_event_snapshots (
+    operation_id TEXT PRIMARY KEY,
+    event_kind TEXT NOT NULL,
+    stage_index INTEGER NOT NULL,
+    stage_count INTEGER NOT NULL,
+    timing_available INTEGER NOT NULL,
+    progress_stage TEXT NOT NULL,
+    expected_duration INTEGER NOT NULL,
+    current_duration INTEGER NOT NULL
+);
 """
 
 

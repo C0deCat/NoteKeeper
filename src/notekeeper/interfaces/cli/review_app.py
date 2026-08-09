@@ -52,15 +52,26 @@ def create_app(runtime_factory: RuntimeFactory) -> typer.Typer:
                 raise ValueError(
                     "at least one --mapping, --label, or --keep is required",
                 )
-            with CliProgressDisplay(runtime, job_id):
-                result = runtime.use_cases.review_speaker_mappings.execute(
-                    ReviewSpeakerMappingsCommand(
-                        job_id=job_id,
-                        mappings=mappings,
-                    ),
-                )
-            echo_job(result.job)
-            for warning in result.warnings:
+            try:
+                with CliProgressDisplay(runtime, job_id):
+                    queued = runtime.use_cases.review_speaker_mappings.execute(
+                        ReviewSpeakerMappingsCommand(
+                            job_id=job_id,
+                            mappings=mappings,
+                        ),
+                    )
+                    wait_for_job = getattr(runtime, "wait_for_job", None)
+                    job = (
+                        wait_for_job(job_id)
+                        if callable(wait_for_job)
+                        else queued.job
+                    )
+            finally:
+                shutdown_job_manager = getattr(runtime, "shutdown_job_manager", None)
+                if callable(shutdown_job_manager):
+                    shutdown_job_manager()
+            echo_job(job)
+            for warning in job.warnings:
                 typer.echo(f"warning {warning.kind.value}: {warning.message}")
 
         run(action)

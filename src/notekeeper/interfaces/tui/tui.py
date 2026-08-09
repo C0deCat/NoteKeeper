@@ -28,6 +28,8 @@ from notekeeper.application import (
     ListCampaignsCommand,
     ListJobsForCampaignCommand,
     ProgressEvent,
+    ProgressEventKind,
+    QueueProcessingJobResult,
     SyncCampaignFolderResult,
 )
 from notekeeper.domain import (
@@ -77,6 +79,20 @@ class DashboardInvalidated(Message):
         self.event = event
 
 
+class ProgressChanged(Message):
+    def __init__(self, event: ProgressEvent) -> None:
+        super().__init__()
+        self.event = event
+
+
+_PROGRESS_JOB_STATUSES = {
+    JobStatus.QUEUED,
+    JobStatus.RUNNING,
+    JobStatus.CANCELING,
+    JobStatus.WAITING_FOR_REVIEW,
+}
+
+
 class NoteKeeperTui(App[None]):
     """Dashboard-first Textual interface for Stage 1."""
 
@@ -101,6 +117,7 @@ class NoteKeeperTui(App[None]):
         self._campaign_has_participants = False
         self._campaign_is_processing_ready = False
         self._failed_job_count = 0
+        self._campaign_has_active_jobs = False
         self._clear_failed_jobs_in_progress = False
         self._job_delete_in_progress = False
         self._job_cancel_in_progress = False
@@ -190,6 +207,9 @@ class NoteKeeperTui(App[None]):
         yield Footer()
 
     def on_mount(self) -> None:
+        start_job_manager = getattr(self.runtime, "start_job_manager", None)
+        if callable(start_job_manager):
+            start_job_manager(recover_queued=True)
         self._dashboard_unsubscribe = self.runtime.dashboard_events.subscribe(
             self._on_dashboard_changed,
         )
@@ -348,6 +368,13 @@ class NoteKeeperTui(App[None]):
                 message = f"Recreated recap {result.recap.id}"
                 self._set_status(message)
                 self.notify(message)
+            elif event.worker.group == "job":
+                result = cast(QueueProcessingJobResult, event.worker.result)
+                message = f"Queued job {result.job.id}"
+                self._set_status(message)
+                self.notify(message)
+            elif event.worker.group == "review":
+                self._set_status("Queued reviewed job")
             else:
                 self._set_status("Done")
         elif event.state is WorkerState.ERROR:
@@ -444,7 +471,10 @@ class NoteKeeperTui(App[None]):
             self._campaign_has_participants = False
             self._campaign_is_processing_ready = False
             self._failed_job_count = 0
+            self._campaign_has_active_jobs = False
             self._clear_tables()
+            self._sync_progress_subscriptions(())
+            self._hide_progress()
             if announce:
                 self._set_status("No campaign")
             self._update_action_buttons()
@@ -502,6 +532,16 @@ class NoteKeeperTui(App[None]):
         )
         self._failed_job_count = sum(
             job.status is JobStatus.FAILED for job in ordered_jobs
+        )
+        self._campaign_has_active_jobs = any(
+            job.status
+            in {
+                JobStatus.QUEUED,
+                JobStatus.RUNNING,
+                JobStatus.CANCELING,
+                JobStatus.WAITING_FOR_REVIEW,
+            }
+            for job in ordered_jobs
         )
 
         selected_key = self._selected_object_key(self._selected_object)
@@ -610,6 +650,8 @@ class NoteKeeperTui(App[None]):
         if announce:
             self._set_status(f"{len(ordered_jobs)} jobs")
         self._update_action_buttons()
+        self._sync_progress_subscriptions(ordered_jobs)
+        self._show_selected_progress()
 
     def _on_dashboard_changed(self, event: DashboardChangedEvent) -> None:
         self.post_message(DashboardInvalidated(event))
@@ -743,18 +785,25 @@ class NoteKeeperTui(App[None]):
             else None
         )
         processing_ready = campaign_selected and self._campaign_is_processing_ready
+        campaign_mutable = campaign_selected and not self._campaign_has_active_jobs
 
         self._set_button_disabled("refresh", False)
-        self._set_button_disabled("manage-campaign", False)
-        self._set_button_disabled("settings", not campaign_selected)
+        self._set_button_disabled(
+            "manage-campaign",
+            campaign_selected and self._campaign_has_active_jobs,
+        )
+        self._set_button_disabled("settings", not campaign_mutable)
         self._set_button_disabled("diagnostics", False)
-        self._set_button_disabled("sync-folder", not campaign_selected)
-        self._set_button_disabled("add-player", not campaign_selected)
+        self._set_button_disabled("sync-folder", not campaign_mutable)
+        self._set_button_disabled("add-player", not campaign_mutable)
         self._set_button_disabled(
             "add-sample",
-            not campaign_selected or not self._campaign_has_participants,
+            not campaign_mutable or not self._campaign_has_participants,
         )
-        self._set_button_disabled("submit-recording", not processing_ready)
+        self._set_button_disabled(
+            "submit-recording",
+            not processing_ready or not campaign_mutable,
+        )
         self._set_button_disabled(
             "clear-failed-jobs",
             not campaign_selected
@@ -769,19 +818,29 @@ class NoteKeeperTui(App[None]):
         )
         for button_id in ("rename-recording", "remove-recording"):
             self._set_button_display(button_id, selected_audio_track is not None)
-            self._set_button_disabled(button_id, selected_audio_track is None)
+            self._set_button_disabled(
+                button_id,
+                selected_audio_track is None or not campaign_mutable,
+            )
         for button_id in (
             "rename-player",
             "remove-player",
             "remove-voice-sample",
         ):
             self._set_button_display(button_id, selected_participant is not None)
-        self._set_button_disabled("rename-player", selected_participant is None)
-        self._set_button_disabled("remove-player", selected_participant is None)
+        self._set_button_disabled(
+            "rename-player",
+            selected_participant is None or not campaign_mutable,
+        )
+        self._set_button_disabled(
+            "remove-player",
+            selected_participant is None or not campaign_mutable,
+        )
         self._set_button_disabled(
             "remove-voice-sample",
             selected_participant is None
-            or str(selected_participant.id) not in self._participant_ids_with_samples,
+            or str(selected_participant.id) not in self._participant_ids_with_samples
+            or not campaign_mutable,
         )
         for button_id in (
             "recreate-recap",
@@ -819,14 +878,20 @@ class NoteKeeperTui(App[None]):
         self._set_button_disabled(
             "delete-job",
             selected_job is None
-            or selected_job.status is JobStatus.RUNNING
+            or selected_job.status
+            in {JobStatus.QUEUED, JobStatus.RUNNING, JobStatus.CANCELING}
             or self._job_delete_in_progress
             or self._job_cancel_in_progress,
         )
         self._set_button_disabled(
             "cancel-job",
             selected_job is None
-            or selected_job.status is not JobStatus.RUNNING
+            or selected_job.status
+            not in {
+                JobStatus.QUEUED,
+                JobStatus.RUNNING,
+                JobStatus.WAITING_FOR_REVIEW,
+            }
             or str(selected_job.id) == self._review_job_id
             or self._job_cancel_in_progress
             or self._job_delete_in_progress,
@@ -1073,17 +1138,42 @@ class NoteKeeperTui(App[None]):
         )
 
     def _on_progress_event(self, event: ProgressEvent) -> None:
-        self.call_from_thread(self._apply_progress_event, event)
+        self.post_message(ProgressChanged(event))
+
+    def on_progress_changed(self, message: ProgressChanged) -> None:
+        event = message.event
+        self._apply_progress_event(event)
+        if (
+            event.kind.is_terminal
+            and event.kind is not ProgressEventKind.PAUSED
+            and self._recap_generation_in_progress
+            and self._selected_job_id() == event.operation_id
+        ):
+            self._recap_generation_in_progress = False
+            self._update_action_buttons()
+        dashboard_job = self._dashboard_jobs.get(event.operation_id)
+        if (
+            dashboard_job is not None
+            and (
+                event.kind is ProgressEventKind.STARTED
+                or event.kind.is_terminal
+                or dashboard_job.status
+                in {JobStatus.QUEUED, JobStatus.WAITING_FOR_REVIEW}
+            )
+        ):
+            self._pending_content_refresh = True
+            self._schedule_dashboard_refresh()
 
     def _apply_progress_event(self, event: ProgressEvent) -> None:
         if event.kind.is_terminal:
             self._active_progress_events.pop(event.operation_id, None)
-            unsubscribe = self._progress_unsubscribes.pop(
-                event.operation_id,
-                None,
-            )
-            if unsubscribe is not None:
-                unsubscribe()
+            if event.kind is not ProgressEventKind.PAUSED:
+                unsubscribe = self._progress_unsubscribes.pop(
+                    event.operation_id,
+                    None,
+                )
+                if unsubscribe is not None:
+                    unsubscribe()
             if self._selected_job_id() == event.operation_id:
                 self._hide_progress()
             return
@@ -1114,6 +1204,27 @@ class NoteKeeperTui(App[None]):
             return
         self._apply_progress_event(event)
 
+    def _sync_progress_subscriptions(
+        self,
+        jobs: tuple[ProcessingJob, ...],
+    ) -> None:
+        tracked_ids = {
+            str(job.id) for job in jobs if job.status in _PROGRESS_JOB_STATUSES
+        }
+        selected_job = self._selected_job()
+        if self._recap_generation_in_progress and selected_job is not None:
+            tracked_ids.add(str(selected_job.id))
+
+        for operation_id in tracked_ids:
+            self._watch_progress(operation_id)
+
+        for operation_id in tuple(self._progress_unsubscribes):
+            if operation_id in tracked_ids:
+                continue
+            unsubscribe = self._progress_unsubscribes.pop(operation_id)
+            unsubscribe()
+            self._active_progress_events.pop(operation_id, None)
+
     def _selected_job_id(self) -> str | None:
         job = self._selected_job()
         return str(job.id) if job is not None else None
@@ -1133,6 +1244,9 @@ class NoteKeeperTui(App[None]):
         for unsubscribe in tuple(self._progress_unsubscribes.values()):
             unsubscribe()
         self._progress_unsubscribes.clear()
+        shutdown_job_manager = getattr(self.runtime, "shutdown_job_manager", None)
+        if callable(shutdown_job_manager):
+            shutdown_job_manager()
 
 
 def run_tui(runtime: InterfaceRuntime) -> None:

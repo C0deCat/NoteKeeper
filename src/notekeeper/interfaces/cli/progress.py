@@ -14,7 +14,7 @@ from rich.progress import (
     TextColumn,
 )
 
-from notekeeper.application.results import ProgressEvent
+from notekeeper.application.results import ProgressEvent, ProgressEventKind
 
 from ..contracts import InterfaceRuntime
 

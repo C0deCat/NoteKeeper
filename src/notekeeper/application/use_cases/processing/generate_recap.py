@@ -64,7 +64,7 @@ class GenerateRecap:
             if progress is not None:
                 progress.start_stage(
                     ProcessingStage.GENERATING_RECAP,
-                    timing_available=False,
+                    timing_available=True,
                 )
             transcript = _require_transcript(
                 self._transcript_repository,

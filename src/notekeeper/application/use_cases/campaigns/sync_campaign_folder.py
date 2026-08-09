@@ -21,7 +21,6 @@ from notekeeper.application.use_cases.utils import (
 from notekeeper.domain import (
     AudioTrack,
     AudioTrackId,
-    Campaign,
     CampaignId,
     Participant,
     ParticipantId,

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import gc
 import importlib
 import logging
 from collections.abc import Callable
@@ -88,7 +89,7 @@ class DefaultWhisperXRunner:
                 progress=progress,
             )
 
-        return to_json_safe(
+        safe_payload = to_json_safe(
             {
                 "asr": asr_result,
                 "alignment": alignment_result,
@@ -96,6 +97,9 @@ class DefaultWhisperXRunner:
                 "final": current_result,
             },
         )
+        del asr_result, alignment_result, diarization_payload, current_result
+        self._release_cuda_memory(device)
+        return safe_payload
 
     def _import_whisperx(self):
         try:
@@ -351,6 +355,18 @@ class DefaultWhisperXRunner:
         if callable(to_dict):
             return to_dict(orient="records")
         return value
+
+    @staticmethod
+    def _release_cuda_memory(device: str) -> None:
+        if not device.lower().startswith("cuda"):
+            return
+        gc.collect()
+        try:
+            torch = importlib.import_module("torch")
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+        except Exception:
+            logger.exception("Could not release cached CUDA memory")
 
 
 def _whisperx_progress(

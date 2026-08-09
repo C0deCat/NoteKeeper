@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from contextlib import AbstractContextManager
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Protocol
@@ -15,8 +16,8 @@ from notekeeper.application.results import (
     ProgressEvent,
     RecapGenerationContext,
     SpeakerMappingRecord,
+    SpeakerReviewSubmission,
     TranscriptChunk,
-    RunProcessingJobResult,
 )
 from notekeeper.domain import (
     ArtifactRef,
@@ -76,6 +77,14 @@ class ProgressEventStream(Protocol):
 
 class ProgressEventHub(ProgressEventPublisher, ProgressEventStream, Protocol):
     pass
+
+
+class ProgressEventSnapshotStore(Protocol):
+    def get(self, operation_id: str) -> ProgressEvent | None: ...
+
+    def save(self, event: ProgressEvent) -> None: ...
+
+    def delete(self, operation_id: str) -> None: ...
 
 
 class ProgressTracker(Protocol):
@@ -196,6 +205,17 @@ class JobRepository(Protocol):
         audio_track_id: AudioTrackId,
     ) -> tuple[ProcessingJob, ...]: ...
 
+    def list_by_statuses(
+        self,
+        statuses: tuple[JobStatus, ...],
+    ) -> tuple[ProcessingJob, ...]: ...
+
+    def has_for_campaign_with_statuses(
+        self,
+        campaign_id: CampaignId,
+        statuses: tuple[JobStatus, ...],
+    ) -> bool: ...
+
     def save(self, job: ProcessingJob) -> None: ...
 
     def save_if_status(
@@ -224,12 +244,14 @@ class TransientAudioCleaner(Protocol):
     def clean_stale(self) -> None: ...
 
 
-class JobExecutionController(Protocol):
-    def cancel(self, job_id: ProcessingJobId) -> None: ...
+class JobManager(Protocol):
+    def enqueue(self, job_id: ProcessingJobId) -> None: ...
+
+    def request_cancel(self, job_id: ProcessingJobId) -> None: ...
 
 
-class JobProcessExecutor(JobExecutionController, Protocol):
-    def execute(self, job_id: ProcessingJobId) -> RunProcessingJobResult: ...
+class CampaignMutationGuard(Protocol):
+    def acquire(self, campaign_id: CampaignId) -> AbstractContextManager[None]: ...
 
 
 class AudioMetadataReader(Protocol):
@@ -313,6 +335,17 @@ class SpeakerMappingRepository(Protocol):
         self,
         transcript_id: TranscriptId,
     ) -> tuple[SpeakerMappingRecord, ...]: ...
+
+
+class SpeakerReviewSubmissionRepository(Protocol):
+    def get(
+        self,
+        job_id: ProcessingJobId,
+    ) -> SpeakerReviewSubmission | None: ...
+
+    def save(self, submission: SpeakerReviewSubmission) -> None: ...
+
+    def delete(self, job_id: ProcessingJobId) -> None: ...
 
 
 class Tokenizer(Protocol):
@@ -453,6 +486,7 @@ __all__ = [
     "AudioTrackRepository",
     "CampaignArtifactStorage",
     "CampaignFolderScanner",
+    "CampaignMutationGuard",
     "CampaignRepository",
     "Clock",
     "FailedJobCleaner",
@@ -461,8 +495,7 @@ __all__ = [
     "DashboardEventPublisher",
     "DashboardEventStream",
     "JobCleaner",
-    "JobExecutionController",
-    "JobProcessExecutor",
+    "JobManager",
     "IdGenerator",
     "JobRepository",
     "ParticipantRepository",
@@ -470,6 +503,7 @@ __all__ = [
     "ProgressEventListener",
     "ProgressEventHub",
     "ProgressEventPublisher",
+    "ProgressEventSnapshotStore",
     "ProgressEventStream",
     "ProgressTracker",
     "ProgressTrackerFactory",
@@ -478,6 +512,7 @@ __all__ = [
     "RecapRepository",
     "SpeakerIdentifier",
     "SpeakerMappingRepository",
+    "SpeakerReviewSubmissionRepository",
     "SourceAudioMetadataReader",
     "Tokenizer",
     "Transcriber",

@@ -38,6 +38,22 @@ class EventPublishingJobRepository(JobRepository):
     ) -> tuple[ProcessingJob, ...]:
         return self._repository.list_for_audio_track(audio_track_id)
 
+    def list_by_statuses(
+        self,
+        statuses: tuple[JobStatus, ...],
+    ) -> tuple[ProcessingJob, ...]:
+        return self._repository.list_by_statuses(statuses)
+
+    def has_for_campaign_with_statuses(
+        self,
+        campaign_id: CampaignId,
+        statuses: tuple[JobStatus, ...],
+    ) -> bool:
+        return self._repository.has_for_campaign_with_statuses(
+            campaign_id,
+            statuses,
+        )
+
     def save(self, job: ProcessingJob) -> None:
         self._repository.save(job)
         self._publish(job)

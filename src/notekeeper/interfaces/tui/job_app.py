@@ -9,8 +9,8 @@ from notekeeper.application import (
     CancelProcessingJobCommand,
     CreateProcessingJobForAudioTrackCommand,
     DeleteProcessingJobCommand,
+    QueueProcessingJobCommand,
     RestartProcessingJobCommand,
-    RunProcessingJobCommand,
 )
 from notekeeper.domain import AudioTrack, DomainError, JobStatus, ProcessingJob
 
@@ -33,8 +33,11 @@ def run_selected_job(app: NoteKeeperTui) -> None:
         return
     app._watch_progress(str(job.id))
     app.run_worker(
-        lambda: app.runtime.use_cases.run_processing_job.execute(
-            RunProcessingJobCommand(job_id=str(job.id)),
+        lambda: (
+            app.runtime.use_cases.queue_processing_job
+            or app.runtime.use_cases.run_processing_job
+        ).execute(
+            QueueProcessingJobCommand(job_id=str(job.id)),
         ),
         group="job",
         thread=True,

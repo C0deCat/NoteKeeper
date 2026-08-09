@@ -130,8 +130,22 @@ class LocalJobCleaner(JobCleaner):
                 self._validate_database_rows(campaign_id, plan, connection)
                 connection.execute(
                     f"""
+                    DELETE FROM speaker_review_submissions
+                    WHERE job_id IN ({_placeholders(plan.job_ids)})
+                    """,
+                    plan.job_ids,
+                )
+                connection.execute(
+                    f"""
                     DELETE FROM speaker_mappings
                     WHERE job_id IN ({_placeholders(plan.job_ids)})
+                    """,
+                    plan.job_ids,
+                )
+                connection.execute(
+                    f"""
+                    DELETE FROM progress_event_snapshots
+                    WHERE operation_id IN ({_placeholders(plan.job_ids)})
                     """,
                     plan.job_ids,
                 )

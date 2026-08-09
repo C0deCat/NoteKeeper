@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
@@ -22,6 +23,9 @@ from .interfaces import WhisperXPayloadStore, WhisperXRunner
 from .payload_store import LocalWhisperXPayloadStore
 from .runner import DefaultWhisperXRunner
 from .utils import to_json_safe, transcript_from_whisperx_result
+
+
+logger = logging.getLogger(__name__)
 
 
 class WhisperXTranscriber(Transcriber):
@@ -47,6 +51,7 @@ class WhisperXTranscriber(Transcriber):
         hf_token: str | None = None,
         fill_nearest: bool = False,
         unknown_speaker_label: str = "SPEAKER_UNKNOWN",
+        on_gpu_phase_completed: Callable[[], None] | None = None,
         now: Callable[[], datetime] | None = None,
     ) -> None:
         self._storage = storage
@@ -77,6 +82,7 @@ class WhisperXTranscriber(Transcriber):
             unknown_speaker_label,
             "unknown_speaker_label",
         )
+        self._on_gpu_phase_completed = on_gpu_phase_completed
         self._now = now or (lambda: datetime.now(timezone.utc))
 
     def transcribe(
@@ -90,6 +96,7 @@ class WhisperXTranscriber(Transcriber):
     ) -> Transcript:
         audio_path = self._require_audio_path(audio)
         payload = self._run_whisperx(audio_path, progress=progress)
+        self._notify_gpu_phase_completed()
         payload_artifact = self._save_payload(
             audio=audio,
             transcript_id=transcript_id,
@@ -116,6 +123,15 @@ class WhisperXTranscriber(Transcriber):
             raise InfrastructureError(
                 f"could not convert WhisperX payload {payload_artifact.uri}: {exc}",
             ) from exc
+
+    def _notify_gpu_phase_completed(self) -> None:
+        callback = self._on_gpu_phase_completed
+        if callback is None or not self._device.lower().startswith("cuda"):
+            return
+        try:
+            callback()
+        except Exception:
+            logger.exception("Could not report completed WhisperX GPU phase")
 
     def _run_whisperx(
         self,

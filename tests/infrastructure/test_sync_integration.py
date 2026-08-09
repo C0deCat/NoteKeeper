@@ -9,7 +9,6 @@ import pytest
 
 from notekeeper.application import SyncCampaignFolder, SyncCampaignFolderCommand
 from notekeeper.domain import (
-    AudioTrackId,
     Campaign,
     CampaignId,
     JobStatus,

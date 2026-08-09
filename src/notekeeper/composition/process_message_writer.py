@@ -23,6 +23,9 @@ class ProcessMessageWriter:
     def error(self, value: str) -> None:
         self._send("error", value)
 
+    def resource_released(self, resource: str) -> None:
+        self._send("resource_released", resource)
+
     def close(self) -> None:
         with self._lock:
             self._connection.close()

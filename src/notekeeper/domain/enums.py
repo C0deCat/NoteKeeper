@@ -23,7 +23,9 @@ class SpeakerMappingStatus(str, Enum):
 
 class JobStatus(str, Enum):
     PENDING = "pending"
+    QUEUED = "queued"
     RUNNING = "running"
+    CANCELING = "canceling"
     WAITING_FOR_REVIEW = "waiting_for_review"
     COMPLETED = "completed"
     FAILED = "failed"
