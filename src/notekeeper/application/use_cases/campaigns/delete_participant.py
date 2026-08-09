@@ -4,7 +4,7 @@ from notekeeper.application.commands import DeleteParticipantCommand
 from notekeeper.application.ports import CampaignRepository
 from notekeeper.application.results import DeleteParticipantResult
 from notekeeper.application.use_cases.campaigns.utils import find_participant
-from notekeeper.application.use_cases.utils import _require_campaign
+from notekeeper.application.use_cases.utils import require_campaign
 from notekeeper.domain import CampaignId, ParticipantId, remove_participant
 
 
@@ -13,7 +13,7 @@ class DeleteParticipant:
         self._campaign_repository = campaign_repository
 
     def execute(self, command: DeleteParticipantCommand) -> DeleteParticipantResult:
-        campaign = _require_campaign(
+        campaign = require_campaign(
             self._campaign_repository,
             CampaignId(command.campaign_id),
         )

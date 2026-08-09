@@ -83,6 +83,14 @@ class SQLiteCampaignRepository(CampaignRepository):
             ).fetchall()
             for row in job_rows:
                 connection.execute(
+                    "DELETE FROM progress_event_snapshots WHERE operation_id = ?",
+                    (row["id"],),
+                )
+                connection.execute(
+                    "DELETE FROM speaker_review_submissions WHERE job_id = ?",
+                    (row["id"],),
+                )
+                connection.execute(
                     "DELETE FROM speaker_mappings WHERE job_id = ?",
                     (row["id"],),
                 )

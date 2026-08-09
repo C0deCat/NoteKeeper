@@ -1,4 +1,6 @@
 """Voice sample CLI commands."""
+# Typer registers nested command callbacks.
+# pyright: reportUnusedFunction=false
 
 import typer
 

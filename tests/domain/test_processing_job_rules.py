@@ -24,20 +24,26 @@ def _job(status: JobStatus) -> ProcessingJob:
     )
 
 
-def test_processing_job_delete_rule_rejects_only_running() -> None:
+def test_processing_job_delete_rule_rejects_active_execution_statuses() -> None:
     for status in JobStatus:
-        if status is JobStatus.RUNNING:
+        if status in {JobStatus.QUEUED, JobStatus.RUNNING, JobStatus.CANCELING}:
             with pytest.raises(DomainValidationError, match="cannot be deleted"):
                 ensure_processing_job_can_be_deleted(_job(status))
         else:
             ensure_processing_job_can_be_deleted(_job(status))
 
 
-def test_cancel_processing_job_transitions_running_to_canceled() -> None:
+def test_cancel_processing_job_transitions_running_to_canceling() -> None:
     canceled_at = datetime(2026, 1, 1) + timedelta(seconds=5)
     result = cancel_processing_job(_job(JobStatus.RUNNING), canceled_at=canceled_at)
-    assert result.status is JobStatus.CANCELED
+    assert result.status is JobStatus.CANCELING
     assert result.updated_at == canceled_at
+
+
+@pytest.mark.parametrize("status", (JobStatus.QUEUED, JobStatus.WAITING_FOR_REVIEW))
+def test_cancel_processing_job_cancels_non_running_active_job(status) -> None:
+    result = cancel_processing_job(_job(status), canceled_at=datetime(2026, 1, 2))
+    assert result.status is JobStatus.CANCELED
 
 
 def test_restart_rule_accepts_failed_and_canceled() -> None:

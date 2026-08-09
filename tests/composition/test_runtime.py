@@ -9,9 +9,10 @@ from notekeeper.application import (
     DeleteProcessingJob,
     GenerateRecap,
     RestartFailedProcessingJob,
-    UpdateCampaign,
 )
+from notekeeper.application.use_cases.utils import GuardedCampaignMutation
 from notekeeper.composition import NoteKeeperSettings, build_runtime
+from notekeeper.infrastructure.runtime import PersistedProgressEventHub
 
 
 def test_build_runtime_assembles_stage1_use_cases_and_diagnostics(
@@ -31,7 +32,7 @@ def test_build_runtime_assembles_stage1_use_cases_and_diagnostics(
     diagnostics = runtime.diagnostics()
 
     assert isinstance(runtime.use_cases.create_campaign, CreateCampaign)
-    assert isinstance(runtime.use_cases.update_campaign, UpdateCampaign)
+    assert isinstance(runtime.use_cases.update_campaign, GuardedCampaignMutation)
     assert isinstance(runtime.use_cases.delete_campaign, DeleteCampaign)
     assert isinstance(
         runtime.use_cases.create_processing_job_for_audio_track,
@@ -48,6 +49,7 @@ def test_build_runtime_assembles_stage1_use_cases_and_diagnostics(
     assert isinstance(runtime.use_cases.delete_processing_job, DeleteProcessingJob)
     assert isinstance(runtime.use_cases.cancel_processing_job, CancelProcessingJob)
     assert isinstance(runtime.use_cases.generate_recap, GenerateRecap)
+    assert isinstance(runtime.progress_events, PersistedProgressEventHub)
     assert diagnostics.deepseek_configured is True
     assert diagnostics.huggingface_configured is True
     assert diagnostics.whisperx_vad_method == "pyannote"

@@ -1,4 +1,6 @@
 """Speaker mapping review CLI commands."""
+# Typer registers nested command callbacks.
+# pyright: reportUnusedFunction=false
 
 import typer
 
@@ -52,15 +54,19 @@ def create_app(runtime_factory: RuntimeFactory) -> typer.Typer:
                 raise ValueError(
                     "at least one --mapping, --label, or --keep is required",
                 )
-            with CliProgressDisplay(runtime, job_id):
-                result = runtime.use_cases.review_speaker_mappings.execute(
-                    ReviewSpeakerMappingsCommand(
-                        job_id=job_id,
-                        mappings=mappings,
-                    ),
-                )
-            echo_job(result.job)
-            for warning in result.warnings:
+            try:
+                with CliProgressDisplay(runtime, job_id):
+                    runtime.use_cases.review_speaker_mappings.execute(
+                        ReviewSpeakerMappingsCommand(
+                            job_id=job_id,
+                            mappings=mappings,
+                        ),
+                    )
+                    job = runtime.wait_for_job(job_id)
+            finally:
+                runtime.shutdown_job_manager()
+            echo_job(job)
+            for warning in job.warnings:
                 typer.echo(f"warning {warning.kind.value}: {warning.message}")
 
         run(action)

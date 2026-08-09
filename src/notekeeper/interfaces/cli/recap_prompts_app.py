@@ -1,4 +1,6 @@
 """Campaign recap prompt CLI commands."""
+# Typer registers nested command callbacks.
+# pyright: reportUnusedFunction=false
 
 from __future__ import annotations
 

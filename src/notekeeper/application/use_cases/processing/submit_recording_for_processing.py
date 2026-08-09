@@ -14,8 +14,8 @@ from notekeeper.application.ports import (
 )
 from notekeeper.application.results import SubmitRecordingForProcessingResult
 from notekeeper.application.use_cases.utils import (
-    _require_campaign,
     delete_artifact_with_warning,
+    require_campaign,
     resolve_audio_source,
 )
 from notekeeper.domain import (
@@ -59,7 +59,7 @@ class SubmitRecordingForProcessing:
         self,
         command: SubmitRecordingForProcessingCommand,
     ) -> SubmitRecordingForProcessingResult:
-        campaign = _require_campaign(
+        campaign = require_campaign(
             self._campaign_repository,
             CampaignId(command.campaign_id),
         )

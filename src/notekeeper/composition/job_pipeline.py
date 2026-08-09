@@ -1,6 +1,6 @@
 """Construction of the in-process processing pipeline."""
 
-from notekeeper.application import RunProcessingJob
+from notekeeper.application import ExecuteQueuedProcessingJob
 from notekeeper.application.ports import ProgressTrackerFactory
 from notekeeper.application.use_cases.processing.progress import processing_stages
 
@@ -11,8 +11,8 @@ def build_processing_pipeline(
     infrastructure: InfrastructureBundle,
     *,
     progress_tracker_factory: ProgressTrackerFactory | None = None,
-) -> RunProcessingJob:
-    return RunProcessingJob(
+) -> ExecuteQueuedProcessingJob:
+    return ExecuteQueuedProcessingJob(
         infrastructure.campaign_repository,
         infrastructure.audio_track_repository,
         infrastructure.transcript_repository,
@@ -22,6 +22,7 @@ def build_processing_pipeline(
         infrastructure.transcriber,
         infrastructure.speaker_identifier,
         infrastructure.speaker_mapping_repository,
+        infrastructure.speaker_review_submission_repository,
         infrastructure.tokenizer,
         infrastructure.recap_guidances,
         infrastructure.recap_generator,

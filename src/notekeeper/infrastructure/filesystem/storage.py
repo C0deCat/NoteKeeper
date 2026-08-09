@@ -19,7 +19,6 @@ from .utils import (
     safe_uri_parts,
 )
 
-
 CAMPAIGN_FOLDERS = ("players", "records", "transcripts", "recaps")
 
 

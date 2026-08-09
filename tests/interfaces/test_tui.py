@@ -11,9 +11,9 @@ from textual.widgets import Button, DataTable, Input, Select, Static, Switch, Te
 from notekeeper.application import (
     ClearFailedJobsForCampaignCommand,
     ClearFailedJobsForCampaignResult,
+    CreateCampaignResult,
     CreateProcessingJobForAudioTrackCommand,
     CreateProcessingJobForAudioTrackResult,
-    CreateCampaignResult,
     DashboardChangedEvent,
     DashboardRefreshScope,
     DeleteAudioTrackCommand,
@@ -24,9 +24,9 @@ from notekeeper.application import (
     GenerateRecapResult,
     GetCampaignCommand,
     GetCampaignResult,
-    GetRecapGuidancesResult,
-    GetRecapGuidancesCommand,
     GetJobStatusResult,
+    GetRecapGuidancesCommand,
+    GetRecapGuidancesResult,
     InspectAudioMetadataResult,
     InspectLocalAudioFileResult,
     ListAudioTracksResult,
@@ -35,16 +35,19 @@ from notekeeper.application import (
     ListParticipantsResult,
     ListVoiceSamplesResult,
     ManualSpeakerMappingCommand,
+    ProgressEvent,
+    ProgressEventKind,
+    QueueProcessingJobCommand,
     RestartFailedProcessingJobCommand,
     RestartFailedProcessingJobResult,
-    RunProcessingJobCommand,
+    SubmitRecordingForProcessingResult,
     SyncCampaignFolderCommand,
     SyncCampaignFolderResult,
     UpdateAudioTrackCommand,
     UpdateCampaignResult,
     UpdateParticipantCommand,
-    UpdateRecapGuidancesResult,
     UpdateRecapGuidancesCommand,
+    UpdateRecapGuidancesResult,
 )
 from notekeeper.domain import (
     ArtifactRef,
@@ -58,9 +61,19 @@ from notekeeper.domain import (
     PipelineWarning,
     PipelineWarningKind,
     ProcessingJob,
+    ProgressBar,
     Recap,
     SpeakerLabel,
     VoiceSample,
+)
+from notekeeper.infrastructure.runtime import (
+    InMemoryDashboardEventHub,
+    InMemoryProgressEventHub,
+    PersistedProgressEventHub,
+)
+from notekeeper.infrastructure.sqlite import (
+    SQLiteDatabase,
+    SQLiteProgressEventSnapshotStore,
 )
 from notekeeper.interfaces import RuntimeDiagnostics, Stage1UseCases
 from notekeeper.interfaces.tui import (
@@ -89,10 +102,6 @@ from notekeeper.interfaces.tui.remove_voice_sample_screen import (
 from notekeeper.interfaces.tui.rename_screen import RenameScreen
 from notekeeper.interfaces.tui.review_app import ReviewMappingsScreen
 from notekeeper.interfaces.tui.tui import DashboardWarning
-from notekeeper.infrastructure.runtime import (
-    InMemoryDashboardEventHub,
-    InMemoryProgressEventHub,
-)
 
 
 class FakeUseCase:
@@ -356,7 +365,13 @@ class FakeRuntime:
                     job=job,
                 ),
             ),
-            submit_recording_for_processing=FakeUseCase(None),
+            submit_recording_for_processing=FakeUseCase(
+                SubmitRecordingForProcessingResult(
+                    campaign=campaign,
+                    audio_track=audio_track,
+                    job=job,
+                ),
+            ),
             run_processing_job=FakeUseCase(GetJobStatusResult(job=job)),
             restart_failed_processing_job=FakeRestartUseCase(
                 RestartFailedProcessingJobResult(
@@ -436,6 +451,12 @@ class FakeRuntime:
     def format_artifact_location(self, artifact: ArtifactRef) -> str:
         return artifact.uri
 
+    def start_job_manager(self, *, recover_queued: bool = True) -> None:
+        pass
+
+    def shutdown_job_manager(self) -> None:
+        pass
+
 
 def test_tui_dashboard_loads_campaign_data() -> None:
     async def run() -> None:
@@ -454,6 +475,349 @@ def test_tui_dashboard_loads_campaign_data() -> None:
             assert recordings_table.show_cursor is False
             assert app.query_one("#players-table", DataTable).show_cursor is False
             assert app.query_one("#warnings-table", DataTable).show_cursor is False
+
+    asyncio.run(run())
+
+
+def test_tui_keeps_progress_subscription_for_review_continuation() -> None:
+    async def run() -> None:
+        runtime = FakeRuntime()
+        _set_fake_job_status(runtime, "job-1", JobStatus.RUNNING)
+        app = NoteKeeperTui(runtime)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app._select_table_row(app.query_one("#jobs-table", DataTable), "job-1")
+            app._watch_progress("job-1")
+
+            await asyncio.to_thread(
+                runtime.progress_events.publish,
+                _progress_event(ProgressEventKind.STARTED, "transcribing"),
+            )
+            await pilot.pause()
+            assert app.query_one("#progress-panel").display is True
+
+            _set_fake_job_status(runtime, "job-1", JobStatus.WAITING_FOR_REVIEW)
+            await asyncio.to_thread(
+                runtime.progress_events.publish,
+                _progress_event(ProgressEventKind.PAUSED, "mapping_speakers"),
+            )
+            await _wait_for(
+                pilot,
+                lambda: app.query_one("#progress-panel").display is False,
+            )
+            assert app.query_one("#progress-panel").display is False
+            assert "job-1" in app._progress_unsubscribes
+
+            _set_fake_job_status(runtime, "job-1", JobStatus.RUNNING)
+            await asyncio.to_thread(
+                runtime.progress_events.publish,
+                _progress_event(ProgressEventKind.STARTED, "mapping_speakers"),
+            )
+            await pilot.pause()
+            assert app.query_one("#progress-panel").display is True
+            assert "Mapping Speakers" in str(
+                app.query_one("#progress-stage", Static).render(),
+            )
+
+            for current_duration in range(1, 6):
+                await asyncio.to_thread(
+                    runtime.progress_events.publish,
+                    _progress_event(
+                        ProgressEventKind.UPDATED,
+                        "generating_recap",
+                        expected_duration=5,
+                        current_duration=current_duration,
+                        stage_index=2,
+                        timing_available=True,
+                    ),
+                )
+                await pilot.pause()
+                assert app._progress().progress == current_duration * 20
+
+            _set_fake_job_status(runtime, "job-1", JobStatus.COMPLETED)
+            await asyncio.to_thread(
+                runtime.progress_events.publish,
+                _progress_event(ProgressEventKind.COMPLETED, "generating_recap"),
+            )
+            await _wait_for(
+                pilot,
+                lambda: "job-1" not in app._progress_unsubscribes,
+            )
+            assert "job-1" not in app._progress_unsubscribes
+
+    asyncio.run(run())
+
+
+def test_tui_replays_and_continues_recovered_job_progress(tmp_path: Path) -> None:
+    async def run() -> None:
+        runtime = FakeRuntime()
+        _set_fake_job_status(runtime, "job-1", JobStatus.RUNNING)
+        owner, observer = _persisted_progress_hubs(tmp_path)
+        runtime.progress_events = observer
+        owner.publish(
+            _progress_event(
+                ProgressEventKind.UPDATED,
+                "transcribing",
+                expected_duration=4,
+                current_duration=1,
+                timing_available=True,
+            ),
+        )
+
+        app = NoteKeeperTui(runtime)
+        async with app.run_test() as pilot:
+            await _wait_for(
+                pilot,
+                lambda: "job-1" in app._active_progress_events,
+            )
+            app._select_table_row(app.query_one("#jobs-table", DataTable), "job-1")
+            await pilot.pause()
+            assert "job-1" in app._progress_unsubscribes
+            assert app._progress().progress == 25
+
+            owner.publish(
+                _progress_event(
+                    ProgressEventKind.UPDATED,
+                    "transcribing",
+                    expected_duration=4,
+                    current_duration=2,
+                    timing_available=True,
+                ),
+            )
+            await _wait_for(pilot, lambda: app._progress().progress == 50)
+
+    asyncio.run(run())
+
+
+def test_tui_tracks_gpu_handoff_jobs_independently_across_reopen(
+    tmp_path: Path,
+) -> None:
+    async def run() -> None:
+        runtime = FakeRuntime()
+        _set_fake_job_status(runtime, "job-1", JobStatus.RUNNING)
+        _set_fake_job_status(runtime, "job-2", JobStatus.QUEUED)
+        owner, observer = _persisted_progress_hubs(tmp_path)
+        runtime.progress_events = observer
+        owner.publish(
+            _progress_event(
+                ProgressEventKind.UPDATED,
+                "generating_recap",
+                operation_id="job-1",
+                expected_duration=5,
+                current_duration=3,
+                stage_index=4,
+                stage_count=4,
+                timing_available=True,
+            ),
+        )
+
+        app = NoteKeeperTui(runtime)
+        async with app.run_test() as pilot:
+            await _wait_for(
+                pilot,
+                lambda: "job-1" in app._active_progress_events,
+            )
+            _set_fake_job_status(runtime, "job-2", JobStatus.RUNNING)
+            owner.publish(
+                _progress_event(
+                    ProgressEventKind.STARTED,
+                    "transcribing",
+                    operation_id="job-2",
+                    expected_duration=4,
+                    current_duration=1,
+                    timing_available=True,
+                ),
+            )
+            await _wait_for(
+                pilot,
+                lambda: "job-2" in app._active_progress_events,
+            )
+            app._select_table_row(app.query_one("#jobs-table", DataTable), "job-2")
+            await pilot.pause()
+            assert app._progress().progress == 25
+
+            owner.publish(
+                _progress_event(
+                    ProgressEventKind.UPDATED,
+                    "transcribing",
+                    operation_id="job-2",
+                    expected_duration=4,
+                    current_duration=2,
+                    timing_available=True,
+                ),
+            )
+            await _wait_for(pilot, lambda: app._progress().progress == 50)
+
+            app._select_table_row(app.query_one("#jobs-table", DataTable), "job-1")
+            await pilot.pause()
+            assert app._progress().progress == 60
+
+        runtime.progress_events = _persisted_progress_hub(tmp_path)
+        reopened = NoteKeeperTui(runtime)
+        async with reopened.run_test() as pilot:
+            await _wait_for(
+                pilot,
+                lambda: "job-2" in reopened._active_progress_events,
+            )
+            reopened._select_table_row(
+                reopened.query_one("#jobs-table", DataTable),
+                "job-2",
+            )
+            await pilot.pause()
+            assert reopened._progress().progress == 50
+
+            owner.publish(
+                _progress_event(
+                    ProgressEventKind.UPDATED,
+                    "transcribing",
+                    operation_id="job-2",
+                    expected_duration=4,
+                    current_duration=3,
+                    timing_available=True,
+                ),
+            )
+            await _wait_for(
+                pilot,
+                lambda: reopened._progress().progress == 75,
+            )
+
+    asyncio.run(run())
+
+
+def _progress_event(
+    kind: ProgressEventKind,
+    stage: str,
+    *,
+    operation_id: str = "job-1",
+    expected_duration: int = 0,
+    current_duration: int = 0,
+    stage_index: int = 1,
+    stage_count: int = 2,
+    timing_available: bool = False,
+) -> ProgressEvent:
+    return ProgressEvent(
+        operation_id=operation_id,
+        stage_index=stage_index,
+        stage_count=stage_count,
+        timing_available=timing_available,
+        kind=kind,
+        progress=ProgressBar(
+            stage=stage,
+            expected_duration=expected_duration,
+            current_duration=current_duration,
+        ),
+    )
+
+
+def _set_fake_job_status(
+    runtime: FakeRuntime,
+    job_id: str,
+    status: JobStatus,
+) -> ProcessingJob:
+    list_jobs = runtime.use_cases.list_jobs_for_campaign
+    jobs = tuple(
+        replace(
+            job,
+            status=status,
+            error_message=None if status is not JobStatus.FAILED else job.error_message,
+        )
+        if str(job.id) == job_id
+        else job
+        for job in list_jobs.result.jobs
+    )
+    updated = next(job for job in jobs if str(job.id) == job_id)
+    list_jobs.result = ListJobsForCampaignResult(jobs=jobs)
+    runtime.use_cases.get_job_status.jobs[job_id] = updated
+    return updated
+
+
+def _persisted_progress_hubs(
+    tmp_path: Path,
+) -> tuple[PersistedProgressEventHub, PersistedProgressEventHub]:
+    return _persisted_progress_hub(tmp_path), _persisted_progress_hub(tmp_path)
+
+
+def _persisted_progress_hub(tmp_path: Path) -> PersistedProgressEventHub:
+    database = SQLiteDatabase(tmp_path / "progress.sqlite3")
+    database.initialize()
+    return PersistedProgressEventHub(
+        SQLiteProgressEventSnapshotStore(database),
+        poll_interval=0.01,
+    )
+
+
+async def _wait_for(pilot, condition) -> None:
+    for _ in range(100):
+        await pilot.pause()
+        if condition():
+            return
+        await asyncio.sleep(0.01)
+    raise AssertionError("condition was not met")
+
+
+def test_tui_dashboard_shows_voice_sample_counts_for_players() -> None:
+    async def run() -> None:
+        runtime = FakeRuntime()
+        campaign = runtime.use_cases.get_campaign.result.campaign
+        participants = (
+            campaign.participants[0],
+            Participant(
+                id=ParticipantId("participant-2"),
+                campaign_id=campaign.id,
+                display_name="Bob",
+            ),
+            Participant(
+                id=ParticipantId("participant-3"),
+                campaign_id=campaign.id,
+                display_name="Charlie",
+            ),
+        )
+        metadata = AudioMetadata(duration_seconds=10, format="wav")
+        voice_samples = (
+            VoiceSample(
+                id="sample-1",
+                campaign_id=campaign.id,
+                participant_id="participant-1",
+                artifact=ArtifactRef(uri="players/Alice/sample.wav"),
+                metadata=metadata,
+            ),
+            VoiceSample(
+                id="sample-2",
+                campaign_id=campaign.id,
+                participant_id="participant-2",
+                artifact=ArtifactRef(uri="players/Bob/sample-1.wav"),
+                metadata=metadata,
+            ),
+            VoiceSample(
+                id="sample-3",
+                campaign_id=campaign.id,
+                participant_id="participant-2",
+                artifact=ArtifactRef(uri="players/Bob/sample-2.wav"),
+                metadata=metadata,
+            ),
+        )
+        runtime.use_cases.get_campaign.result = GetCampaignResult(
+            campaign=replace(
+                campaign,
+                participants=participants,
+                voice_samples=voice_samples,
+            ),
+        )
+
+        app = NoteKeeperTui(runtime)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            players_table = app.query_one("#players-table", DataTable)
+
+            assert [column.label.plain for column in players_table.columns.values()] == [
+                "ID",
+                "Name",
+                "Voice Samples",
+                "Ready",
+            ]
+            assert players_table.get_row_at(0)[2:] == ["0", "missing"]
+            assert players_table.get_row_at(1)[2:] == ["2", "ready"]
+            assert players_table.get_row_at(2)[2:] == ["1", "ready"]
 
     asyncio.run(run())
 
@@ -1540,7 +1904,7 @@ def test_tui_run_job_button_uses_selected_job() -> None:
                 await pilot.pause()
 
             command = runtime.use_cases.run_processing_job.commands[0]
-            assert isinstance(command, RunProcessingJobCommand)
+            assert isinstance(command, QueueProcessingJobCommand)
             assert command.job_id == "job-1"
 
     asyncio.run(run())

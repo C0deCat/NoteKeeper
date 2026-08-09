@@ -14,7 +14,6 @@ from notekeeper.domain import ArtifactRef, CampaignId
 
 from .storage import LocalCampaignArtifactStorage
 
-
 DEFAULT_AUDIO_EXTENSIONS = (
     ".aac",
     ".flac",

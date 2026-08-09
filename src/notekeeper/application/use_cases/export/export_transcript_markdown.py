@@ -6,7 +6,7 @@ from notekeeper.application.results import ExportMarkdownResult
 from notekeeper.application.use_cases.export._markdown import (
     render_transcript_markdown,
 )
-from notekeeper.application.use_cases.utils import _require_transcript
+from notekeeper.application.use_cases.utils import require_transcript
 from notekeeper.domain import TranscriptId
 
 
@@ -23,7 +23,7 @@ class ExportTranscriptMarkdown:
         self,
         command: ExportTranscriptMarkdownCommand,
     ) -> ExportMarkdownResult:
-        transcript = _require_transcript(
+        transcript = require_transcript(
             self._transcript_repository,
             TranscriptId(command.transcript_id),
         )

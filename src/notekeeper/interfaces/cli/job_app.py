@@ -1,4 +1,6 @@
 """Processing job CLI commands."""
+# Typer registers nested command callbacks.
+# pyright: reportUnusedFunction=false
 
 import typer
 
@@ -7,8 +9,8 @@ from notekeeper.application import (
     GenerateRecapCommand,
     GetJobStatusCommand,
     ListJobsForCampaignCommand,
+    QueueProcessingJobCommand,
     RestartFailedProcessingJobCommand,
-    RunProcessingJobCommand,
 )
 
 from .common import RuntimeFactory, echo_audio_track, echo_job, run
@@ -62,12 +64,19 @@ def create_app(runtime_factory: RuntimeFactory) -> typer.Typer:
         runtime = runtime_factory()
 
         def action() -> None:
-            with CliProgressDisplay(runtime, job_id):
-                result = runtime.use_cases.run_processing_job.execute(
-                    RunProcessingJobCommand(job_id=job_id),
-                )
-            echo_job(result.job)
-            for warning in result.warnings:
+            try:
+                with CliProgressDisplay(runtime, job_id):
+                    (
+                        runtime.use_cases.queue_processing_job
+                        or runtime.use_cases.run_processing_job
+                    ).execute(
+                        QueueProcessingJobCommand(job_id=job_id),
+                    )
+                    job = runtime.wait_for_job(job_id)
+            finally:
+                runtime.shutdown_job_manager()
+            echo_job(job)
+            for warning in job.warnings:
                 typer.echo(f"warning {warning.kind.value}: {warning.message}")
 
         run(action)

@@ -1,4 +1,6 @@
 """Typer application composition."""
+# Typer registers nested command callbacks.
+# pyright: reportUnusedFunction=false
 
 from __future__ import annotations
 
@@ -13,8 +15,8 @@ from . import (
     job_app,
     participant_app,
     recap_app,
-    recording_app,
     recap_prompts_app,
+    recording_app,
     review_app,
     sample_app,
     transcript_app,

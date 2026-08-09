@@ -75,8 +75,6 @@ class StreamingProgressTracker:
         self._publisher.publish(event)
 
     def update_fraction(self, fraction: float) -> None:
-        if isinstance(fraction, bool) or not isinstance(fraction, (int, float)):
-            raise ValueError("fraction must be a number")
         if not math.isfinite(fraction):
             raise ValueError("fraction must be finite")
         normalized = min(max(float(fraction), 0.0), 1.0)

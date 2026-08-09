@@ -1,4 +1,6 @@
 """Diagnostics CLI command registration."""
+# Typer registers nested command callbacks.
+# pyright: reportUnusedFunction=false
 
 import typer
 

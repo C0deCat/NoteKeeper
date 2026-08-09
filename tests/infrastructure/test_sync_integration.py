@@ -9,7 +9,6 @@ import pytest
 
 from notekeeper.application import SyncCampaignFolder, SyncCampaignFolderCommand
 from notekeeper.domain import (
-    AudioTrackId,
     Campaign,
     CampaignId,
     JobStatus,
@@ -23,12 +22,12 @@ from notekeeper.domain import (
     TranscriptId,
     TranscriptSegment,
 )
+from notekeeper.infrastructure.ffmpeg import FfmpegRecordingNormalizer
 from notekeeper.infrastructure.filesystem import (
     LocalAudioMetadataReader,
     LocalCampaignArtifactStorage,
     LocalCampaignFolderScanner,
 )
-from notekeeper.infrastructure.ffmpeg import FfmpegRecordingNormalizer
 from notekeeper.infrastructure.sqlite import (
     SQLiteCampaignRepository,
     SQLiteDatabase,

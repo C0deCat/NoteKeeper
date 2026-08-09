@@ -1,7 +1,7 @@
 """Filesystem adapter utilities."""
 
-from .audio_probe import read_ffprobe, read_wave
 from .audio_metadata import read_audio_metadata
+from .audio_probe import read_ffprobe, read_wave
 from .checksum import sha256
 from .paths import (
     available_path,

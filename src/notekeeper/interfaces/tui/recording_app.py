@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from textual.app import ComposeResult
 from textual.containers import Vertical
@@ -16,6 +16,7 @@ from notekeeper.application import (
     DeleteAudioTrackCommand,
     InspectLocalAudioFileCommand,
     SubmitRecordingForProcessingCommand,
+    SubmitRecordingForProcessingResult,
     UpdateAudioTrackCommand,
 )
 from notekeeper.domain import AudioTrack, DomainError
@@ -111,8 +112,8 @@ class RecordingScreen(ModalScreen[bool]):
         if event.worker.group != "recording-normalize":
             return
         if event.state is WorkerState.SUCCESS:
-            result = event.worker.result
-            cleanup_warnings = getattr(result, "cleanup_warnings", ())
+            result = cast(SubmitRecordingForProcessingResult, event.worker.result)
+            cleanup_warnings = result.cleanup_warnings
             if cleanup_warnings:
                 self.app.notify(
                     "\n".join(cleanup_warnings),

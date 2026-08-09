@@ -1,5 +1,8 @@
 from pathlib import Path
 
+import pytest
+from pydantic import ValidationError
+
 from notekeeper.composition import NoteKeeperSettings
 
 
@@ -56,3 +59,18 @@ def test_settings_load_normalized_audio_configuration(
     assert settings.normalized_audio_channels == 2
     assert settings.normalized_audio_codec == "pcm_s24le"
     assert settings.normalized_audio_container == "wav"
+
+
+def test_settings_use_default_job_limits() -> None:
+    settings = NoteKeeperSettings(_env_file=None)
+    assert settings.max_concurrent_jobs == 4
+    assert settings.max_concurrent_gpu_jobs == 1
+
+
+def test_settings_reject_gpu_limit_above_total_limit() -> None:
+    with pytest.raises(ValidationError, match="must not exceed"):
+        NoteKeeperSettings(
+            _env_file=None,
+            max_concurrent_jobs=1,
+            max_concurrent_gpu_jobs=2,
+        )

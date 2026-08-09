@@ -2,18 +2,12 @@
 
 from __future__ import annotations
 
+import tiktoken
+
 from notekeeper.application.ports import Tokenizer
 from notekeeper.application.results import TranscriptChunk
 from notekeeper.domain import TimeRange, Transcript, TranscriptSegment
 from notekeeper.infrastructure.errors import InfrastructureError
-
-try:
-    import tiktoken
-except ImportError as exc:  # pragma: no cover - dependency is declared by project.
-    tiktoken = None
-    _TIKTOKEN_IMPORT_ERROR = exc
-else:
-    _TIKTOKEN_IMPORT_ERROR = None
 
 
 class TiktokenTranscriptTokenizer(Tokenizer):
@@ -138,10 +132,6 @@ class TiktokenTranscriptTokenizer(Tokenizer):
         return len(self._encoding.encode(text))
 
     def _load_encoding(self, encoding_name: str):
-        if tiktoken is None:
-            raise InfrastructureError("tiktoken is not installed") from (
-                _TIKTOKEN_IMPORT_ERROR
-            )
         try:
             return tiktoken.get_encoding(encoding_name)
         except Exception as exc:
@@ -162,7 +152,7 @@ class TiktokenTranscriptTokenizer(Tokenizer):
         return text
 
     def _require_positive_int(self, value: int, field: str) -> int:
-        if not isinstance(value, int) or value <= 0:
+        if value <= 0:
             raise InfrastructureError(f"{field} must be a positive integer")
         return value
 

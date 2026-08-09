@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 from typing import Any
 
 from notekeeper.application.ports import PreparedAudioManifestStore
@@ -82,14 +81,4 @@ class LocalPreparedAudioManifestStore(PreparedAudioManifestStore):
                 ),
                 kind="file",
             ),
-        )
-
-    def path_for_job(
-        self,
-        *,
-        campaign_id: CampaignId,
-        job_id: ProcessingJobId,
-    ) -> Path:
-        return self._storage.path_for_uri(
-            self.manifest_uri_for_job(campaign_id=campaign_id, job_id=job_id),
         )

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from multiprocessing.connection import Connection
 from threading import Lock
 from typing import Any
 
@@ -9,7 +10,7 @@ from notekeeper.application.results import DashboardChangedEvent, ProgressEvent
 
 
 class ProcessMessageWriter:
-    def __init__(self, connection: Any) -> None:
+    def __init__(self, connection: Connection) -> None:
         self._connection = connection
         self._lock = Lock()
 
@@ -22,6 +23,9 @@ class ProcessMessageWriter:
 
     def error(self, value: str) -> None:
         self._send("error", value)
+
+    def resource_released(self, resource: str) -> None:
+        self._send("resource_released", resource)
 
     def close(self) -> None:
         with self._lock:

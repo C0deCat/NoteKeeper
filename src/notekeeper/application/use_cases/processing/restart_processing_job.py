@@ -11,9 +11,9 @@ from notekeeper.application.ports import (
 )
 from notekeeper.application.results import RestartProcessingJobResult
 from notekeeper.application.use_cases.utils import (
-    _require_audio_track,
-    _require_campaign,
-    _require_job,
+    require_audio_track,
+    require_campaign,
+    require_job,
 )
 from notekeeper.domain import (
     DomainValidationError,
@@ -44,7 +44,7 @@ class RestartProcessingJob:
         self,
         command: RestartProcessingJobCommand,
     ) -> RestartProcessingJobResult:
-        source_job = _require_job(
+        source_job = require_job(
             self._job_repository,
             ProcessingJobId(command.job_id),
         )
@@ -53,8 +53,8 @@ class RestartProcessingJob:
         except DomainValidationError as exc:
             raise InvalidOperationError(str(exc)) from exc
 
-        campaign = _require_campaign(self._campaign_repository, source_job.campaign_id)
-        audio_track = _require_audio_track(
+        campaign = require_campaign(self._campaign_repository, source_job.campaign_id)
+        audio_track = require_audio_track(
             self._audio_track_repository,
             source_job.audio_track_id,
         )

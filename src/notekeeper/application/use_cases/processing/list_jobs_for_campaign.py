@@ -3,7 +3,7 @@
 from notekeeper.application.commands import ListJobsForCampaignCommand
 from notekeeper.application.ports import CampaignRepository, JobRepository
 from notekeeper.application.results import ListJobsForCampaignResult
-from notekeeper.application.use_cases.utils import _require_campaign
+from notekeeper.application.use_cases.utils import require_campaign
 from notekeeper.domain import CampaignId
 
 
@@ -20,7 +20,7 @@ class ListJobsForCampaign:
         self,
         command: ListJobsForCampaignCommand,
     ) -> ListJobsForCampaignResult:
-        campaign = _require_campaign(
+        campaign = require_campaign(
             self._campaign_repository,
             CampaignId(command.campaign_id),
         )

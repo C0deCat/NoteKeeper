@@ -1,8 +1,9 @@
 """Cleanup infrastructure adapters."""
 
-from .failed_job_cleaner import LocalFailedJobCleaner
 from .job_cleaner import LocalJobCleaner
 from .transient_audio_cleaner import LocalTransientAudioCleaner
+
+LocalFailedJobCleaner = LocalJobCleaner
 
 __all__ = [
     "LocalFailedJobCleaner",

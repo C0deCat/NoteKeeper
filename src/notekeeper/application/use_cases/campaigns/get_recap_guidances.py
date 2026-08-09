@@ -3,7 +3,7 @@
 from notekeeper.application.commands import GetRecapGuidancesCommand
 from notekeeper.application.ports import CampaignRepository, RecapGuidances
 from notekeeper.application.results import GetRecapGuidancesResult
-from notekeeper.application.use_cases.utils import _require_campaign
+from notekeeper.application.use_cases.utils import require_campaign
 from notekeeper.domain import CampaignId
 
 
@@ -21,7 +21,7 @@ class GetRecapGuidances:
         command: GetRecapGuidancesCommand,
     ) -> GetRecapGuidancesResult:
         campaign_id = CampaignId(command.campaign_id)
-        _require_campaign(self._campaign_repository, campaign_id)
+        require_campaign(self._campaign_repository, campaign_id)
         return GetRecapGuidancesResult(
             campaign_id=str(campaign_id),
             chunk_recap_guidances=(

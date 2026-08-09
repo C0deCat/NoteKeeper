@@ -5,3 +5,7 @@ from notekeeper.application.errors import PortExecutionError
 
 class InfrastructureError(PortExecutionError):
     """Raised when an infrastructure adapter cannot complete an operation."""
+
+
+class InfrastructureConfigurationError(InfrastructureError):
+    """Raised when an adapter cannot run with the supplied configuration."""

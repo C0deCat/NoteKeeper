@@ -58,6 +58,45 @@ class SQLiteJobRepository(JobRepository):
             ).fetchall()
         return tuple(job_from_row(row) for row in rows)
 
+    def list_by_statuses(
+        self,
+        statuses: tuple[JobStatus, ...],
+    ) -> tuple[ProcessingJob, ...]:
+        statuses = tuple(statuses)
+        if not statuses:
+            return ()
+        placeholders = ", ".join("?" for _ in statuses)
+        with self._database.connect() as connection:
+            rows = connection.execute(
+                f"""
+                SELECT * FROM jobs
+                WHERE status IN ({placeholders})
+                ORDER BY updated_at, rowid
+                """,
+                tuple(status.value for status in statuses),
+            ).fetchall()
+        return tuple(job_from_row(row) for row in rows)
+
+    def has_for_campaign_with_statuses(
+        self,
+        campaign_id: CampaignId,
+        statuses: tuple[JobStatus, ...],
+    ) -> bool:
+        statuses = tuple(statuses)
+        if not statuses:
+            return False
+        placeholders = ", ".join("?" for _ in statuses)
+        with self._database.connect() as connection:
+            row = connection.execute(
+                f"""
+                SELECT 1 FROM jobs
+                WHERE campaign_id = ? AND status IN ({placeholders})
+                LIMIT 1
+                """,
+                (str(campaign_id), *(status.value for status in statuses)),
+            ).fetchone()
+        return row is not None
+
     def save(self, job: ProcessingJob) -> None:
         with self._database.connect() as connection:
             connection.execute(
@@ -132,6 +171,10 @@ class SQLiteJobRepository(JobRepository):
 
     def delete(self, job_id: ProcessingJobId) -> None:
         with self._database.connect() as connection:
+            connection.execute(
+                "DELETE FROM progress_event_snapshots WHERE operation_id = ?",
+                (str(job_id),),
+            )
             connection.execute(
                 "DELETE FROM jobs WHERE id = ?",
                 (str(job_id),),

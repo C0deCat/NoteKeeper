@@ -6,6 +6,8 @@ from typing import get_type_hints
 
 import pytest
 
+import notekeeper.composition.factory as factory_module
+from notekeeper.application import PortExecutionError
 from notekeeper.application.ports import (
     AudioMetadataReader,
     AudioProcessor,
@@ -15,25 +17,25 @@ from notekeeper.application.ports import (
     CampaignFolderScanner,
     CampaignRepository,
     Clock,
-    JobCleaner,
     IdGenerator,
+    JobCleaner,
     JobRepository,
     ParticipantRepository,
     PreparedAudioManifestStore,
-    RecapGuidances,
+    ProgressEventSnapshotStore,
     RecapGenerator,
+    RecapGuidances,
     RecapRepository,
+    SourceAudioMetadataReader,
     SpeakerIdentifier,
     SpeakerMappingRepository,
-    SourceAudioMetadataReader,
+    SpeakerReviewSubmissionRepository,
     Tokenizer,
     Transcriber,
-    TransientAudioCleaner,
     TranscriptRepository,
+    TransientAudioCleaner,
     VoiceSampleRepository,
 )
-from notekeeper.application import PortExecutionError
-import notekeeper.composition.factory as factory_module
 from notekeeper.composition import (
     InfrastructureBundle,
     NoteKeeperSettings,
@@ -61,8 +63,10 @@ from notekeeper.infrastructure.sqlite import (
     SQLiteCampaignRepository,
     SQLiteJobRepository,
     SQLiteParticipantRepository,
+    SQLiteProgressEventSnapshotStore,
     SQLiteRecapRepository,
     SQLiteSpeakerMappingRepository,
+    SQLiteSpeakerReviewSubmissionRepository,
     SQLiteTranscriptRepository,
     SQLiteVoiceSampleRepository,
 )
@@ -82,6 +86,7 @@ def test_infrastructure_bundle_uses_port_types_only() -> None:
         "source_metadata_reader": SourceAudioMetadataReader,
         "audio_normalizer": AudioRecordingNormalizer,
         "prepared_audio_manifest_store": PreparedAudioManifestStore,
+        "progress_event_snapshot_store": ProgressEventSnapshotStore,
         "audio_processor": AudioProcessor,
         "transcriber": Transcriber,
         "speaker_identifier": SpeakerIdentifier,
@@ -96,6 +101,7 @@ def test_infrastructure_bundle_uses_port_types_only() -> None:
         "recap_repository": RecapRepository,
         "job_repository": JobRepository,
         "speaker_mapping_repository": SpeakerMappingRepository,
+        "speaker_review_submission_repository": SpeakerReviewSubmissionRepository,
         "job_cleaner": JobCleaner,
         "transient_audio_cleaner": TransientAudioCleaner,
         "clock": Clock,
@@ -118,8 +124,10 @@ def test_infrastructure_bundle_uses_port_types_only() -> None:
         SQLiteCampaignRepository,
         SQLiteJobRepository,
         SQLiteParticipantRepository,
+        SQLiteProgressEventSnapshotStore,
         SQLiteRecapRepository,
         SQLiteSpeakerMappingRepository,
+        SQLiteSpeakerReviewSubmissionRepository,
         SQLiteTranscriptRepository,
         SQLiteVoiceSampleRepository,
         SystemClock,
@@ -143,12 +151,14 @@ def test_infrastructure_implementations_inherit_ports() -> None:
         LocalJobCleaner: JobCleaner,
         SQLiteCampaignRepository: CampaignRepository,
         SQLiteParticipantRepository: ParticipantRepository,
+        SQLiteProgressEventSnapshotStore: ProgressEventSnapshotStore,
         SQLiteVoiceSampleRepository: VoiceSampleRepository,
         SQLiteAudioTrackRepository: AudioTrackRepository,
         SQLiteTranscriptRepository: TranscriptRepository,
         SQLiteRecapRepository: RecapRepository,
         SQLiteJobRepository: JobRepository,
         SQLiteSpeakerMappingRepository: SpeakerMappingRepository,
+        SQLiteSpeakerReviewSubmissionRepository: SpeakerReviewSubmissionRepository,
         SystemClock: Clock,
         UuidGenerator: IdGenerator,
     }

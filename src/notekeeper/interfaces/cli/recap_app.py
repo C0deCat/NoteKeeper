@@ -1,8 +1,13 @@
 """Recap CLI commands."""
+# Typer registers nested command callbacks.
+# pyright: reportUnusedFunction=false
 
 import typer
 
-from notekeeper.application import ExportRecapMarkdownCommand, PreviewRecapMarkdownCommand
+from notekeeper.application import (
+    ExportRecapMarkdownCommand,
+    PreviewRecapMarkdownCommand,
+)
 
 from .common import RuntimeFactory, run
 

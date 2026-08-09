@@ -14,42 +14,44 @@ from notekeeper.application.ports import (
     JobRepository,
     ProgressTracker,
     ProgressTrackerFactory,
-    RecapGuidances,
     RecapGenerator,
+    RecapGuidances,
     RecapRepository,
     SpeakerIdentifier,
     SpeakerMappingRepository,
+    SpeakerReviewSubmissionRepository,
     Tokenizer,
     Transcriber,
     TranscriptRepository,
     TransientAudioCleaner,
 )
-from notekeeper.application.results import (
-    PreparedAudioResult,
-    RunProcessingJobResult,
-    SpeakerMappingRecord,
-)
+from notekeeper.application.results import RunProcessingJobResult
 from notekeeper.application.use_cases._recaps import generate_recap_for_transcript
 from notekeeper.application.use_cases.utils import (
-    _require_audio_track,
-    _require_campaign,
-    _require_job,
+    require_audio_track,
+    require_campaign,
+    require_job,
 )
 from notekeeper.domain import (
     JobStatus,
     ProcessingJob,
     ProcessingJobId,
     ProcessingStage,
-    SpeakerMapping,
     TranscriptId,
     apply_speaker_mappings,
 )
 
+from .job_transitions import claim_queued_job, save_terminal_job
+from .mapping_records import (
+    build_automatic_mapping_records,
+    build_review_mapping_records,
+)
+from .progress_outcomes import complete_or_cancel, fail_or_cancel, pause_or_cancel
 
 logger = logging.getLogger(__name__)
 
 
-class RunProcessingJob:
+class ExecuteQueuedProcessingJob:
     def __init__(
         self,
         campaign_repository: CampaignRepository,
@@ -61,6 +63,7 @@ class RunProcessingJob:
         transcriber: Transcriber,
         speaker_identifier: SpeakerIdentifier,
         speaker_mapping_repository: SpeakerMappingRepository,
+        speaker_review_submission_repository: SpeakerReviewSubmissionRepository,
         tokenizer: Tokenizer,
         recap_guidances: RecapGuidances,
         recap_generator: RecapGenerator,
@@ -80,6 +83,9 @@ class RunProcessingJob:
         self._transcriber = transcriber
         self._speaker_identifier = speaker_identifier
         self._speaker_mapping_repository = speaker_mapping_repository
+        self._speaker_review_submission_repository = (
+            speaker_review_submission_repository
+        )
         self._tokenizer = tokenizer
         self._recap_guidances = recap_guidances
         self._recap_generator = recap_generator
@@ -94,15 +100,9 @@ class RunProcessingJob:
         return self.execute_running(command, running_job=running_job)
 
     def start(self, command: RunProcessingJobCommand) -> ProcessingJob:
-        job = _require_job(self._job_repository, ProcessingJobId(command.job_id))
-        if job.status is not JobStatus.PENDING:
-            raise InvalidOperationError("processing job must be pending")
-
-        campaign = _require_campaign(self._campaign_repository, job.campaign_id)
-        audio_track = _require_audio_track(
-            self._audio_track_repository,
-            job.audio_track_id,
-        )
+        job = require_job(self._job_repository, ProcessingJobId(command.job_id))
+        if job.status is not JobStatus.QUEUED:
+            raise InvalidOperationError("processing job must be queued")
 
         running_job = replace(
             job,
@@ -111,12 +111,7 @@ class RunProcessingJob:
             warnings=(),
             error_message=None,
         )
-        save_if_status = getattr(self._job_repository, "save_if_status", None)
-        if callable(save_if_status):
-            if not save_if_status(running_job, JobStatus.PENDING):
-                raise InvalidOperationError("processing job is no longer pending")
-        else:
-            self._job_repository.save(running_job)
+        claim_queued_job(self._job_repository, running_job)
         return running_job
 
     def execute_running(
@@ -125,18 +120,21 @@ class RunProcessingJob:
         *,
         running_job: ProcessingJob | None = None,
     ) -> RunProcessingJobResult:
-        running_job = running_job or _require_job(
+        running_job = running_job or require_job(
             self._job_repository,
             ProcessingJobId(command.job_id),
         )
         if running_job.status is not JobStatus.RUNNING:
             raise InvalidOperationError("processing job must be running")
 
-        campaign = _require_campaign(
+        if running_job.transcript_id is not None:
+            return self._execute_review_continuation(running_job)
+
+        campaign = require_campaign(
             self._campaign_repository,
             running_job.campaign_id,
         )
-        audio_track = _require_audio_track(
+        audio_track = require_audio_track(
             self._audio_track_repository,
             running_job.audio_track_id,
         )
@@ -180,7 +178,7 @@ class RunProcessingJob:
             self._transcript_repository.save(mapped.transcript)
             persisted_transcript = mapped.transcript
             self._speaker_mapping_repository.save_many(
-                _mapping_records(
+                build_automatic_mapping_records(
                     job_id=job.id,
                     transcript_id=mapped.transcript.id,
                     mappings=mappings,
@@ -196,12 +194,9 @@ class RunProcessingJob:
                     transcript_id=mapped.transcript.id,
                     warnings=mapped.warnings,
                 )
-                waiting_job = self._save_terminal(waiting_job)
+                waiting_job = save_terminal_job(self._job_repository, waiting_job)
                 if progress is not None:
-                    if waiting_job.status is JobStatus.CANCELED:
-                        progress.cancel()
-                    else:
-                        progress.pause()
+                    pause_or_cancel(progress, waiting_job)
                 return RunProcessingJobResult(
                     job=waiting_job,
                     transcript=mapped.transcript,
@@ -212,7 +207,7 @@ class RunProcessingJob:
             if progress is not None:
                 progress.start_stage(
                     ProcessingStage.GENERATING_RECAP,
-                    timing_available=False,
+                    timing_available=True,
                 )
             recap = generate_recap_for_transcript(
                 mapped.transcript,
@@ -236,12 +231,9 @@ class RunProcessingJob:
                 recap_id=recap.id,
                 warnings=(),
             )
-            completed_job = self._save_terminal(completed_job)
+            completed_job = save_terminal_job(self._job_repository, completed_job)
             if progress is not None:
-                if completed_job.status is JobStatus.CANCELED:
-                    progress.cancel()
-                else:
-                    progress.complete()
+                complete_or_cancel(progress, completed_job)
             return RunProcessingJobResult(
                 job=completed_job,
                 transcript=mapped.transcript,
@@ -267,12 +259,9 @@ class RunProcessingJob:
                 warnings=known_warnings,
                 error_message=_port_error_message(exc),
             )
-            failed_job = self._save_terminal(failed_job)
+            failed_job = save_terminal_job(self._job_repository, failed_job)
             if progress is not None:
-                if failed_job.status is JobStatus.CANCELED:
-                    progress.cancel()
-                else:
-                    progress.fail()
+                fail_or_cancel(progress, failed_job)
             return RunProcessingJobResult(
                 job=failed_job,
                 transcript=persisted_transcript,
@@ -307,42 +296,139 @@ class RunProcessingJob:
             self._progress_stages,
         )
 
-    def _save_terminal(self, job: ProcessingJob) -> ProcessingJob:
-        save_if_status = getattr(self._job_repository, "save_if_status", None)
-        if callable(save_if_status):
-            if save_if_status(job, JobStatus.RUNNING):
-                return job
-            current = _require_job(self._job_repository, job.id)
-            if current.status is JobStatus.CANCELED:
-                return current
-            raise InvalidOperationError("processing job status changed during execution")
-        self._job_repository.save(job)
-        return job
-
+    def _execute_review_continuation(
+        self,
+        running_job: ProcessingJob,
+    ) -> RunProcessingJobResult:
+        transcript_id = running_job.transcript_id
+        if transcript_id is None:
+            raise InvalidOperationError("review continuation requires a transcript")
+        submission = self._speaker_review_submission_repository.get(running_job.id)
+        if submission is None:
+            raise InvalidOperationError("queued review submission was not found")
+        campaign = require_campaign(
+            self._campaign_repository,
+            running_job.campaign_id,
+        )
+        transcript = self._transcript_repository.get(transcript_id)
+        if transcript is None:
+            raise InvalidOperationError("review transcript was not found")
+        progress = (
+            self._progress_tracker_factory.create(
+                str(running_job.id),
+                (
+                    ProcessingStage.MAPPING_SPEAKERS,
+                    ProcessingStage.GENERATING_RECAP,
+                ),
+            )
+            if self._progress_tracker_factory is not None
+            else None
+        )
+        known_warnings = ()
+        try:
+            if progress is not None:
+                progress.start_stage(
+                    ProcessingStage.MAPPING_SPEAKERS,
+                    timing_available=False,
+                )
+            mapped = apply_speaker_mappings(
+                campaign,
+                transcript,
+                submission.mappings,
+            )
+            known_warnings = mapped.warnings
+            self._transcript_repository.save(mapped.transcript)
+            self._speaker_mapping_repository.save_many(
+                build_review_mapping_records(
+                    job_id=running_job.id,
+                    transcript_id=mapped.transcript.id,
+                    mappings=submission.mappings,
+                    warning_count=len(mapped.warnings),
+                )
+            )
+            if progress is not None:
+                progress.complete_stage()
+            if mapped.warnings:
+                waiting_job = replace(
+                    running_job,
+                    status=JobStatus.WAITING_FOR_REVIEW,
+                    updated_at=self._clock.now(),
+                    transcript_id=mapped.transcript.id,
+                    warnings=mapped.warnings,
+                )
+                waiting_job = save_terminal_job(self._job_repository, waiting_job)
+                if progress is not None:
+                    pause_or_cancel(progress, waiting_job)
+                return RunProcessingJobResult(
+                    job=waiting_job,
+                    transcript=mapped.transcript,
+                    recap=None,
+                    warnings=mapped.warnings,
+                )
+            if progress is not None:
+                progress.start_stage(
+                    ProcessingStage.GENERATING_RECAP,
+                    timing_available=True,
+                )
+            recap = generate_recap_for_transcript(
+                mapped.transcript,
+                id_generator=self._id_generator,
+                tokenizer=self._tokenizer,
+                recap_guidances=self._recap_guidances,
+                recap_generator=self._recap_generator,
+                recap_repository=self._recap_repository,
+                job_id=running_job.id,
+                progress_callback=(
+                    progress.update_fraction if progress is not None else None
+                ),
+            )
+            if progress is not None:
+                progress.complete_stage()
+            completed_job = replace(
+                running_job,
+                status=JobStatus.COMPLETED,
+                updated_at=self._clock.now(),
+                transcript_id=mapped.transcript.id,
+                recap_id=recap.id,
+                warnings=(),
+            )
+            completed_job = save_terminal_job(self._job_repository, completed_job)
+            if progress is not None:
+                complete_or_cancel(progress, completed_job)
+            return RunProcessingJobResult(
+                job=completed_job,
+                transcript=mapped.transcript,
+                recap=recap,
+                warnings=(),
+            )
+        except PortExecutionError as exc:
+            failed_job = replace(
+                running_job,
+                status=JobStatus.FAILED,
+                updated_at=self._clock.now(),
+                transcript_id=transcript.id,
+                warnings=known_warnings,
+                error_message=_port_error_message(exc),
+            )
+            failed_job = save_terminal_job(self._job_repository, failed_job)
+            if progress is not None:
+                fail_or_cancel(progress, failed_job)
+            return RunProcessingJobResult(
+                job=failed_job,
+                transcript=transcript,
+                recap=None,
+                warnings=known_warnings,
+            )
+        finally:
+            self._speaker_review_submission_repository.delete(running_job.id)
+            if progress is not None:
+                progress.close()
 
 def _port_error_message(error: PortExecutionError) -> str:
     message = str(error).strip()
     return message if message else type(error).__name__
 
 
-def _mapping_records(
-    *,
-    job_id: ProcessingJobId,
-    transcript_id: TranscriptId,
-    mappings: tuple[SpeakerMapping, ...],
-    prepared_audio: PreparedAudioResult,
-) -> tuple[SpeakerMappingRecord, ...]:
-    diagnostics = {
-        "prepared_audio_artifact_uri": prepared_audio.audio_artifact.uri,
-        "prepared_audio_manifest_uri": prepared_audio.manifest_artifact.uri,
-        "voice_sample_range_count": len(prepared_audio.voice_sample_ranges),
-    }
-    return tuple(
-        SpeakerMappingRecord(
-            job_id=job_id,
-            transcript_id=transcript_id,
-            mapping=mapping,
-            diagnostics=diagnostics,
-        )
-        for mapping in mappings
-    )
+RunProcessingJob = ExecuteQueuedProcessingJob
+
+__all__ = ["ExecuteQueuedProcessingJob", "RunProcessingJob"]

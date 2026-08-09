@@ -1,19 +1,23 @@
 import subprocess
 import sys
+import threading
+from dataclasses import replace
 from datetime import datetime
+from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import psutil
-import pytest
 
 from notekeeper.application import (
     DashboardChangedEvent,
     DashboardRefreshScope,
     RunProcessingJobResult,
 )
-from notekeeper.application.errors import PortExecutionError
 from notekeeper.composition.process_job_executor import (
-    LocalProcessJobExecutor,
+    LocalJobManager,
+    _ExecutionCapacity,
+    _ManagedExecution,
     _terminate_process_tree,
 )
 from notekeeper.domain import (
@@ -26,39 +30,46 @@ from notekeeper.domain import (
 from notekeeper.infrastructure.runtime import InMemoryDashboardEventHub
 
 
-def test_process_executor_cleans_transient_audio_after_child_crash() -> None:
+def test_job_manager_marks_job_failed_and_cleans_after_child_crash(
+    tmp_path: Path,
+) -> None:
     job = ProcessingJob(
         id=ProcessingJobId("job-1"),
         campaign_id=CampaignId("campaign-1"),
         audio_track_id=AudioTrackId("audio-track-1"),
-        status=JobStatus.RUNNING,
+        status=JobStatus.QUEUED,
         created_at=datetime(2026, 1, 1),
         updated_at=datetime(2026, 1, 1),
     )
     repository = _JobRepository(job)
     cleaner = _TransientAudioCleaner()
-    executor = LocalProcessJobExecutor(
-        SimpleNamespace(),
+    manager = LocalJobManager(
+        _settings(),
+        _Pipeline(repository),
         repository,
+        _Clock(),
+        lock_root=tmp_path,
         transient_audio_cleaner=cleaner,
     )
-    executor._context = _CrashedProcessContext()
-
-    with pytest.raises(
-        PortExecutionError,
-        match="processing job process exited with code 7",
-    ):
-        executor.execute(job.id)
+    manager._context = _CrashedProcessContext()
+    manager._write_execution_metadata = lambda *_: None
+    manager._executions[str(job.id)] = _ManagedExecution(
+        job_id=job.id,
+        thread=threading.current_thread(),
+        capacity=_ExecutionCapacity(None, None, None),
+    )
+    manager._execute_managed(job.id)
 
     assert cleaner.calls == [(job.campaign_id, job.id)]
+    assert repository.get(job.id).status is JobStatus.FAILED
 
 
-def test_process_executor_forwards_dashboard_events_from_child() -> None:
+def test_job_manager_forwards_dashboard_events_from_child(tmp_path: Path) -> None:
     job = ProcessingJob(
         id=ProcessingJobId("job-1"),
         campaign_id=CampaignId("campaign-1"),
         audio_track_id=AudioTrackId("audio-track-1"),
-        status=JobStatus.RUNNING,
+        status=JobStatus.QUEUED,
         created_at=datetime(2026, 1, 1),
         updated_at=datetime(2026, 1, 1),
     )
@@ -75,17 +86,72 @@ def test_process_executor_forwards_dashboard_events_from_child() -> None:
     dashboard_events = InMemoryDashboardEventHub()
     received: list[DashboardChangedEvent] = []
     dashboard_events.subscribe(received.append)
-    executor = LocalProcessJobExecutor(
-        SimpleNamespace(),
-        _JobRepository(job),
+    repository = _JobRepository(job)
+    manager = LocalJobManager(
+        _settings(),
+        _Pipeline(repository),
+        repository,
+        _Clock(),
+        lock_root=tmp_path,
         dashboard_events=dashboard_events,
     )
-    executor._context = _MessageProcessContext(
+    manager._context = _MessageProcessContext(
         (("dashboard", event), ("result", result)),
     )
+    manager._write_execution_metadata = lambda *_: None
+    manager._executions[str(job.id)] = _ManagedExecution(
+        job_id=job.id,
+        thread=threading.current_thread(),
+        capacity=_ExecutionCapacity(None, None, None),
+    )
 
-    assert executor.execute(job.id) == result
+    manager._execute_managed(job.id)
     assert received == [event]
+
+
+def test_job_manager_releases_gpu_on_worker_message(tmp_path: Path) -> None:
+    job = ProcessingJob(
+        id=ProcessingJobId("job-1"),
+        campaign_id=CampaignId("campaign-1"),
+        audio_track_id=AudioTrackId("audio-track-1"),
+        status=JobStatus.QUEUED,
+        created_at=datetime(2026, 1, 1),
+        updated_at=datetime(2026, 1, 1),
+    )
+    result = RunProcessingJobResult(
+        job=job,
+        transcript=None,
+        recap=None,
+        warnings=(),
+    )
+    repository = _JobRepository(job)
+    manager = LocalJobManager(
+        _settings(device="cuda"),
+        _Pipeline(repository),
+        repository,
+        _Clock(),
+        lock_root=tmp_path,
+    )
+    manager._context = _MessageProcessContext(
+        (("resource_released", "gpu"), ("result", result)),
+    )
+    manager._write_execution_metadata = lambda *_: None
+    capacity = manager._try_acquire_capacity(job)
+    assert capacity is not None and capacity.gpu_lock is not None
+    manager._executions[str(job.id)] = _ManagedExecution(
+        job_id=job.id,
+        thread=threading.current_thread(),
+        capacity=capacity,
+    )
+
+    with patch.object(
+        manager,
+        "_release_gpu_capacity",
+        wraps=manager._release_gpu_capacity,
+    ) as release_gpu:
+        manager._execute_managed(job.id)
+
+    release_gpu.assert_called_once_with(job.id)
 
 
 def test_terminate_process_tree_stops_parent_and_child() -> None:
@@ -120,6 +186,41 @@ class _JobRepository:
 
     def get(self, job_id: ProcessingJobId) -> ProcessingJob | None:
         return self._job if job_id == self._job.id else None
+
+    def save_if_status(self, job, expected_status) -> bool:
+        if self._job.status is not expected_status:
+            return False
+        self._job = job
+        return True
+
+    def list_by_statuses(self, statuses):
+        return (self._job,) if self._job.status in statuses else ()
+
+
+class _Pipeline:
+    def __init__(self, repository: _JobRepository) -> None:
+        self._repository = repository
+
+    def start(self, command):
+        job = self._repository.get(ProcessingJobId(command.job_id))
+        running = replace(job, status=JobStatus.RUNNING)
+        assert self._repository.save_if_status(running, JobStatus.QUEUED)
+        return running
+
+
+class _Clock:
+    def now(self):
+        return datetime(2026, 1, 2)
+
+
+def _settings(*, device: str = "cpu"):
+    return SimpleNamespace(
+        max_concurrent_jobs=4,
+        max_concurrent_gpu_jobs=1,
+        whisperx_device=device,
+        whisperx_alignment_enabled=False,
+        whisperx_diarization_enabled=False,
+    )
 
 
 class _TransientAudioCleaner:

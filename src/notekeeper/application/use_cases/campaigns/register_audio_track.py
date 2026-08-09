@@ -10,8 +10,8 @@ from notekeeper.application.ports import (
 )
 from notekeeper.application.results import RegisterAudioTrackResult
 from notekeeper.application.use_cases.utils import (
-    _require_campaign,
     delete_artifact_with_warning,
+    require_campaign,
 )
 from notekeeper.domain import (
     ArtifactRef,
@@ -39,7 +39,7 @@ class RegisterAudioTrack:
         self._artifact_storage = artifact_storage
 
     def execute(self, command: RegisterAudioTrackCommand) -> RegisterAudioTrackResult:
-        campaign = _require_campaign(
+        campaign = require_campaign(
             self._campaign_repository,
             CampaignId(command.campaign_id),
         )

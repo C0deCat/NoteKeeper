@@ -1,8 +1,13 @@
 """Recording CLI commands."""
+# Typer registers nested command callbacks.
+# pyright: reportUnusedFunction=false
 
 import typer
 
-from notekeeper.application import ListAudioTracksCommand, SubmitRecordingForProcessingCommand
+from notekeeper.application import (
+    ListAudioTracksCommand,
+    SubmitRecordingForProcessingCommand,
+)
 
 from .common import (
     RuntimeFactory,

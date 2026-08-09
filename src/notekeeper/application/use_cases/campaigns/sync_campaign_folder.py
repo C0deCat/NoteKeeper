@@ -15,13 +15,12 @@ from notekeeper.application.ports import (
 from notekeeper.application.results import SyncCampaignFolderResult
 from notekeeper.application.use_cases.campaigns.utils import delete_pending_jobs
 from notekeeper.application.use_cases.utils import (
-    _require_campaign,
     delete_artifact_with_warning,
+    require_campaign,
 )
 from notekeeper.domain import (
     AudioTrack,
     AudioTrackId,
-    Campaign,
     CampaignId,
     Participant,
     ParticipantId,
@@ -32,6 +31,7 @@ from notekeeper.domain import (
     add_voice_sample,
     remove_audio_track,
     remove_voice_sample,
+    update_audio_track,
     update_voice_sample,
 )
 
@@ -61,7 +61,7 @@ class SyncCampaignFolder:
         command: SyncCampaignFolderCommand,
     ) -> SyncCampaignFolderResult:
         campaign_id = CampaignId(command.campaign_id)
-        campaign = _require_campaign(self._campaign_repository, campaign_id)
+        campaign = require_campaign(self._campaign_repository, campaign_id)
         snapshot = self._folder_scanner.scan(campaign_id)
 
         participants_created = 0
@@ -153,6 +153,15 @@ class SyncCampaignFolder:
                     campaign = add_audio_track(campaign, audio_track)
                     tracks_by_uri[audio_track.artifact.uri] = audio_track
                     tracks_added += 1
+                else:
+                    updated_track = replace(
+                        recovered_existing,
+                        metadata=recovered.metadata,
+                        title=scanned_track.title,
+                    )
+                    if updated_track != recovered_existing:
+                        campaign = update_audio_track(campaign, updated_track)
+                        tracks_updated += 1
                 retained_track_uris.add(recovered.audio_artifact.uri)
                 cleanup_sources.append(scanned_track.artifact)
                 continue

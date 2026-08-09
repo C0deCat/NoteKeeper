@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from notekeeper.application.ports import (
@@ -14,31 +15,33 @@ from notekeeper.application.ports import (
     CampaignFolderScanner,
     CampaignRepository,
     Clock,
-    JobCleaner,
     IdGenerator,
+    JobCleaner,
     JobRepository,
     ParticipantRepository,
     PreparedAudioManifestStore,
-    RecapGuidances,
+    ProgressEventSnapshotStore,
     RecapGenerator,
+    RecapGuidances,
     RecapRepository,
+    SourceAudioMetadataReader,
     SpeakerIdentifier,
     SpeakerMappingRepository,
-    SourceAudioMetadataReader,
+    SpeakerReviewSubmissionRepository,
     Tokenizer,
     Transcriber,
-    TransientAudioCleaner,
     TranscriptRepository,
+    TransientAudioCleaner,
     VoiceSampleRepository,
+)
+from notekeeper.infrastructure.cleanup import (
+    LocalJobCleaner,
+    LocalTransientAudioCleaner,
 )
 from notekeeper.infrastructure.deepseek import (
     DeepSeekRecapGenerator,
     LocalDeepSeekRequestLogger,
     NoOpDeepSeekRequestLogger,
-)
-from notekeeper.infrastructure.cleanup import (
-    LocalJobCleaner,
-    LocalTransientAudioCleaner,
 )
 from notekeeper.infrastructure.ffmpeg import (
     FfmpegAudioProcessor,
@@ -60,16 +63,18 @@ from notekeeper.infrastructure.sqlite import (
     SQLiteDatabase,
     SQLiteJobRepository,
     SQLiteParticipantRepository,
+    SQLiteProgressEventSnapshotStore,
     SQLiteRecapRepository,
     SQLiteSpeakerMappingRepository,
+    SQLiteSpeakerReviewSubmissionRepository,
     SQLiteTranscriptRepository,
     SQLiteVoiceSampleRepository,
 )
+from notekeeper.infrastructure.tokenization import TiktokenTranscriptTokenizer
 from notekeeper.infrastructure.whisperx import (
     LocalWhisperXPayloadStore,
     WhisperXTranscriber,
 )
-from notekeeper.infrastructure.tokenization import TiktokenTranscriptTokenizer
 
 from .settings import NoteKeeperSettings
 
@@ -86,6 +91,7 @@ class InfrastructureBundle:
     source_metadata_reader: SourceAudioMetadataReader
     audio_normalizer: AudioRecordingNormalizer
     prepared_audio_manifest_store: PreparedAudioManifestStore
+    progress_event_snapshot_store: ProgressEventSnapshotStore
     audio_processor: AudioProcessor
     transcriber: Transcriber
     speaker_identifier: SpeakerIdentifier
@@ -100,6 +106,7 @@ class InfrastructureBundle:
     recap_repository: RecapRepository
     job_repository: JobRepository
     speaker_mapping_repository: SpeakerMappingRepository
+    speaker_review_submission_repository: SpeakerReviewSubmissionRepository
     job_cleaner: JobCleaner
     transient_audio_cleaner: TransientAudioCleaner
     clock: Clock
@@ -108,6 +115,8 @@ class InfrastructureBundle:
 
 def build_infrastructure(
     settings: NoteKeeperSettings | None = None,
+    *,
+    on_gpu_phase_completed: Callable[[], None] | None = None,
 ) -> InfrastructureBundle:
     resolved_settings = settings or NoteKeeperSettings()
     _configure_ffmpeg_dll_directory(resolved_settings)
@@ -174,6 +183,7 @@ def build_infrastructure(
         hf_token=resolved_settings.whisperx_hf_token,
         fill_nearest=resolved_settings.whisperx_speaker_assignment_fill_nearest,
         unknown_speaker_label=resolved_settings.whisperx_unknown_speaker_label,
+        on_gpu_phase_completed=on_gpu_phase_completed,
         now=clock.now,
     )
     speaker_identifier = SampleBasedSpeakerIdentifier(
@@ -213,6 +223,7 @@ def build_infrastructure(
         source_metadata_reader=source_metadata_reader,
         audio_normalizer=audio_normalizer,
         prepared_audio_manifest_store=prepared_audio_manifest_store,
+        progress_event_snapshot_store=SQLiteProgressEventSnapshotStore(database),
         audio_processor=audio_processor,
         transcriber=transcriber,
         speaker_identifier=speaker_identifier,
@@ -227,6 +238,9 @@ def build_infrastructure(
         recap_repository=SQLiteRecapRepository(database, artifact_storage),
         job_repository=SQLiteJobRepository(database),
         speaker_mapping_repository=SQLiteSpeakerMappingRepository(database),
+        speaker_review_submission_repository=(
+            SQLiteSpeakerReviewSubmissionRepository(database)
+        ),
         job_cleaner=LocalJobCleaner(
             database,
             artifact_storage,

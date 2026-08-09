@@ -6,7 +6,7 @@ from notekeeper.application.commands import UpdateVoiceSampleCommand
 from notekeeper.application.ports import AudioMetadataReader, CampaignRepository
 from notekeeper.application.results import UpdateVoiceSampleResult
 from notekeeper.application.use_cases.campaigns.utils import find_voice_sample
-from notekeeper.application.use_cases.utils import _require_campaign
+from notekeeper.application.use_cases.utils import require_campaign
 from notekeeper.domain import ArtifactRef, CampaignId, update_voice_sample
 
 
@@ -20,7 +20,7 @@ class UpdateVoiceSample:
         self._metadata_reader = metadata_reader
 
     def execute(self, command: UpdateVoiceSampleCommand) -> UpdateVoiceSampleResult:
-        campaign = _require_campaign(
+        campaign = require_campaign(
             self._campaign_repository,
             CampaignId(command.campaign_id),
         )

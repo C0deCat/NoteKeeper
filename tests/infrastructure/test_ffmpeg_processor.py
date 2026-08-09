@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import json
 import subprocess
-from io import StringIO
 import wave
 from datetime import datetime, timezone
+from io import StringIO
 from pathlib import Path
 
 import pytest

@@ -1,5 +1,6 @@
 """SQLite transcript repository."""
 
+import sqlite3
 from typing import Any
 
 from notekeeper.application.ports import TranscriptRepository
@@ -83,7 +84,7 @@ class SQLiteTranscriptRepository(TranscriptRepository):
             ).fetchone()
         return row["payload_uri"] if row is not None else None
 
-    def _transcript_from_row(self, row) -> Transcript:
+    def _transcript_from_row(self, row: sqlite3.Row) -> Transcript:
         payload = self._payload_storage.read_json_payload(row["payload_uri"])
         return transcript_from_payload(
             transcript_id=row["id"],

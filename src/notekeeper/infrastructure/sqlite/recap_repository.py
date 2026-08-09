@@ -1,5 +1,6 @@
 """SQLite recap repository."""
 
+import sqlite3
 from typing import Any
 
 from notekeeper.application.ports import RecapRepository
@@ -83,7 +84,7 @@ class SQLiteRecapRepository(RecapRepository):
             )
         return CampaignId(row["campaign_id"])
 
-    def _recap_from_row(self, row) -> Recap:
+    def _recap_from_row(self, row: sqlite3.Row) -> Recap:
         payload = self._payload_storage.read_json_payload(row["payload_uri"])
         return recap_from_payload(
             recap_id=row["id"],

@@ -1,8 +1,13 @@
 """Participant CLI commands."""
+# Typer registers nested command callbacks.
+# pyright: reportUnusedFunction=false
 
 import typer
 
-from notekeeper.application import AddParticipantToCampaignCommand, ListParticipantsCommand
+from notekeeper.application import (
+    AddParticipantToCampaignCommand,
+    ListParticipantsCommand,
+)
 
 from .common import RuntimeFactory, echo_participant, run
 

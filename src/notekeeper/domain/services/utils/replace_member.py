@@ -1,16 +1,25 @@
 """Tuple member replacement helper."""
 
+from typing import Protocol, TypeVar
+
 from ...errors import CampaignValidationError
+
+T = TypeVar("T", bound="Identified")
+
+
+class Identified(Protocol):
+    @property
+    def id(self) -> object: ...
 
 
 def replace_member(
-    members: tuple,
+    members: tuple[T, ...],
     member_id: object,
-    replacement: object,
+    replacement: T,
     label: str,
-) -> tuple:
+) -> tuple[T, ...]:
     replaced = False
-    updated = []
+    updated: list[T] = []
     for member in members:
         if member.id == member_id:
             updated.append(replacement)

@@ -11,8 +11,8 @@ from notekeeper.application.ports import (
 )
 from notekeeper.application.results import CreateProcessingJobForAudioTrackResult
 from notekeeper.application.use_cases.utils import (
-    _require_audio_track,
-    _require_campaign,
+    require_audio_track,
+    require_campaign,
 )
 from notekeeper.domain import (
     AudioTrackId,
@@ -42,11 +42,11 @@ class CreateProcessingJobForAudioTrack:
         self,
         command: CreateProcessingJobForAudioTrackCommand,
     ) -> CreateProcessingJobForAudioTrackResult:
-        audio_track = _require_audio_track(
+        audio_track = require_audio_track(
             self._audio_track_repository,
             AudioTrackId(command.audio_track_id),
         )
-        campaign = _require_campaign(
+        campaign = require_campaign(
             self._campaign_repository,
             audio_track.campaign_id,
         )

@@ -46,7 +46,7 @@ class _Controller:
     def __init__(self) -> None:
         self.canceled = []
 
-    def cancel(self, job_id) -> None:
+    def request_cancel(self, job_id) -> None:
         self.canceled.append(job_id)
 
 
@@ -86,14 +86,14 @@ def test_cancel_processing_job_persists_status_before_stopping_process() -> None
     result = CancelProcessingJob(jobs, _Clock(), controller).execute(
         CancelProcessingJobCommand(job_id="job-1")
     )
-    assert result.job.status is JobStatus.CANCELED
+    assert result.job.status is JobStatus.CANCELING
     assert jobs.job == result.job
     assert controller.canceled == [result.job.id]
 
 
 def test_cancel_processing_job_rejects_non_running_job() -> None:
     jobs = _Jobs(_job(JobStatus.CANCELED))
-    with pytest.raises(InvalidOperationError, match="only running"):
+    with pytest.raises(InvalidOperationError, match="only active"):
         CancelProcessingJob(jobs, _Clock(), _Controller()).execute(
             CancelProcessingJobCommand(job_id="job-1")
         )

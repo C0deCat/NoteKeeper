@@ -4,6 +4,12 @@ from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
 
+from notekeeper.application import (
+    ProgressEvent,
+    ProgressEventKind,
+    SpeakerMappingRecord,
+    SpeakerReviewSubmission,
+)
 from notekeeper.domain import (
     ArtifactRef,
     AudioMetadata,
@@ -16,6 +22,7 @@ from notekeeper.domain import (
     ParticipantId,
     ProcessingJob,
     ProcessingJobId,
+    ProgressBar,
     Recap,
     RecapChunk,
     RecapId,
@@ -30,15 +37,16 @@ from notekeeper.domain import (
     VoiceSample,
     VoiceSampleId,
 )
-from notekeeper.application import SpeakerMappingRecord
 from notekeeper.infrastructure.filesystem import LocalCampaignArtifactStorage
 from notekeeper.infrastructure.sqlite import (
     SQLiteAudioTrackRepository,
     SQLiteCampaignRepository,
     SQLiteDatabase,
     SQLiteJobRepository,
+    SQLiteProgressEventSnapshotStore,
     SQLiteRecapRepository,
     SQLiteSpeakerMappingRepository,
+    SQLiteSpeakerReviewSubmissionRepository,
     SQLiteTranscriptRepository,
     SQLiteVoiceSampleRepository,
 )
@@ -49,9 +57,21 @@ def test_sqlite_campaign_repository_reconstructs_aggregate(tmp_path: Path) -> No
     campaign_repository = SQLiteCampaignRepository(database)
     voice_samples = SQLiteVoiceSampleRepository(database)
     audio_tracks = SQLiteAudioTrackRepository(database)
+    jobs = SQLiteJobRepository(database)
+    progress_snapshots = SQLiteProgressEventSnapshotStore(database)
     campaign = _campaign()
 
     campaign_repository.save(campaign)
+    job = ProcessingJob(
+        id="job-campaign-delete",
+        campaign_id=campaign.id,
+        audio_track_id=campaign.audio_tracks[0].id,
+        status=JobStatus.COMPLETED,
+        created_at=datetime(2026, 1, 1),
+        updated_at=datetime(2026, 1, 1),
+    )
+    jobs.save(job)
+    progress_snapshots.save(_progress_event(str(job.id)))
     loaded = campaign_repository.get(campaign.id)
 
     assert loaded == campaign
@@ -70,6 +90,24 @@ def test_sqlite_campaign_repository_reconstructs_aggregate(tmp_path: Path) -> No
     assert campaign_repository.get(campaign.id) is None
     assert voice_samples.list_for_campaign(campaign.id) == ()
     assert audio_tracks.list_for_campaign(campaign.id) == ()
+    assert progress_snapshots.get(str(job.id)) is None
+
+
+def test_sqlite_progress_snapshot_store_round_trips_and_overwrites(
+    tmp_path: Path,
+) -> None:
+    snapshots = SQLiteProgressEventSnapshotStore(_database(tmp_path))
+    active = _progress_event("job-1")
+    terminal = replace(active, kind=ProgressEventKind.COMPLETED)
+
+    snapshots.save(active)
+    assert snapshots.get("job-1") == active
+
+    snapshots.save(terminal)
+    assert snapshots.get("job-1") == terminal
+
+    snapshots.delete("job-1")
+    assert snapshots.get("job-1") is None
 
 
 def test_sqlite_transcript_and_recap_repositories_store_payload_files(
@@ -149,16 +187,28 @@ def test_sqlite_job_repository_lists_and_deletes_by_audio_track(tmp_path: Path) 
 
     jobs.save(job)
     jobs.save(second_job)
+    progress_snapshots = SQLiteProgressEventSnapshotStore(database)
+    progress_snapshots.save(_progress_event(str(job.id)))
 
     assert jobs.get(job.id) == job
     assert jobs.get(second_job.id) == second_job
     assert jobs.list_for_campaign(job.campaign_id) == (job, second_job)
     assert jobs.list_for_audio_track(job.audio_track_id) == (job, second_job)
+    assert jobs.list_by_statuses((JobStatus.FAILED,)) == (second_job,)
+    assert not jobs.has_for_campaign_with_statuses(
+        job.campaign_id,
+        (JobStatus.RUNNING,),
+    )
+    assert jobs.has_for_campaign_with_statuses(
+        job.campaign_id,
+        (JobStatus.FAILED,),
+    )
 
     jobs.delete(job.id)
 
     assert jobs.get(job.id) is None
     assert jobs.list_for_audio_track(job.audio_track_id) == (second_job,)
+    assert progress_snapshots.get(str(job.id)) is None
 
 
 def test_sqlite_job_repository_conditionally_updates_expected_status(
@@ -264,10 +314,59 @@ def test_sqlite_speaker_mapping_repository_round_trips_standalone_label(
     assert mappings.list_for_job(ProcessingJobId("job-1")) == (record,)
 
 
+def test_sqlite_speaker_review_submission_round_trips_and_deletes(
+    tmp_path: Path,
+) -> None:
+    repository = SQLiteSpeakerReviewSubmissionRepository(_database(tmp_path))
+    submission = SpeakerReviewSubmission(
+        job_id=ProcessingJobId("job-1"),
+        transcript_id=TranscriptId("transcript-1"),
+        mappings=(
+            SpeakerMapping(
+                anonymous_label=SpeakerLabel.anonymous("SPEAKER_01"),
+                named_label=SpeakerLabel.named("Random Guest"),
+                participant_id=None,
+                confidence=1.0,
+                source=SpeakerMappingSource.MANUAL,
+                status=SpeakerMappingStatus.CONFIRMED,
+            ),
+            SpeakerMapping(
+                anonymous_label=SpeakerLabel.anonymous("SPEAKER_UNKNOWN"),
+                named_label=SpeakerLabel.named("SPEAKER_UNKNOWN"),
+                participant_id=None,
+                confidence=1.0,
+                source=SpeakerMappingSource.MANUAL,
+                status=SpeakerMappingStatus.CONFIRMED,
+            ),
+        ),
+    )
+
+    repository.save(submission)
+    assert repository.get(submission.job_id) == submission
+
+    repository.delete(submission.job_id)
+    assert repository.get(submission.job_id) is None
+
+
 def _database(tmp_path: Path) -> SQLiteDatabase:
     database = SQLiteDatabase(tmp_path / "notekeeper.sqlite3")
     database.initialize()
     return database
+
+
+def _progress_event(operation_id: str) -> ProgressEvent:
+    return ProgressEvent(
+        operation_id=operation_id,
+        stage_index=3,
+        stage_count=4,
+        timing_available=True,
+        kind=ProgressEventKind.UPDATED,
+        progress=ProgressBar(
+            stage="generating_recap",
+            expected_duration=5,
+            current_duration=2,
+        ),
+    )
 
 
 def _campaign() -> Campaign:

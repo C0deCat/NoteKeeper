@@ -40,9 +40,6 @@ def _segments_from_result(
     result: dict[str, Any],
     unknown_speaker_label: str,
 ) -> tuple[TranscriptSegment, ...]:
-    if not isinstance(result, dict):
-        raise InfrastructureError("WhisperX result must be a JSON object")
-
     raw_segments = result.get("segments")
     if not isinstance(raw_segments, list):
         raise InfrastructureError("WhisperX result must contain a segments list")

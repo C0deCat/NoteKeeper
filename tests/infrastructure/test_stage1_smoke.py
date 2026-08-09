@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import subprocess
 import wave
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from io import StringIO
 from pathlib import Path
@@ -45,6 +46,7 @@ from notekeeper.infrastructure.sqlite import (
     SQLiteJobRepository,
     SQLiteRecapRepository,
     SQLiteSpeakerMappingRepository,
+    SQLiteSpeakerReviewSubmissionRepository,
     SQLiteTranscriptRepository,
 )
 from notekeeper.infrastructure.tokenization import TiktokenTranscriptTokenizer
@@ -169,6 +171,7 @@ def test_stage1_processing_smoke_with_fake_external_boundaries(
     recaps = SQLiteRecapRepository(database, storage)
     jobs = SQLiteJobRepository(database)
     speaker_mappings = SQLiteSpeakerMappingRepository(database)
+    review_submissions = SQLiteSpeakerReviewSubmissionRepository(database)
     manifest_store = LocalPreparedAudioManifestStore(storage)
     storage.ensure_campaign_layout(CampaignId("campaign-1"))
     sample_uri = "campaign-1/players/Alice/sample.wav"
@@ -263,6 +266,7 @@ def test_stage1_processing_smoke_with_fake_external_boundaries(
         ),
         SampleBasedSpeakerIdentifier(),
         speaker_mappings,
+        review_submissions,
         TiktokenTranscriptTokenizer(max_token_count=500),
         FakeRecapGuidances(),
         DeepSeekRecapGenerator(
@@ -281,6 +285,7 @@ def test_stage1_processing_smoke_with_fake_external_boundaries(
             artifact_uri=session_uri,
         ),
     )
+    jobs.save(replace(submitted.job, status=JobStatus.QUEUED))
     result = run.execute(RunProcessingJobCommand(job_id=submitted.job.id))
 
     assert result.job.status is JobStatus.COMPLETED

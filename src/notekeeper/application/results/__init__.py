@@ -8,23 +8,24 @@ from typing import Any
 
 from notekeeper.domain import (
     ArtifactRef,
-    AudioTrack,
     AudioMetadata,
+    AudioTrack,
+    AudioTrackId,
     Campaign,
     CampaignId,
     Participant,
     ParticipantId,
     PipelineWarning,
-    ProgressBar,
     ProcessingJob,
     ProcessingJobId,
+    ProgressBar,
     Recap,
     RecapId,
     SpeakerMapping,
     TimeRange,
     Transcript,
-    TranscriptSegment,
     TranscriptId,
+    TranscriptSegment,
     VoiceSample,
     VoiceSampleId,
 )
@@ -70,17 +71,11 @@ class ProgressEvent:
     progress: ProgressBar
 
     def __post_init__(self) -> None:
-        if not isinstance(self.operation_id, str) or not self.operation_id.strip():
+        if not self.operation_id.strip():
             raise ValueError("operation_id must not be empty")
-        if isinstance(self.stage_count, bool) or not isinstance(
-            self.stage_count,
-            int,
-        ) or self.stage_count < 1:
+        if self.stage_count < 1:
             raise ValueError("stage_count must be positive")
-        if isinstance(self.stage_index, bool) or not isinstance(
-            self.stage_index,
-            int,
-        ) or not 1 <= self.stage_index <= self.stage_count:
+        if not 1 <= self.stage_index <= self.stage_count:
             raise ValueError("stage_index must be within stage_count")
 
 
@@ -335,6 +330,21 @@ class RunProcessingJobResult:
 
 
 @dataclass(frozen=True, slots=True)
+class QueueProcessingJobResult:
+    job: ProcessingJob
+
+
+@dataclass(frozen=True, slots=True)
+class SpeakerReviewSubmission:
+    job_id: ProcessingJobId
+    transcript_id: TranscriptId
+    mappings: tuple[SpeakerMapping, ...]
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "mappings", tuple(self.mappings))
+
+
+@dataclass(frozen=True, slots=True)
 class RestartProcessingJobResult:
     campaign: Campaign
     audio_track: AudioTrack
@@ -480,6 +490,7 @@ __all__ = [
     "PreparedVoiceSampleRange",
     "ProgressEvent",
     "ProgressEventKind",
+    "QueueProcessingJobResult",
     "RecapGenerationContext",
     "RegisterAudioTrackResult",
     "ReviewSpeakerMappingsResult",
@@ -489,6 +500,7 @@ __all__ = [
     "ScannedAudioTrackArtifact",
     "ScannedVoiceSampleArtifact",
     "SpeakerMappingRecord",
+    "SpeakerReviewSubmission",
     "SubmitRecordingForProcessingResult",
     "SyncCampaignFolderResult",
     "TranscriptChunk",

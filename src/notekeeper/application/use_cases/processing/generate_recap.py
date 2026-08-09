@@ -9,15 +9,15 @@ from notekeeper.application.ports import (
     IdGenerator,
     JobRepository,
     ProgressTrackerFactory,
-    RecapGuidances,
     RecapGenerator,
+    RecapGuidances,
     RecapRepository,
     Tokenizer,
     TranscriptRepository,
 )
 from notekeeper.application.results import GenerateRecapResult
 from notekeeper.application.use_cases._recaps import generate_recap_for_transcript
-from notekeeper.application.use_cases.utils import _require_job, _require_transcript
+from notekeeper.application.use_cases.utils import require_job, require_transcript
 from notekeeper.domain import ProcessingJobId, ProcessingStage
 
 
@@ -46,7 +46,7 @@ class GenerateRecap:
         self._progress_tracker_factory = progress_tracker_factory
 
     def execute(self, command: GenerateRecapCommand) -> GenerateRecapResult:
-        job = _require_job(
+        job = require_job(
             self._job_repository,
             ProcessingJobId(command.job_id),
         )
@@ -64,9 +64,9 @@ class GenerateRecap:
             if progress is not None:
                 progress.start_stage(
                     ProcessingStage.GENERATING_RECAP,
-                    timing_available=False,
+                    timing_available=True,
                 )
-            transcript = _require_transcript(
+            transcript = require_transcript(
                 self._transcript_repository,
                 job.transcript_id,
             )

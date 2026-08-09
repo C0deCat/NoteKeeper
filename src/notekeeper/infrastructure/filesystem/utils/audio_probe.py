@@ -74,7 +74,7 @@ def read_wave(path: Path) -> dict[str, Any] | None:
     }
 
 
-def _optional_int(value: object) -> int | None:
+def _optional_int(value: Any) -> int | None:
     if value is None or value == "":
         return None
     try:
