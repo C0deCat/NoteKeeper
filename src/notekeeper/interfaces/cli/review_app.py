@@ -1,4 +1,6 @@
 """Speaker mapping review CLI commands."""
+# Typer registers nested command callbacks.
+# pyright: reportUnusedFunction=false
 
 import typer
 
@@ -54,22 +56,15 @@ def create_app(runtime_factory: RuntimeFactory) -> typer.Typer:
                 )
             try:
                 with CliProgressDisplay(runtime, job_id):
-                    queued = runtime.use_cases.review_speaker_mappings.execute(
+                    runtime.use_cases.review_speaker_mappings.execute(
                         ReviewSpeakerMappingsCommand(
                             job_id=job_id,
                             mappings=mappings,
                         ),
                     )
-                    wait_for_job = getattr(runtime, "wait_for_job", None)
-                    job = (
-                        wait_for_job(job_id)
-                        if callable(wait_for_job)
-                        else queued.job
-                    )
+                    job = runtime.wait_for_job(job_id)
             finally:
-                shutdown_job_manager = getattr(runtime, "shutdown_job_manager", None)
-                if callable(shutdown_job_manager):
-                    shutdown_job_manager()
+                runtime.shutdown_job_manager()
             echo_job(job)
             for warning in job.warnings:
                 typer.echo(f"warning {warning.kind.value}: {warning.message}")

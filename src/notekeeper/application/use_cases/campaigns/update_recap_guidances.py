@@ -6,7 +6,7 @@ from notekeeper.application.ports import CampaignRepository, RecapGuidances
 from notekeeper.application.results import UpdateRecapGuidancesResult
 from notekeeper.application.use_cases.utils import (
     CampaignMutationPolicy,
-    _require_campaign,
+    require_campaign,
 )
 from notekeeper.domain import CampaignId
 
@@ -37,7 +37,7 @@ class UpdateRecapGuidances:
         command: UpdateRecapGuidancesCommand,
         campaign_id: CampaignId,
     ) -> UpdateRecapGuidancesResult:
-        _require_campaign(self._campaign_repository, campaign_id)
+        require_campaign(self._campaign_repository, campaign_id)
         if (
             command.chunk_recap_guidances is None
             and command.combined_recap_guidances is None

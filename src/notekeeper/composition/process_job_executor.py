@@ -2,21 +2,20 @@
 
 from __future__ import annotations
 
-import json
 import logging
 import multiprocessing
 import threading
 import time
 from collections import deque
 from dataclasses import dataclass, replace
+from multiprocessing.connection import Connection
 from multiprocessing.process import BaseProcess
 from pathlib import Path
-from typing import Any
 
-import psutil
 from filelock import FileLock, Timeout
 
 from notekeeper.application import (
+    ExecuteQueuedProcessingJob,
     ProgressEvent,
     ProgressEventKind,
     RunProcessingJobCommand,
@@ -38,17 +37,16 @@ from notekeeper.domain import (
     ProcessingJobId,
     ProgressBar,
 )
-from notekeeper.infrastructure.filesystem.utils import safe_name
 
+from .job_capacity import ExecutionCapacity, JobCapacityPool
+from .process_execution_registry import ProcessExecutionRegistry
+from .process_tree import terminate_process_tree
+from .settings import NoteKeeperSettings
 
 logger = logging.getLogger(__name__)
 
 
-@dataclass(slots=True)
-class _ExecutionCapacity:
-    owner_lock: FileLock | None
-    total_lock: FileLock | None
-    gpu_lock: FileLock | None
+_ExecutionCapacity = ExecutionCapacity
 
 
 @dataclass(slots=True)
@@ -62,8 +60,8 @@ class _ManagedExecution:
 class LocalJobManager(JobManager):
     def __init__(
         self,
-        settings: Any,
-        pipeline: Any,
+        settings: NoteKeeperSettings,
+        pipeline: ExecuteQueuedProcessingJob,
         job_repository: JobRepository,
         clock: Clock,
         *,
@@ -82,8 +80,16 @@ class LocalJobManager(JobManager):
         self._transient_audio_cleaner = transient_audio_cleaner
         self._review_submission_repository = review_submission_repository
         self._lock_root = Path(lock_root)
-        self._capacity_root = self._lock_root / "capacity"
-        self._execution_root = self._lock_root / "executions"
+        self._execution_registry = ProcessExecutionRegistry(
+            self._lock_root / "executions"
+        )
+        self._capacity_pool = JobCapacityPool(
+            self._lock_root / "capacity",
+            self._execution_registry,
+            total_slots=settings.max_concurrent_jobs,
+            gpu_slots=settings.max_concurrent_gpu_jobs,
+            device=settings.whisperx_device,
+        )
         self._context = multiprocessing.get_context("spawn")
         self._pending: deque[ProcessingJobId] = deque()
         self._pending_ids: set[str] = set()
@@ -178,7 +184,7 @@ class LocalJobManager(JobManager):
         for execution in executions:
             process = execution.process
             if process is not None and process.pid is not None and process.is_alive():
-                _terminate_process_tree(process.pid)
+                terminate_process_tree(process.pid)
         for execution in executions:
             execution.thread.join(timeout=10)
         if dispatcher is not None and dispatcher is not threading.current_thread():
@@ -281,52 +287,7 @@ class LocalJobManager(JobManager):
         self,
         job: ProcessingJob,
     ) -> _ExecutionCapacity | None:
-        self._capacity_root.mkdir(parents=True, exist_ok=True)
-        owner_lock = self._file_lock(self._owner_lock_path(job.id))
-        try:
-            owner_lock.acquire(timeout=0)
-        except Timeout:
-            return None
-        total_lock = self._try_acquire_slot(
-            "total",
-            self._settings.max_concurrent_jobs,
-        )
-        if total_lock is None:
-            owner_lock.release()
-            return None
-        gpu_lock = None
-        if self._requires_gpu(job):
-            gpu_lock = self._try_acquire_slot(
-                "gpu",
-                self._settings.max_concurrent_gpu_jobs,
-            )
-            if gpu_lock is None:
-                total_lock.release()
-                owner_lock.release()
-                return None
-        return _ExecutionCapacity(
-            owner_lock=owner_lock,
-            total_lock=total_lock,
-            gpu_lock=gpu_lock,
-        )
-
-    def _try_acquire_slot(self, kind: str, count: int) -> FileLock | None:
-        for index in range(count):
-            lock = self._file_lock(
-                self._capacity_root / f"{kind}-{index}.lock",
-            )
-            try:
-                lock.acquire(timeout=0)
-            except Timeout:
-                continue
-            return lock
-        return None
-
-    def _requires_gpu(self, job: ProcessingJob) -> bool:
-        return (
-            job.transcript_id is None
-            and str(self._settings.whisperx_device).lower().startswith("cuda")
-        )
+        return self._capacity_pool.try_acquire(job)
 
     def _execute_managed(self, job_id: ProcessingJobId) -> None:
         key = str(job_id)
@@ -507,58 +468,21 @@ class LocalJobManager(JobManager):
             )
         self._progress_events.publish(event)
 
-    def _metadata_path(self, job_id: ProcessingJobId) -> Path:
-        job_name = safe_name(str(job_id), "job_id")
-        return self._execution_root / f"{job_name}.json"
-
     def _owner_lock_path(self, job_id: ProcessingJobId) -> Path:
-        self._execution_root.mkdir(parents=True, exist_ok=True)
-        job_name = safe_name(str(job_id), "job_id")
-        return self._execution_root / f"{job_name}.owner.lock"
+        return self._execution_registry.owner_lock_path(job_id)
 
     def _write_execution_metadata(
         self,
         job_id: ProcessingJobId,
         pid: int | None,
     ) -> None:
-        if pid is None:
-            return
-        self._execution_root.mkdir(parents=True, exist_ok=True)
-        create_time = psutil.Process(pid).create_time()
-        self._metadata_path(job_id).write_text(
-            json.dumps({"pid": pid, "create_time": create_time}),
-            encoding="utf-8",
-        )
+        self._execution_registry.write(job_id, pid)
 
     def _terminate_recorded_process(self, job_id: ProcessingJobId) -> bool:
-        path = self._metadata_path(job_id)
-        if not path.is_file():
-            return False
-        try:
-            payload = json.loads(path.read_text(encoding="utf-8"))
-            process = psutil.Process(int(payload["pid"]))
-            if process.create_time() != float(payload["create_time"]):
-                return False
-            _terminate_process_tree(process.pid)
-            return not process.is_running()
-        except psutil.NoSuchProcess:
-            return True
-        except (OSError, ValueError, KeyError, json.JSONDecodeError, psutil.Error):
-            return False
+        return self._execution_registry.terminate(job_id)
 
     def _recorded_process_is_alive(self, job_id: ProcessingJobId) -> bool:
-        path = self._metadata_path(job_id)
-        if not path.is_file():
-            return False
-        try:
-            payload = json.loads(path.read_text(encoding="utf-8"))
-            process = psutil.Process(int(payload["pid"]))
-            return (
-                process.is_running()
-                and process.create_time() == float(payload["create_time"])
-            )
-        except (OSError, ValueError, KeyError, json.JSONDecodeError, psutil.Error):
-            return False
+        return self._execution_registry.is_alive(job_id)
 
     def _stop_and_finalize_cancel(self, job_id: ProcessingJobId) -> None:
         key = str(job_id)
@@ -572,7 +496,7 @@ class LocalJobManager(JobManager):
                 process = execution.process if execution is not None else None
                 if process is not None:
                     if process.pid is not None and process.is_alive():
-                        _terminate_process_tree(process.pid)
+                        terminate_process_tree(process.pid)
                         process.join(timeout=5)
                     if not process.is_alive():
                         self._finalize_cancel(job_id)
@@ -600,7 +524,7 @@ class LocalJobManager(JobManager):
 
     @staticmethod
     def _file_lock(path: str | Path) -> FileLock:
-        return FileLock(path, thread_local=False)
+        return JobCapacityPool.file_lock(path)
 
     def _release_gpu_capacity(self, job_id: ProcessingJobId) -> None:
         with self._condition:
@@ -615,46 +539,38 @@ class LocalJobManager(JobManager):
 
     @staticmethod
     def _release_capacity(capacity: _ExecutionCapacity) -> None:
-        LocalJobManager._release_execution_slots(capacity)
-        LocalJobManager._release_owner(capacity)
+        JobCapacityPool.release(capacity)
 
     @staticmethod
     def _release_execution_slots(capacity: _ExecutionCapacity) -> None:
-        locks = (capacity.gpu_lock, capacity.total_lock)
-        capacity.gpu_lock = None
-        capacity.total_lock = None
-        for lock in locks:
-            if lock is not None:
-                lock.release()
+        JobCapacityPool.release_execution_slots(capacity)
 
     @staticmethod
     def _release_owner(capacity: _ExecutionCapacity) -> None:
-        owner_lock = capacity.owner_lock
-        capacity.owner_lock = None
-        if owner_lock is not None:
-            owner_lock.release()
+        JobCapacityPool.release_owner(capacity)
 
     def _delete_execution_metadata(self, job_id: ProcessingJobId) -> None:
-        path = self._metadata_path(job_id)
-        try:
-            path.unlink(missing_ok=True)
-        except OSError:
-            logger.exception("Could not delete execution metadata job_id=%s", job_id)
+        self._execution_registry.delete(job_id)
 
 
-def _execute_job(settings: Any, job_id: str, result_writer) -> None:
+def _execute_job(
+    settings: NoteKeeperSettings,
+    job_id: str,
+    result_writer: Connection,
+) -> None:
     from .process_message_writer import ProcessMessageWriter
 
     writer = ProcessMessageWriter(result_writer)
     try:
         from dataclasses import replace as dataclass_replace
 
-        from .factory import build_infrastructure
-        from .job_pipeline import build_processing_pipeline
         from notekeeper.infrastructure.runtime import (
             EventPublishingJobRepository,
             StreamingProgressTrackerFactory,
         )
+
+        from .factory import build_infrastructure
+        from .job_pipeline import build_processing_pipeline
 
         infrastructure = build_infrastructure(
             settings,
@@ -682,32 +598,12 @@ def _execute_job(settings: Any, job_id: str, result_writer) -> None:
 
 
 def _terminate_process_tree(pid: int) -> None:
-    try:
-        parent = psutil.Process(pid)
-    except psutil.NoSuchProcess:
-        return
-    descendants = parent.children(recursive=True)
-    try:
-        parent.terminate()
-    except psutil.NoSuchProcess:
-        pass
-    for process in descendants:
-        try:
-            process.terminate()
-        except psutil.NoSuchProcess:
-            pass
-    _, alive = psutil.wait_procs(descendants, timeout=3)
-    for process in alive:
-        try:
-            process.kill()
-        except psutil.NoSuchProcess:
-            pass
-    try:
-        parent.wait(timeout=3)
-    except psutil.NoSuchProcess:
-        return
-    except psutil.TimeoutExpired:
-        parent.kill()
+    terminate_process_tree(pid)
 
 
-__all__ = ["LocalJobManager"]
+__all__ = [
+    "LocalJobManager",
+    "_ExecutionCapacity",
+    "_ManagedExecution",
+    "_terminate_process_tree",
+]

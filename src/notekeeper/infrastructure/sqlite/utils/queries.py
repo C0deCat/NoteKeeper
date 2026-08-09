@@ -1,5 +1,7 @@
 """SQLite aggregate list helpers."""
 
+import sqlite3
+
 from notekeeper.domain import AudioTrack, CampaignId, Participant, VoiceSample
 
 from .row_mappers import (
@@ -9,7 +11,10 @@ from .row_mappers import (
 )
 
 
-def list_participants(connection, campaign_id: CampaignId) -> tuple[Participant, ...]:
+def list_participants(
+    connection: sqlite3.Connection,
+    campaign_id: CampaignId,
+) -> tuple[Participant, ...]:
     rows = connection.execute(
         """
         SELECT id, campaign_id, display_name
@@ -22,7 +27,10 @@ def list_participants(connection, campaign_id: CampaignId) -> tuple[Participant,
     return tuple(participant_from_row(row) for row in rows)
 
 
-def list_voice_samples(connection, campaign_id: CampaignId) -> tuple[VoiceSample, ...]:
+def list_voice_samples(
+    connection: sqlite3.Connection,
+    campaign_id: CampaignId,
+) -> tuple[VoiceSample, ...]:
     rows = connection.execute(
         """
         SELECT * FROM voice_samples
@@ -34,7 +42,10 @@ def list_voice_samples(connection, campaign_id: CampaignId) -> tuple[VoiceSample
     return tuple(voice_sample_from_row(row) for row in rows)
 
 
-def list_audio_tracks(connection, campaign_id: CampaignId) -> tuple[AudioTrack, ...]:
+def list_audio_tracks(
+    connection: sqlite3.Connection,
+    campaign_id: CampaignId,
+) -> tuple[AudioTrack, ...]:
     rows = connection.execute(
         """
         SELECT * FROM audio_tracks

@@ -20,9 +20,9 @@ from notekeeper.application.results import (
     SpeakerReviewSubmission,
 )
 from notekeeper.application.use_cases.utils import (
-    _require_campaign,
-    _require_job,
-    _require_transcript,
+    require_campaign,
+    require_job,
+    require_transcript,
 )
 from notekeeper.domain import (
     Campaign,
@@ -58,14 +58,14 @@ class SubmitSpeakerMappingReview:
         self,
         command: ReviewSpeakerMappingsCommand,
     ) -> ReviewSpeakerMappingsResult:
-        job = _require_job(self._job_repository, ProcessingJobId(command.job_id))
+        job = require_job(self._job_repository, ProcessingJobId(command.job_id))
         if job.status is not JobStatus.WAITING_FOR_REVIEW:
             raise InvalidOperationError("processing job must be waiting for review")
         if job.transcript_id is None:
             raise InvalidOperationError("processing job has no transcript to review")
 
-        campaign = _require_campaign(self._campaign_repository, job.campaign_id)
-        transcript = _require_transcript(
+        campaign = require_campaign(self._campaign_repository, job.campaign_id)
+        transcript = require_transcript(
             self._transcript_repository,
             job.transcript_id,
         )

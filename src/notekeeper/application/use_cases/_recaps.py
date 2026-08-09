@@ -4,8 +4,8 @@ from collections.abc import Callable
 
 from notekeeper.application.ports import (
     IdGenerator,
-    RecapGuidances,
     RecapGenerator,
+    RecapGuidances,
     RecapRepository,
     Tokenizer,
 )

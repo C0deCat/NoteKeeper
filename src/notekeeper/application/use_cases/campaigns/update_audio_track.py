@@ -12,8 +12,8 @@ from notekeeper.application.ports import (
 from notekeeper.application.results import UpdateAudioTrackResult
 from notekeeper.application.use_cases.campaigns.utils import find_audio_track
 from notekeeper.application.use_cases.utils import (
-    _require_campaign,
     delete_artifact_with_warning,
+    require_campaign,
 )
 from notekeeper.domain import ArtifactRef, CampaignId, update_audio_track
 
@@ -33,7 +33,7 @@ class UpdateAudioTrack:
         self._artifact_storage = artifact_storage
 
     def execute(self, command: UpdateAudioTrackCommand) -> UpdateAudioTrackResult:
-        campaign = _require_campaign(
+        campaign = require_campaign(
             self._campaign_repository,
             CampaignId(command.campaign_id),
         )

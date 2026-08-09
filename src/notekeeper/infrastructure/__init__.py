@@ -1,5 +1,5 @@
 """Infrastructure adapters for NoteKeeper."""
 
-from .errors import InfrastructureError
+from .errors import InfrastructureConfigurationError, InfrastructureError
 
-__all__ = ["InfrastructureError"]
+__all__ = ["InfrastructureConfigurationError", "InfrastructureError"]

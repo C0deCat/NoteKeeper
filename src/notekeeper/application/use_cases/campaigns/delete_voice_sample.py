@@ -4,7 +4,7 @@ from notekeeper.application.commands import DeleteVoiceSampleCommand
 from notekeeper.application.ports import CampaignRepository
 from notekeeper.application.results import DeleteVoiceSampleResult
 from notekeeper.application.use_cases.campaigns.utils import find_voice_sample
-from notekeeper.application.use_cases.utils import _require_campaign
+from notekeeper.application.use_cases.utils import require_campaign
 from notekeeper.domain import CampaignId, VoiceSampleId, remove_voice_sample
 
 
@@ -13,7 +13,7 @@ class DeleteVoiceSample:
         self._campaign_repository = campaign_repository
 
     def execute(self, command: DeleteVoiceSampleCommand) -> DeleteVoiceSampleResult:
-        campaign = _require_campaign(
+        campaign = require_campaign(
             self._campaign_repository,
             CampaignId(command.campaign_id),
         )

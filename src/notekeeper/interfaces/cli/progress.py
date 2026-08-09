@@ -47,12 +47,10 @@ class CliProgressDisplay(AbstractContextManager["CliProgressDisplay"]):
                 stage_counter="0/0",
                 timing="",
             )
-        stream = getattr(self._runtime, "progress_events", None)
-        if stream is not None:
-            self._unsubscribe = stream.subscribe(
-                self._operation_id,
-                self._on_event,
-            )
+        self._unsubscribe = self._runtime.progress_events.subscribe(
+            self._operation_id,
+            self._on_event,
+        )
         return self
 
     def __exit__(

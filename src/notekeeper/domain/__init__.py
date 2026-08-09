@@ -14,7 +14,6 @@ from .errors import (
     DomainValidationError,
     SpeakerMappingError,
     TranscriptValidationError,
-    ValidationError,
 )
 from .ids import (
     AudioTrackId,
@@ -99,7 +98,6 @@ __all__ = [
     "TranscriptId",
     "TranscriptSegment",
     "TranscriptValidationError",
-    "ValidationError",
     "VoiceSample",
     "VoiceSampleId",
     "add_audio_track",

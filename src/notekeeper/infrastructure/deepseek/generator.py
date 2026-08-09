@@ -7,8 +7,11 @@ from collections.abc import Callable
 
 from notekeeper.application.ports import RecapGenerator
 from notekeeper.application.results import RecapGenerationContext, TranscriptChunk
-from notekeeper.domain import RecapChunk, TimeRange
-from notekeeper.infrastructure.errors import InfrastructureError
+from notekeeper.domain import RecapChunk
+from notekeeper.infrastructure.errors import (
+    InfrastructureConfigurationError,
+    InfrastructureError,
+)
 
 from .interfaces import (
     ChatMessage,
@@ -18,6 +21,7 @@ from .interfaces import (
 )
 from .noop_request_logger import NoOpDeepSeekRequestLogger
 from .openai_client import OpenAIDeepSeekChatClient
+from .utils import chunk_user_message, combined_user_message
 
 
 class DeepSeekRecapGenerator(RecapGenerator):
@@ -72,7 +76,7 @@ class DeepSeekRecapGenerator(RecapGenerator):
                     "role": "system",
                     "content": self._require_text(guidance, "chunk recap guidance"),
                 },
-                {"role": "user", "content": self._chunk_user_message(chunk)},
+                {"role": "user", "content": chunk_user_message(chunk)},
             ),
             context=context,
             operation="chunk_recap",
@@ -94,7 +98,7 @@ class DeepSeekRecapGenerator(RecapGenerator):
                         "combined recap guidance",
                     ),
                 },
-                {"role": "user", "content": self._combined_user_message(chunks)},
+                {"role": "user", "content": combined_user_message(chunks)},
             ),
             context=context,
             operation="combine_chunks",
@@ -121,6 +125,8 @@ class DeepSeekRecapGenerator(RecapGenerator):
                     timeout_seconds=self._timeout_seconds,
                 )
                 text = self._require_text(completion.text, "DeepSeek response")
+            except InfrastructureConfigurationError:
+                raise
             except InfrastructureError as exc:
                 self._log_attempt(
                     context=context,
@@ -133,8 +139,6 @@ class DeepSeekRecapGenerator(RecapGenerator):
                     status="failure",
                     error_message=str(exc),
                 )
-                if "API key" in str(exc):
-                    raise
                 last_error = exc
             except Exception as exc:
                 self._log_attempt(
@@ -221,69 +225,6 @@ class DeepSeekRecapGenerator(RecapGenerator):
         character_count = sum(len(message["content"]) for message in messages)
         return (character_count + 3) // 4
 
-    def _chunk_user_message(self, chunk: TranscriptChunk) -> str:
-        parts = ["Transcript chunk metadata:", self._chunk_metadata(chunk), ""]
-        parts.extend(("Transcript chunk:", chunk.text))
-        return "\n".join(parts).strip()
-
-    def _combined_user_message(self, chunks: tuple[RecapChunk, ...]) -> str:
-        if not chunks:
-            return "Partial recaps: none"
-
-        parts = ["Partial recaps:"]
-        for index, chunk in enumerate(chunks, start=1):
-            parts.extend(
-                (
-                    "",
-                    f"## Partial recap {index}",
-                    self._recap_chunk_metadata(chunk),
-                    "",
-                    chunk.markdown,
-                ),
-            )
-        return "\n".join(parts).strip()
-
-    def _chunk_metadata(self, chunk: TranscriptChunk) -> str:
-        return "\n".join(
-            (
-                f"time_range: {self._format_time_range(chunk.time_range)}",
-                (
-                    "source_segment_indexes: "
-                    f"{self._format_indexes(chunk.source_segment_indexes)}"
-                ),
-            ),
-        )
-
-    def _recap_chunk_metadata(self, chunk: RecapChunk) -> str:
-        return "\n".join(
-            (
-                f"time_range: {self._format_time_range(chunk.time_range)}",
-                (
-                    "source_segment_indexes: "
-                    f"{self._format_indexes(chunk.source_segment_indexes)}"
-                ),
-            ),
-        )
-
-    def _format_time_range(self, time_range: TimeRange | None) -> str:
-        if time_range is None:
-            return "unknown"
-        return (
-            f"{self._format_seconds(time_range.start_seconds)} - "
-            f"{self._format_seconds(time_range.end_seconds)}"
-        )
-
-    def _format_indexes(self, indexes: tuple[int, ...]) -> str:
-        if not indexes:
-            return "none"
-        return ", ".join(str(index) for index in indexes)
-
-    def _format_seconds(self, seconds: float) -> str:
-        total_seconds = int(seconds)
-        hours, remainder = divmod(total_seconds, 3600)
-        minutes, seconds = divmod(remainder, 60)
-        return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
-
     def _require_text(self, value: str, field: str) -> str:
         text = value.strip()
         if not text:
@@ -291,17 +232,17 @@ class DeepSeekRecapGenerator(RecapGenerator):
         return text
 
     def _require_positive_float(self, value: float, field: str) -> float:
-        if not isinstance(value, int | float) or value <= 0:
+        if value <= 0:
             raise InfrastructureError(f"{field} must be positive")
         return float(value)
 
     def _require_non_negative_float(self, value: float, field: str) -> float:
-        if not isinstance(value, int | float) or value < 0:
+        if value < 0:
             raise InfrastructureError(f"{field} must be non-negative")
         return float(value)
 
     def _require_non_negative_int(self, value: int, field: str) -> int:
-        if not isinstance(value, int) or value < 0:
+        if value < 0:
             raise InfrastructureError(f"{field} must be a non-negative integer")
         return value
 

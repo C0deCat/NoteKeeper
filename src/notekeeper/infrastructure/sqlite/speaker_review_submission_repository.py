@@ -1,6 +1,7 @@
 """SQLite persistence for queued speaker-review decisions."""
 
 import json
+from typing import Any
 
 from notekeeper.application.ports import SpeakerReviewSubmissionRepository
 from notekeeper.application.results import SpeakerReviewSubmission
@@ -81,7 +82,7 @@ def _mapping_to_dict(mapping: SpeakerMapping) -> dict[str, object]:
     }
 
 
-def _mapping_from_dict(payload: dict[str, object]) -> SpeakerMapping:
+def _mapping_from_dict(payload: dict[str, Any]) -> SpeakerMapping:
     named_label = payload.get("named_label")
     participant_id = payload.get("participant_id")
     return SpeakerMapping(

@@ -16,7 +16,7 @@ class TranscriptSegment:
     text: str
 
     def __post_init__(self) -> None:
-        if not isinstance(self.index, int) or self.index < 0:
+        if isinstance(self.index, bool) or self.index < 0:
             raise DomainValidationError("index must be a non-negative integer")
 
         object.__setattr__(self, "text", non_empty_str(self.text, "text"))
@@ -30,4 +30,4 @@ class Transcript:
     segments: tuple[TranscriptSegment, ...] = ()
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "segments", as_tuple(self.segments, "segments"))
+        object.__setattr__(self, "segments", as_tuple(self.segments))

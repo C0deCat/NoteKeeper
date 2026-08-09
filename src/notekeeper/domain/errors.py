@@ -9,9 +9,6 @@ class DomainValidationError(DomainError):
     """Raised when a domain invariant is violated."""
 
 
-ValidationError = DomainValidationError
-
-
 class CampaignValidationError(DomainValidationError):
     """Raised when a campaign invariant is violated."""
 

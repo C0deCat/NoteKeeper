@@ -4,8 +4,8 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from notekeeper.domain import ProcessingStage
-from notekeeper.infrastructure.whisperx.runner import DefaultWhisperXRunner
 from notekeeper.infrastructure.whisperx import runner as runner_module
+from notekeeper.infrastructure.whisperx.runner import DefaultWhisperXRunner
 
 
 def test_runner_reports_model_and_measured_stages(monkeypatch) -> None:

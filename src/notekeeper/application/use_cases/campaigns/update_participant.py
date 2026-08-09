@@ -6,7 +6,7 @@ from notekeeper.application.commands import UpdateParticipantCommand
 from notekeeper.application.ports import CampaignRepository
 from notekeeper.application.results import UpdateParticipantResult
 from notekeeper.application.use_cases.campaigns.utils import find_participant
-from notekeeper.application.use_cases.utils import _require_campaign
+from notekeeper.application.use_cases.utils import require_campaign
 from notekeeper.domain import CampaignId, update_participant
 
 
@@ -15,7 +15,7 @@ class UpdateParticipant:
         self._campaign_repository = campaign_repository
 
     def execute(self, command: UpdateParticipantCommand) -> UpdateParticipantResult:
-        campaign = _require_campaign(
+        campaign = require_campaign(
             self._campaign_repository,
             CampaignId(command.campaign_id),
         )

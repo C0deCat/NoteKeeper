@@ -12,11 +12,7 @@ class ProgressBar:
     current_duration: int = 0
 
     def __post_init__(self) -> None:
-        if not isinstance(self.stage, str):
-            raise DomainValidationError("stage must be a string")
-        stage = self.stage.strip()
-        if not stage:
-            raise DomainValidationError("stage must not be empty")
+        stage = _validate_stage(self.stage)
         _validate_duration(self.expected_duration, "expected_duration")
         _validate_duration(self.current_duration, "current_duration")
         object.__setattr__(self, "stage", stage)
@@ -42,7 +38,16 @@ class ProgressBar:
         return ProgressBar(stage=stage)
 
 
-def _validate_duration(value: int, field: str) -> None:
+def _validate_stage(value: object) -> str:
+    if not isinstance(value, str):
+        raise DomainValidationError("stage must be a string")
+    stage = value.strip()
+    if not stage:
+        raise DomainValidationError("stage must not be empty")
+    return stage
+
+
+def _validate_duration(value: object, field: str) -> None:
     if isinstance(value, bool) or not isinstance(value, int) or value < 0:
         raise DomainValidationError(f"{field} must be a non-negative integer")
 

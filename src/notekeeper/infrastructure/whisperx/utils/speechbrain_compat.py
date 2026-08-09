@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from pathlib import Path
+import importlib
 import sys
+from pathlib import Path
 from typing import Any
 
 
@@ -17,7 +18,7 @@ def patch_speechbrain_inspect_lazy_imports() -> None:
     """
 
     try:
-        from speechbrain.utils import importutils
+        importutils = importlib.import_module("speechbrain.utils.importutils")
     except ImportError:
         return
 
@@ -31,8 +32,8 @@ def patch_speechbrain_inspect_lazy_imports() -> None:
             raise AttributeError()
         return original(self, stacklevel)
 
-    ensure_module._notekeeper_inspect_patch = True  # type: ignore[attr-defined]
-    lazy_module.ensure_module = ensure_module
+    setattr(ensure_module, "_notekeeper_inspect_patch", True)
+    setattr(lazy_module, "ensure_module", ensure_module)
 
 
 def _caller_is_inspect(stacklevel: int) -> bool:

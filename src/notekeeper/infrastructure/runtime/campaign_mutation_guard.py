@@ -1,7 +1,7 @@
 """Cross-process campaign mutation locks for a local NoteKeeper database."""
 
+from collections.abc import Generator
 from contextlib import contextmanager
-from collections.abc import Iterator
 from pathlib import Path
 from threading import RLock
 
@@ -21,7 +21,7 @@ class LocalCampaignMutationGuard(CampaignMutationGuard):
         self._locks_guard = RLock()
 
     @contextmanager
-    def acquire(self, campaign_id: CampaignId) -> Iterator[None]:
+    def acquire(self, campaign_id: CampaignId) -> Generator[None, None, None]:
         self._lock_root.mkdir(parents=True, exist_ok=True)
         name = safe_name(str(campaign_id), "campaign_id")
         with self._locks_guard:

@@ -10,8 +10,17 @@ from notekeeper.application import (
     ApplicationError,
     InspectAudioMetadataCommand,
     ManualSpeakerMappingCommand,
+    SyncCampaignFolderResult,
 )
-from notekeeper.domain import AudioMetadata, DomainError, JobStatus
+from notekeeper.domain import (
+    AudioMetadata,
+    AudioTrack,
+    Campaign,
+    DomainError,
+    JobStatus,
+    Participant,
+    ProcessingJob,
+)
 
 from ..contracts import InterfaceRuntime
 
@@ -95,15 +104,15 @@ def _split_review_value(
     return anonymous_label, resolved_value
 
 
-def echo_campaign(campaign) -> None:
+def echo_campaign(campaign: Campaign) -> None:
     typer.echo(f"id={campaign.id} name={campaign.name}")
 
 
-def echo_participant(participant) -> None:
+def echo_participant(participant: Participant) -> None:
     typer.echo(f"id={participant.id} name={participant.display_name}")
 
 
-def echo_audio_track(audio_track) -> None:
+def echo_audio_track(audio_track: AudioTrack) -> None:
     title = audio_track.title or audio_track.artifact.uri
     typer.echo(
         " ".join(
@@ -117,7 +126,7 @@ def echo_audio_track(audio_track) -> None:
     )
 
 
-def echo_job(job) -> None:
+def echo_job(job: ProcessingJob) -> None:
     parts = [
         f"job id={job.id}",
         f"status={status(job.status)}",
@@ -132,7 +141,7 @@ def echo_job(job) -> None:
     typer.echo(" ".join(parts))
 
 
-def echo_sync_result(result) -> None:
+def echo_sync_result(result: SyncCampaignFolderResult) -> None:
     typer.echo(f"campaign id={result.campaign.id} name={result.campaign.name}")
     typer.echo(f"participants_created={result.participants_created}")
     typer.echo(f"voice_samples_added={result.voice_samples_added}")

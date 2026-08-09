@@ -56,7 +56,6 @@ class SampleBasedSpeakerIdentifier(SpeakerIdentifier):
             if participant is None:
                 continue
 
-            label_overlap = overlap_by_participant[participant.id]
             for segment in transcript.segments:
                 if segment.speaker_label.kind is not SpeakerLabelKind.ANONYMOUS:
                     continue
@@ -66,24 +65,23 @@ class SampleBasedSpeakerIdentifier(SpeakerIdentifier):
                     segment.time_range,
                 )
                 if overlap_seconds > 0:
-                    label_overlap[segment.speaker_label] += overlap_seconds
+                    overlap_by_participant[participant.id][
+                        segment.speaker_label
+                    ] += overlap_seconds
 
         mappings: list[SpeakerMapping] = []
         for participant_id, labels in overlap_by_participant.items():
-            participant = participants.get(participant_id)
-            if participant is None or not labels:
-                continue
+            participant = participants[participant_id]
 
             top_label, top_overlap = max(
                 labels.items(),
                 key=lambda item: (item[1], item[0].value),
             )
             total_overlap = sum(labels.values())
-            confidence = top_overlap / total_overlap if total_overlap > 0 else None
+            confidence = top_overlap / total_overlap
             status = SpeakerMappingStatus.UNCERTAIN
             if (
-                confidence is not None
-                and top_overlap >= self._min_overlap_seconds
+                top_overlap >= self._min_overlap_seconds
                 and confidence >= self._min_dominance_ratio
             ):
                 status = SpeakerMappingStatus.CONFIRMED

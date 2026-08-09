@@ -26,8 +26,8 @@ from notekeeper.application import (
     ExportTranscriptMarkdown,
     GenerateRecap,
     GetCampaign,
-    GetRecapGuidances,
     GetJobStatus,
+    GetRecapGuidances,
     InspectAudioMetadata,
     InspectLocalAudioFile,
     ListAudioTracks,
@@ -57,9 +57,9 @@ from notekeeper.application import (
     UpdateVoiceSampleCommand,
     UpdateVoiceSampleResult,
 )
-from notekeeper.domain import ArtifactRef, ProcessingJob
 from notekeeper.application.ports import DashboardEventStream, ProgressEventStream
 from notekeeper.application.use_cases.utils import CampaignMutationUseCase
+from notekeeper.domain import ArtifactRef, ProcessingJob
 
 
 @dataclass(frozen=True, slots=True)
@@ -162,9 +162,14 @@ class RuntimeDiagnostics:
 
 
 class InterfaceRuntime(Protocol):
-    use_cases: Stage1UseCases
-    progress_events: ProgressEventStream
-    dashboard_events: DashboardEventStream
+    @property
+    def use_cases(self) -> Stage1UseCases: ...
+
+    @property
+    def progress_events(self) -> ProgressEventStream: ...
+
+    @property
+    def dashboard_events(self) -> DashboardEventStream: ...
 
     def start_job_manager(self, *, recover_queued: bool = True) -> None: ...
 

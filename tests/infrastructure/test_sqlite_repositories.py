@@ -4,6 +4,12 @@ from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
 
+from notekeeper.application import (
+    ProgressEvent,
+    ProgressEventKind,
+    SpeakerMappingRecord,
+    SpeakerReviewSubmission,
+)
 from notekeeper.domain import (
     ArtifactRef,
     AudioMetadata,
@@ -30,12 +36,6 @@ from notekeeper.domain import (
     TranscriptSegment,
     VoiceSample,
     VoiceSampleId,
-)
-from notekeeper.application import (
-    ProgressEvent,
-    ProgressEventKind,
-    SpeakerMappingRecord,
-    SpeakerReviewSubmission,
 )
 from notekeeper.infrastructure.filesystem import LocalCampaignArtifactStorage
 from notekeeper.infrastructure.sqlite import (

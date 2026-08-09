@@ -13,7 +13,6 @@ from notekeeper.application.ports import (
 )
 from notekeeper.application.results import ProgressEvent
 
-
 logger = logging.getLogger(__name__)
 
 

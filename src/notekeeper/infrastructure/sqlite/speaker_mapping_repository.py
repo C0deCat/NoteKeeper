@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 from typing import Any
 
 from notekeeper.application.ports import SpeakerMappingRepository
@@ -95,7 +96,7 @@ def _record_to_row(record: SpeakerMappingRecord) -> tuple[Any, ...]:
     )
 
 
-def _record_from_row(row) -> SpeakerMappingRecord:
+def _record_from_row(row: sqlite3.Row) -> SpeakerMappingRecord:
     diagnostics = json.loads(row["diagnostics_json"])
     if not isinstance(diagnostics, dict):
         raise InfrastructureError("speaker mapping diagnostics must be a JSON object")

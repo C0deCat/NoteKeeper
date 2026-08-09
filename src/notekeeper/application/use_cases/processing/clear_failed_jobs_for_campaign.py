@@ -7,7 +7,7 @@ from notekeeper.application.ports import (
     JobRepository,
 )
 from notekeeper.application.results import ClearFailedJobsForCampaignResult
-from notekeeper.application.use_cases.utils import _require_campaign
+from notekeeper.application.use_cases.utils import require_campaign
 from notekeeper.domain import CampaignId, JobStatus
 
 
@@ -27,7 +27,7 @@ class ClearFailedJobsForCampaign:
         command: ClearFailedJobsForCampaignCommand,
     ) -> ClearFailedJobsForCampaignResult:
         campaign_id = CampaignId(command.campaign_id)
-        _require_campaign(self._campaign_repository, campaign_id)
+        require_campaign(self._campaign_repository, campaign_id)
         failed_jobs = tuple(
             job
             for job in self._job_repository.list_for_campaign(campaign_id)

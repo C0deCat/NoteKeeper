@@ -23,17 +23,17 @@ class Campaign:
         object.__setattr__(
             self,
             "participants",
-            as_tuple(self.participants, "participants"),
+            as_tuple(self.participants),
         )
         object.__setattr__(
             self,
             "voice_samples",
-            as_tuple(self.voice_samples, "voice_samples"),
+            as_tuple(self.voice_samples),
         )
         object.__setattr__(
             self,
             "audio_tracks",
-            as_tuple(self.audio_tracks, "audio_tracks"),
+            as_tuple(self.audio_tracks),
         )
 
         self._validate_members()

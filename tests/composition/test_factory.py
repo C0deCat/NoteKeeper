@@ -6,6 +6,8 @@ from typing import get_type_hints
 
 import pytest
 
+import notekeeper.composition.factory as factory_module
+from notekeeper.application import PortExecutionError
 from notekeeper.application.ports import (
     AudioMetadataReader,
     AudioProcessor,
@@ -15,27 +17,25 @@ from notekeeper.application.ports import (
     CampaignFolderScanner,
     CampaignRepository,
     Clock,
-    JobCleaner,
     IdGenerator,
+    JobCleaner,
     JobRepository,
     ParticipantRepository,
     PreparedAudioManifestStore,
     ProgressEventSnapshotStore,
-    RecapGuidances,
     RecapGenerator,
+    RecapGuidances,
     RecapRepository,
+    SourceAudioMetadataReader,
     SpeakerIdentifier,
     SpeakerMappingRepository,
     SpeakerReviewSubmissionRepository,
-    SourceAudioMetadataReader,
     Tokenizer,
     Transcriber,
-    TransientAudioCleaner,
     TranscriptRepository,
+    TransientAudioCleaner,
     VoiceSampleRepository,
 )
-from notekeeper.application import PortExecutionError
-import notekeeper.composition.factory as factory_module
 from notekeeper.composition import (
     InfrastructureBundle,
     NoteKeeperSettings,

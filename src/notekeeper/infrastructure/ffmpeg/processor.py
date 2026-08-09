@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import subprocess
 from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
@@ -13,10 +12,7 @@ from notekeeper.application.ports import (
     PreparedAudioManifestStore,
     ProgressTracker,
 )
-from notekeeper.application.results import (
-    PreparedAudioResult,
-    PreparedVoiceSampleRange,
-)
+from notekeeper.application.results import PreparedAudioResult
 from notekeeper.domain import (
     ArtifactRef,
     AudioTrack,
@@ -28,6 +24,13 @@ from notekeeper.domain import (
 from notekeeper.infrastructure.errors import InfrastructureError
 from notekeeper.infrastructure.filesystem.storage import LocalCampaignArtifactStorage
 from notekeeper.infrastructure.filesystem.utils import safe_name, sha256
+
+from .utils import (
+    artifact_payload,
+    build_prepared_manifest_payload,
+    build_sample_ranges,
+    run_ffmpeg_with_progress,
+)
 
 
 class FfmpegAudioProcessor(AudioProcessor):
@@ -98,7 +101,7 @@ class FfmpegAudioProcessor(AudioProcessor):
         prepared_path.parent.mkdir(parents=True, exist_ok=True)
 
         command_metadata: list[dict[str, Any]] = []
-        total_duration = sum(
+        sample_total_duration = sum(
             sample.metadata.duration_seconds for sample in voice_samples
         )
         normalized_duration = 0.0
@@ -123,7 +126,7 @@ class FfmpegAudioProcessor(AudioProcessor):
                     source_role="voice_sample",
                     duration_seconds=sample.metadata.duration_seconds,
                     completed_duration_seconds=normalized_duration,
-                    total_duration_seconds=total_duration,
+                    total_duration_seconds=sample_total_duration,
                     progress=progress,
                 ),
             )
@@ -142,7 +145,9 @@ class FfmpegAudioProcessor(AudioProcessor):
                 output_path=prepared_path,
                 output_artifact_uri=prepared_uri,
                 work_dir=work_dir,
-                duration_seconds=total_duration,
+                duration_seconds=(
+                    audio_track.metadata.duration_seconds + sample_total_duration
+                ),
                 progress=progress,
             ),
         )
@@ -158,7 +163,7 @@ class FfmpegAudioProcessor(AudioProcessor):
             start_seconds=0,
             end_seconds=audio_track.metadata.duration_seconds,
         )
-        sample_ranges = self._build_sample_ranges(
+        sample_ranges = build_sample_ranges(
             session_duration=audio_track.metadata.duration_seconds,
             voice_samples=voice_samples,
         )
@@ -170,7 +175,7 @@ class FfmpegAudioProcessor(AudioProcessor):
             )
         )
 
-        manifest_payload = self._build_manifest_payload(
+        manifest_payload = build_prepared_manifest_payload(
             audio_track=audio_track,
             job_id=job_id,
             prepared_artifact=prepared_artifact,
@@ -178,6 +183,11 @@ class FfmpegAudioProcessor(AudioProcessor):
             sample_ranges=sample_ranges,
             total_duration_seconds=prepared_total_duration,
             command_metadata=command_metadata,
+            created_at=self._now(),
+            sample_rate_hz=self._sample_rate_hz,
+            channels=self._channels,
+            codec=self._codec,
+            container=self._container,
         )
         manifest_artifact = self._manifest_store.save(
             campaign_id=audio_track.campaign_id,
@@ -233,17 +243,13 @@ class FfmpegAudioProcessor(AudioProcessor):
                     )
                     / total_duration_seconds
                 )
-                if progress is not None
-                else None
-            )
-            if progress is not None and total_duration_seconds > 0
-            else None,
+            ) if progress is not None and total_duration_seconds > 0 else None,
         )
         self._require_output_file(output_path, f"normalized {source_role} audio")
         return {
             "stage": "normalize",
             "source_role": source_role,
-            "source_artifact": self._artifact_to_dict(source_artifact),
+            "source_artifact": artifact_payload(source_artifact),
             "arguments_template": [
                 "-y",
                 "-i",
@@ -329,51 +335,13 @@ class FfmpegAudioProcessor(AudioProcessor):
         duration_seconds: float,
         progress_callback: Callable[[float], None] | None,
     ) -> int:
-        try:
-            process = subprocess.Popen(
-                command,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-            )
-        except FileNotFoundError as exc:
-            raise InfrastructureError(
-                f"ffmpeg executable not found during {stage}: {self._ffmpeg_path}",
-            ) from exc
-        except (OSError, subprocess.SubprocessError) as exc:
-            raise InfrastructureError(
-                f"ffmpeg command could not run during {stage}: {exc}",
-            ) from exc
-
-        assert process.stdout is not None
-        for line in process.stdout:
-            key, separator, value = line.strip().partition("=")
-            if not separator:
-                continue
-            if key == "progress" and value == "end":
-                if progress_callback is not None:
-                    progress_callback(1.0)
-                continue
-            if key not in {"out_time_us", "out_time_ms"}:
-                continue
-            try:
-                output_seconds = int(value) / 1_000_000
-            except ValueError:
-                continue
-            if progress_callback is not None and duration_seconds > 0:
-                progress_callback(min(output_seconds / duration_seconds, 1.0))
-
-        stderr = process.stderr.read() if process.stderr is not None else ""
-        returncode = process.wait()
-        if returncode != 0:
-            detail = stderr.strip()
-            message = f"ffmpeg command failed during {stage}"
-            if detail:
-                message = f"{message}: {detail}"
-            raise InfrastructureError(message)
-        return returncode
+        return run_ffmpeg_with_progress(
+            command,
+            stage,
+            executable=command[0],
+            duration_seconds=duration_seconds,
+            progress_callback=progress_callback,
+        )
 
     @staticmethod
     def _progress_arguments() -> list[str]:
@@ -397,69 +365,6 @@ class FfmpegAudioProcessor(AudioProcessor):
         if not path.is_file():
             raise InfrastructureError(f"ffmpeg did not create {role}: {path}")
 
-    def _build_sample_ranges(
-        self,
-        *,
-        session_duration: float,
-        voice_samples: tuple[VoiceSample, ...],
-    ) -> tuple[PreparedVoiceSampleRange, ...]:
-        ranges = []
-        offset = session_duration
-        for sample in voice_samples:
-            end = offset + sample.metadata.duration_seconds
-            ranges.append(
-                PreparedVoiceSampleRange(
-                    source_artifact=sample.artifact,
-                    voice_sample_id=sample.id,
-                    participant_id=sample.participant_id,
-                    time_range=TimeRange(offset, end),
-                ),
-            )
-            offset = end
-        return tuple(ranges)
-
-    def _build_manifest_payload(
-        self,
-        *,
-        audio_track: AudioTrack,
-        job_id: ProcessingJobId,
-        prepared_artifact: ArtifactRef,
-        session_time_range: TimeRange,
-        sample_ranges: tuple[PreparedVoiceSampleRange, ...],
-        total_duration_seconds: float,
-        command_metadata: list[dict[str, Any]],
-    ) -> dict[str, Any]:
-        return {
-            "schema_version": 1,
-            "job_id": str(job_id),
-            "campaign_id": str(audio_track.campaign_id),
-            "audio_track_id": str(audio_track.id),
-            "created_at": self._now().isoformat(),
-            "source_session_artifact": self._artifact_to_dict(audio_track.artifact),
-            "prepared_artifact": self._artifact_to_dict(prepared_artifact),
-            "session_offset_seconds": session_time_range.start_seconds,
-            "session_time_range": self._time_range_to_dict(session_time_range),
-            "total_duration_seconds": total_duration_seconds,
-            "voice_sample_ranges": [
-                {
-                    "voice_sample_id": str(sample_range.voice_sample_id),
-                    "participant_id": str(sample_range.participant_id),
-                    "source_artifact": self._artifact_to_dict(
-                        sample_range.source_artifact,
-                    ),
-                    "time_range": self._time_range_to_dict(sample_range.time_range),
-                }
-                for sample_range in sample_ranges
-            ],
-            "normalization": {
-                "sample_rate_hz": self._sample_rate_hz,
-                "channels": self._channels,
-                "codec": self._codec,
-                "container": self._container,
-            },
-            "ffmpeg_command_metadata": command_metadata,
-        }
-
     def _ensure_campaign_consistency(
         self,
         audio_track: AudioTrack,
@@ -479,16 +384,3 @@ class FfmpegAudioProcessor(AudioProcessor):
 
     def _concat_file_path(self, path: Path) -> str:
         return path.resolve(strict=False).as_posix().replace("'", "'\\''")
-
-    def _artifact_to_dict(self, artifact: ArtifactRef) -> dict[str, str | None]:
-        return {
-            "uri": artifact.uri,
-            "kind": artifact.kind,
-            "checksum": artifact.checksum,
-        }
-
-    def _time_range_to_dict(self, time_range: TimeRange) -> dict[str, float]:
-        return {
-            "start_seconds": time_range.start_seconds,
-            "end_seconds": time_range.end_seconds,
-        }

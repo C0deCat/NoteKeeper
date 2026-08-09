@@ -14,7 +14,6 @@ from notekeeper.domain import CampaignId
 from ..errors import InfrastructureError
 from .storage import LocalCampaignArtifactStorage
 
-
 CHUNK_RECAP_PROMPT_KEY = "chunk_recap_prompt"
 COMBINE_CHUNKS_PROMPT_KEY = "combine_chunks_prompt"
 RECAP_PROMPTS_FILE_NAME = "recap_prompts.json"

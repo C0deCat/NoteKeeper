@@ -7,7 +7,7 @@ from notekeeper.application.use_cases.campaigns.utils import (
     delete_pending_jobs,
     find_audio_track,
 )
-from notekeeper.application.use_cases.utils import _require_campaign
+from notekeeper.application.use_cases.utils import require_campaign
 from notekeeper.domain import CampaignId, remove_audio_track
 
 
@@ -21,7 +21,7 @@ class DeleteAudioTrack:
         self._job_repository = job_repository
 
     def execute(self, command: DeleteAudioTrackCommand) -> DeleteAudioTrackResult:
-        campaign = _require_campaign(
+        campaign = require_campaign(
             self._campaign_repository,
             CampaignId(command.campaign_id),
         )

@@ -12,9 +12,9 @@ from notekeeper.application import (
     ExportMarkdownResult,
     GenerateRecapCommand,
     GenerateRecapResult,
+    GetJobStatusResult,
     GetRecapGuidancesCommand,
     GetRecapGuidancesResult,
-    GetJobStatusResult,
     InspectAudioMetadataResult,
     ListAudioTracksResult,
     ListCampaignsCommand,
@@ -24,13 +24,13 @@ from notekeeper.application import (
     ListVoiceSamplesResult,
     ManualSpeakerMappingCommand,
     MarkdownPreviewResult,
-    ReviewSpeakerMappingsCommand,
     RestartFailedProcessingJobCommand,
     RestartFailedProcessingJobResult,
+    ReviewSpeakerMappingsCommand,
     SyncCampaignFolderCommand,
     SyncCampaignFolderResult,
-    UpdateRecapGuidancesResult,
     UpdateRecapGuidancesCommand,
+    UpdateRecapGuidancesResult,
 )
 from notekeeper.domain import (
     ArtifactRef,
@@ -44,6 +44,7 @@ from notekeeper.domain import (
     ProcessingJob,
     Recap,
 )
+from notekeeper.infrastructure.runtime import InMemoryProgressEventHub
 from notekeeper.interfaces import RuntimeDiagnostics, Stage1UseCases
 from notekeeper.interfaces.cli import build_app
 
@@ -60,6 +61,7 @@ class FakeUseCase:
 
 class FakeRuntime:
     def __init__(self) -> None:
+        self.progress_events = InMemoryProgressEventHub()
         campaign = Campaign(id=CampaignId("campaign-1"), name="Demo")
         participant = Participant(
             id=ParticipantId("participant-1"),
@@ -199,6 +201,12 @@ class FakeRuntime:
 
     def format_artifact_location(self, artifact: ArtifactRef) -> str:
         return f"local:{artifact.uri}"
+
+    def wait_for_job(self, job_id: str) -> ProcessingJob:
+        return self.use_cases.get_job_status.result.job
+
+    def shutdown_job_manager(self) -> None:
+        pass
 
 
 def test_root_without_args_runs_tui() -> None:

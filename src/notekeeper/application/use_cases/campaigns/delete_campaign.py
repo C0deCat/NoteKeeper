@@ -6,7 +6,7 @@ from notekeeper.application.ports import CampaignArtifactStorage, CampaignReposi
 from notekeeper.application.results import DeleteCampaignResult
 from notekeeper.application.use_cases.utils import (
     CampaignMutationPolicy,
-    _require_campaign,
+    require_campaign,
 )
 from notekeeper.domain import CampaignId
 
@@ -30,7 +30,7 @@ class DeleteCampaign:
             else _null_context()
         )
         with context:
-            _require_campaign(self._campaign_repository, campaign_id)
+            require_campaign(self._campaign_repository, campaign_id)
             if command.delete_files:
                 if self._artifact_storage is None:
                     raise InvalidOperationError("campaign file deletion is not available")

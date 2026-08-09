@@ -10,7 +10,7 @@ from notekeeper.application.ports import (
 )
 from notekeeper.application.results import AddVoiceSampleResult
 from notekeeper.application.use_cases.utils import (
-    _require_campaign,
+    require_campaign,
     resolve_audio_source,
 )
 from notekeeper.domain import (
@@ -41,7 +41,7 @@ class AddVoiceSample:
         self._id_generator = id_generator
 
     def execute(self, command: AddVoiceSampleCommand) -> AddVoiceSampleResult:
-        campaign = _require_campaign(
+        campaign = require_campaign(
             self._campaign_repository,
             CampaignId(command.campaign_id),
         )

@@ -1,13 +1,17 @@
 """SQLite domain write helpers."""
 
 import json
+import sqlite3
 
 from notekeeper.domain import AudioTrack, Participant, VoiceSample
 
 from .serialization import datetime_to_text, metadata_to_dict
 
 
-def save_participant(connection, participant: Participant) -> None:
+def save_participant(
+    connection: sqlite3.Connection,
+    participant: Participant,
+) -> None:
     connection.execute(
         """
         INSERT INTO participants (id, campaign_id, display_name)
@@ -20,7 +24,10 @@ def save_participant(connection, participant: Participant) -> None:
     )
 
 
-def save_voice_sample(connection, voice_sample: VoiceSample) -> None:
+def save_voice_sample(
+    connection: sqlite3.Connection,
+    voice_sample: VoiceSample,
+) -> None:
     connection.execute(
         """
         INSERT INTO voice_samples (
@@ -60,7 +67,10 @@ def save_voice_sample(connection, voice_sample: VoiceSample) -> None:
     )
 
 
-def save_audio_track(connection, audio_track: AudioTrack) -> None:
+def save_audio_track(
+    connection: sqlite3.Connection,
+    audio_track: AudioTrack,
+) -> None:
     connection.execute(
         """
         INSERT INTO audio_tracks (

@@ -3,7 +3,7 @@
 from notekeeper.application.commands import AddParticipantToCampaignCommand
 from notekeeper.application.ports import CampaignRepository, IdGenerator
 from notekeeper.application.results import AddParticipantToCampaignResult
-from notekeeper.application.use_cases.utils import _require_campaign
+from notekeeper.application.use_cases.utils import require_campaign
 from notekeeper.domain import (
     CampaignId,
     Participant,
@@ -25,7 +25,7 @@ class AddParticipantToCampaign:
         self,
         command: AddParticipantToCampaignCommand,
     ) -> AddParticipantToCampaignResult:
-        campaign = _require_campaign(
+        campaign = require_campaign(
             self._campaign_repository,
             CampaignId(command.campaign_id),
         )

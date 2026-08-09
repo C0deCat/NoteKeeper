@@ -1,6 +1,7 @@
 """SQLite row-to-domain mappers."""
 
 import json
+import sqlite3
 
 from notekeeper.domain import (
     ArtifactRef,
@@ -21,7 +22,7 @@ from notekeeper.domain import (
 from .serialization import datetime_from_text, metadata_from_dict, warning_from_dict
 
 
-def participant_from_row(row) -> Participant:
+def participant_from_row(row: sqlite3.Row) -> Participant:
     return Participant(
         id=ParticipantId(row["id"]),
         campaign_id=CampaignId(row["campaign_id"]),
@@ -29,7 +30,7 @@ def participant_from_row(row) -> Participant:
     )
 
 
-def voice_sample_from_row(row) -> VoiceSample:
+def voice_sample_from_row(row: sqlite3.Row) -> VoiceSample:
     return VoiceSample(
         id=VoiceSampleId(row["id"]),
         campaign_id=CampaignId(row["campaign_id"]),
@@ -48,7 +49,7 @@ def voice_sample_from_row(row) -> VoiceSample:
     )
 
 
-def audio_track_from_row(row) -> AudioTrack:
+def audio_track_from_row(row: sqlite3.Row) -> AudioTrack:
     return AudioTrack(
         id=AudioTrackId(row["id"]),
         campaign_id=CampaignId(row["campaign_id"]),
@@ -62,7 +63,7 @@ def audio_track_from_row(row) -> AudioTrack:
     )
 
 
-def job_from_row(row) -> ProcessingJob:
+def job_from_row(row: sqlite3.Row) -> ProcessingJob:
     return ProcessingJob(
         id=ProcessingJobId(row["id"]),
         campaign_id=CampaignId(row["campaign_id"]),

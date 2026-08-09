@@ -19,11 +19,11 @@ class RecapChunk:
         object.__setattr__(
             self,
             "source_segment_indexes",
-            as_tuple(self.source_segment_indexes, "source_segment_indexes"),
+            as_tuple(self.source_segment_indexes),
         )
 
         for index in self.source_segment_indexes:
-            if not isinstance(index, int) or index < 0:
+            if isinstance(index, bool) or index < 0:
                 raise DomainValidationError(
                     "source_segment_indexes must contain non-negative integers"
                 )
@@ -38,4 +38,4 @@ class Recap:
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "markdown", non_empty_str(self.markdown, "markdown"))
-        object.__setattr__(self, "chunks", as_tuple(self.chunks, "chunks"))
+        object.__setattr__(self, "chunks", as_tuple(self.chunks))

@@ -24,7 +24,6 @@ from .payload_store import LocalWhisperXPayloadStore
 from .runner import DefaultWhisperXRunner
 from .utils import to_json_safe, transcript_from_whisperx_result
 
-
 logger = logging.getLogger(__name__)
 
 
@@ -165,8 +164,6 @@ class WhisperXTranscriber(Transcriber):
         except Exception as exc:
             raise InfrastructureError("WhisperX transcription failed") from exc
 
-        if not isinstance(payload, dict):
-            raise InfrastructureError("WhisperX runner must return a JSON object")
         return to_json_safe(payload)
 
     def _save_payload(
@@ -254,7 +251,7 @@ class WhisperXTranscriber(Transcriber):
         return self._require_text(value, field)
 
     def _require_positive_int(self, value: int, field: str) -> int:
-        if not isinstance(value, int) or value <= 0:
+        if value <= 0:
             raise InfrastructureError(f"{field} must be a positive integer")
         return value
 

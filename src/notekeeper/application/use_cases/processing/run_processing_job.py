@@ -14,8 +14,8 @@ from notekeeper.application.ports import (
     JobRepository,
     ProgressTracker,
     ProgressTrackerFactory,
-    RecapGuidances,
     RecapGenerator,
+    RecapGuidances,
     RecapRepository,
     SpeakerIdentifier,
     SpeakerMappingRepository,
@@ -25,27 +25,28 @@ from notekeeper.application.ports import (
     TranscriptRepository,
     TransientAudioCleaner,
 )
-from notekeeper.application.results import (
-    PreparedAudioResult,
-    RunProcessingJobResult,
-    SpeakerMappingRecord,
-)
+from notekeeper.application.results import RunProcessingJobResult
 from notekeeper.application.use_cases._recaps import generate_recap_for_transcript
 from notekeeper.application.use_cases.utils import (
-    _require_audio_track,
-    _require_campaign,
-    _require_job,
+    require_audio_track,
+    require_campaign,
+    require_job,
 )
 from notekeeper.domain import (
     JobStatus,
     ProcessingJob,
     ProcessingJobId,
     ProcessingStage,
-    SpeakerMapping,
     TranscriptId,
     apply_speaker_mappings,
 )
 
+from .job_transitions import claim_queued_job, save_terminal_job
+from .mapping_records import (
+    build_automatic_mapping_records,
+    build_review_mapping_records,
+)
+from .progress_outcomes import complete_or_cancel, fail_or_cancel, pause_or_cancel
 
 logger = logging.getLogger(__name__)
 
@@ -99,7 +100,7 @@ class ExecuteQueuedProcessingJob:
         return self.execute_running(command, running_job=running_job)
 
     def start(self, command: RunProcessingJobCommand) -> ProcessingJob:
-        job = _require_job(self._job_repository, ProcessingJobId(command.job_id))
+        job = require_job(self._job_repository, ProcessingJobId(command.job_id))
         if job.status is not JobStatus.QUEUED:
             raise InvalidOperationError("processing job must be queued")
 
@@ -110,12 +111,7 @@ class ExecuteQueuedProcessingJob:
             warnings=(),
             error_message=None,
         )
-        save_if_status = getattr(self._job_repository, "save_if_status", None)
-        if callable(save_if_status):
-            if not save_if_status(running_job, JobStatus.QUEUED):
-                raise InvalidOperationError("processing job is no longer queued")
-        else:
-            self._job_repository.save(running_job)
+        claim_queued_job(self._job_repository, running_job)
         return running_job
 
     def execute_running(
@@ -124,7 +120,7 @@ class ExecuteQueuedProcessingJob:
         *,
         running_job: ProcessingJob | None = None,
     ) -> RunProcessingJobResult:
-        running_job = running_job or _require_job(
+        running_job = running_job or require_job(
             self._job_repository,
             ProcessingJobId(command.job_id),
         )
@@ -134,11 +130,11 @@ class ExecuteQueuedProcessingJob:
         if running_job.transcript_id is not None:
             return self._execute_review_continuation(running_job)
 
-        campaign = _require_campaign(
+        campaign = require_campaign(
             self._campaign_repository,
             running_job.campaign_id,
         )
-        audio_track = _require_audio_track(
+        audio_track = require_audio_track(
             self._audio_track_repository,
             running_job.audio_track_id,
         )
@@ -182,7 +178,7 @@ class ExecuteQueuedProcessingJob:
             self._transcript_repository.save(mapped.transcript)
             persisted_transcript = mapped.transcript
             self._speaker_mapping_repository.save_many(
-                _mapping_records(
+                build_automatic_mapping_records(
                     job_id=job.id,
                     transcript_id=mapped.transcript.id,
                     mappings=mappings,
@@ -198,15 +194,9 @@ class ExecuteQueuedProcessingJob:
                     transcript_id=mapped.transcript.id,
                     warnings=mapped.warnings,
                 )
-                waiting_job = self._save_terminal(waiting_job)
+                waiting_job = save_terminal_job(self._job_repository, waiting_job)
                 if progress is not None:
-                    if waiting_job.status in {
-                        JobStatus.CANCELING,
-                        JobStatus.CANCELED,
-                    }:
-                        progress.cancel()
-                    else:
-                        progress.pause()
+                    pause_or_cancel(progress, waiting_job)
                 return RunProcessingJobResult(
                     job=waiting_job,
                     transcript=mapped.transcript,
@@ -241,15 +231,9 @@ class ExecuteQueuedProcessingJob:
                 recap_id=recap.id,
                 warnings=(),
             )
-            completed_job = self._save_terminal(completed_job)
+            completed_job = save_terminal_job(self._job_repository, completed_job)
             if progress is not None:
-                if completed_job.status in {
-                    JobStatus.CANCELING,
-                    JobStatus.CANCELED,
-                }:
-                    progress.cancel()
-                else:
-                    progress.complete()
+                complete_or_cancel(progress, completed_job)
             return RunProcessingJobResult(
                 job=completed_job,
                 transcript=mapped.transcript,
@@ -275,15 +259,9 @@ class ExecuteQueuedProcessingJob:
                 warnings=known_warnings,
                 error_message=_port_error_message(exc),
             )
-            failed_job = self._save_terminal(failed_job)
+            failed_job = save_terminal_job(self._job_repository, failed_job)
             if progress is not None:
-                if failed_job.status in {
-                    JobStatus.CANCELING,
-                    JobStatus.CANCELED,
-                }:
-                    progress.cancel()
-                else:
-                    progress.fail()
+                fail_or_cancel(progress, failed_job)
             return RunProcessingJobResult(
                 job=failed_job,
                 transcript=persisted_transcript,
@@ -328,7 +306,7 @@ class ExecuteQueuedProcessingJob:
         submission = self._speaker_review_submission_repository.get(running_job.id)
         if submission is None:
             raise InvalidOperationError("queued review submission was not found")
-        campaign = _require_campaign(
+        campaign = require_campaign(
             self._campaign_repository,
             running_job.campaign_id,
         )
@@ -361,7 +339,7 @@ class ExecuteQueuedProcessingJob:
             known_warnings = mapped.warnings
             self._transcript_repository.save(mapped.transcript)
             self._speaker_mapping_repository.save_many(
-                _review_mapping_records(
+                build_review_mapping_records(
                     job_id=running_job.id,
                     transcript_id=mapped.transcript.id,
                     mappings=submission.mappings,
@@ -378,15 +356,9 @@ class ExecuteQueuedProcessingJob:
                     transcript_id=mapped.transcript.id,
                     warnings=mapped.warnings,
                 )
-                waiting_job = self._save_terminal(waiting_job)
+                waiting_job = save_terminal_job(self._job_repository, waiting_job)
                 if progress is not None:
-                    if waiting_job.status in {
-                        JobStatus.CANCELING,
-                        JobStatus.CANCELED,
-                    }:
-                        progress.cancel()
-                    else:
-                        progress.pause()
+                    pause_or_cancel(progress, waiting_job)
                 return RunProcessingJobResult(
                     job=waiting_job,
                     transcript=mapped.transcript,
@@ -420,15 +392,9 @@ class ExecuteQueuedProcessingJob:
                 recap_id=recap.id,
                 warnings=(),
             )
-            completed_job = self._save_terminal(completed_job)
+            completed_job = save_terminal_job(self._job_repository, completed_job)
             if progress is not None:
-                if completed_job.status in {
-                    JobStatus.CANCELING,
-                    JobStatus.CANCELED,
-                }:
-                    progress.cancel()
-                else:
-                    progress.complete()
+                complete_or_cancel(progress, completed_job)
             return RunProcessingJobResult(
                 job=completed_job,
                 transcript=mapped.transcript,
@@ -444,15 +410,9 @@ class ExecuteQueuedProcessingJob:
                 warnings=known_warnings,
                 error_message=_port_error_message(exc),
             )
-            failed_job = self._save_terminal(failed_job)
+            failed_job = save_terminal_job(self._job_repository, failed_job)
             if progress is not None:
-                if failed_job.status in {
-                    JobStatus.CANCELING,
-                    JobStatus.CANCELED,
-                }:
-                    progress.cancel()
-                else:
-                    progress.fail()
+                fail_or_cancel(progress, failed_job)
             return RunProcessingJobResult(
                 job=failed_job,
                 transcript=transcript,
@@ -464,63 +424,9 @@ class ExecuteQueuedProcessingJob:
             if progress is not None:
                 progress.close()
 
-    def _save_terminal(self, job: ProcessingJob) -> ProcessingJob:
-        save_if_status = getattr(self._job_repository, "save_if_status", None)
-        if callable(save_if_status):
-            if save_if_status(job, JobStatus.RUNNING):
-                return job
-            current = _require_job(self._job_repository, job.id)
-            if current.status in {JobStatus.CANCELING, JobStatus.CANCELED}:
-                return current
-            raise InvalidOperationError("processing job status changed during execution")
-        self._job_repository.save(job)
-        return job
-
-
 def _port_error_message(error: PortExecutionError) -> str:
     message = str(error).strip()
     return message if message else type(error).__name__
-
-
-def _mapping_records(
-    *,
-    job_id: ProcessingJobId,
-    transcript_id: TranscriptId,
-    mappings: tuple[SpeakerMapping, ...],
-    prepared_audio: PreparedAudioResult,
-) -> tuple[SpeakerMappingRecord, ...]:
-    diagnostics = {
-        "prepared_audio_artifact_uri": prepared_audio.audio_artifact.uri,
-        "prepared_audio_manifest_uri": prepared_audio.manifest_artifact.uri,
-        "voice_sample_range_count": len(prepared_audio.voice_sample_ranges),
-    }
-    return tuple(
-        SpeakerMappingRecord(
-            job_id=job_id,
-            transcript_id=transcript_id,
-            mapping=mapping,
-            diagnostics=diagnostics,
-        )
-        for mapping in mappings
-    )
-
-
-def _review_mapping_records(
-    *,
-    job_id: ProcessingJobId,
-    transcript_id: TranscriptId,
-    mappings: tuple[SpeakerMapping, ...],
-    warning_count: int,
-) -> tuple[SpeakerMappingRecord, ...]:
-    return tuple(
-        SpeakerMappingRecord(
-            job_id=job_id,
-            transcript_id=transcript_id,
-            mapping=mapping,
-            diagnostics={"warning_count": warning_count, "review_submission": True},
-        )
-        for mapping in mappings
-    )
 
 
 RunProcessingJob = ExecuteQueuedProcessingJob

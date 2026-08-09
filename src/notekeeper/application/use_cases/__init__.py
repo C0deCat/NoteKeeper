@@ -34,6 +34,7 @@ from .processing import (
     ClearFailedJobsForCampaign,
     CreateProcessingJobForAudioTrack,
     DeleteProcessingJob,
+    ExecuteQueuedProcessingJob,
     GenerateRecap,
     GetJobStatus,
     ListJobsForCampaign,
@@ -41,10 +42,9 @@ from .processing import (
     RestartFailedProcessingJob,
     RestartProcessingJob,
     ReviewSpeakerMappings,
-    SubmitSpeakerMappingReview,
     RunProcessingJob,
-    ExecuteQueuedProcessingJob,
     SubmitRecordingForProcessing,
+    SubmitSpeakerMappingReview,
 )
 
 __all__ = [

@@ -3,7 +3,7 @@
 from notekeeper.application.commands import ListVoiceSamplesCommand
 from notekeeper.application.ports import CampaignRepository
 from notekeeper.application.results import ListVoiceSamplesResult
-from notekeeper.application.use_cases.utils import _require_campaign
+from notekeeper.application.use_cases.utils import require_campaign
 from notekeeper.domain import CampaignId, ParticipantId
 
 
@@ -12,7 +12,7 @@ class ListVoiceSamples:
         self._campaign_repository = campaign_repository
 
     def execute(self, command: ListVoiceSamplesCommand) -> ListVoiceSamplesResult:
-        campaign = _require_campaign(
+        campaign = require_campaign(
             self._campaign_repository,
             CampaignId(command.campaign_id),
         )

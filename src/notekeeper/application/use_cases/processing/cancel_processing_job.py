@@ -9,7 +9,7 @@ from notekeeper.application.ports import (
     SpeakerReviewSubmissionRepository,
 )
 from notekeeper.application.results import CancelProcessingJobResult
-from notekeeper.application.use_cases.utils import _require_job
+from notekeeper.application.use_cases.utils import require_job
 from notekeeper.domain import (
     DomainValidationError,
     ProcessingJobId,
@@ -32,7 +32,7 @@ class CancelProcessingJob:
 
     def execute(self, command: CancelProcessingJobCommand) -> CancelProcessingJobResult:
         job_id = ProcessingJobId(command.job_id)
-        job = _require_job(self._job_repository, job_id)
+        job = require_job(self._job_repository, job_id)
         try:
             canceled_job = cancel_processing_job(job, canceled_at=self._clock.now())
         except DomainValidationError as exc:
@@ -43,7 +43,7 @@ class CancelProcessingJob:
         self._job_manager.request_cancel(job_id)
         if self._submission_repository is not None:
             self._submission_repository.delete(job_id)
-        current = _require_job(self._job_repository, job_id)
+        current = require_job(self._job_repository, job_id)
         return CancelProcessingJobResult(job=current)
 
 

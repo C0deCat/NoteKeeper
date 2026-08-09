@@ -4,7 +4,10 @@ from __future__ import annotations
 
 from typing import Any
 
-from notekeeper.infrastructure.errors import InfrastructureError
+from notekeeper.infrastructure.errors import (
+    InfrastructureConfigurationError,
+    InfrastructureError,
+)
 
 from .interfaces import ChatMessage, DeepSeekChatClient, DeepSeekChatCompletion
 
@@ -29,7 +32,7 @@ class OpenAIDeepSeekChatClient(DeepSeekChatClient):
         timeout_seconds: float,
     ) -> DeepSeekChatCompletion:
         if self._api_key is None:
-            raise InfrastructureError("DeepSeek API key is required")
+            raise InfrastructureConfigurationError("DeepSeek API key is required")
 
         client = self._client_or_create()
         try:
@@ -44,12 +47,14 @@ class OpenAIDeepSeekChatClient(DeepSeekChatClient):
 
         return self._completion_from_response(response)
 
-    def _client_or_create(self):
+    def _client_or_create(self) -> Any:
         if self._client is None:
             try:
                 from openai import OpenAI
             except ImportError as exc:
-                raise InfrastructureError("openai SDK is not installed") from exc
+                raise InfrastructureConfigurationError(
+                    "openai SDK is not installed"
+                ) from exc
 
             try:
                 self._client = OpenAI(
@@ -62,7 +67,7 @@ class OpenAIDeepSeekChatClient(DeepSeekChatClient):
                 ) from exc
         return self._client
 
-    def _completion_from_response(self, response) -> DeepSeekChatCompletion:
+    def _completion_from_response(self, response: Any) -> DeepSeekChatCompletion:
         try:
             choice = response.choices[0]
             content = choice.message.content
@@ -86,21 +91,10 @@ class OpenAIDeepSeekChatClient(DeepSeekChatClient):
         if usage is None:
             return None
 
-        model_dump = getattr(usage, "model_dump", None)
-        if callable(model_dump):
-            payload = model_dump()
-            return payload if isinstance(payload, dict) else None
-
-        to_dict = getattr(usage, "dict", None)
-        if callable(to_dict):
-            payload = to_dict()
-            return payload if isinstance(payload, dict) else None
-
         if isinstance(usage, dict):
             return dict(usage)
-
-        values = getattr(usage, "__dict__", None)
-        return dict(values) if isinstance(values, dict) else None
+        payload = usage.model_dump()
+        return dict(payload)
 
     def _optional_response_text(self, value: Any) -> str | None:
         if value is None:

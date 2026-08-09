@@ -1,11 +1,11 @@
 import subprocess
 import sys
 import threading
-from unittest.mock import patch
 from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import psutil
 

@@ -15,33 +15,33 @@ from notekeeper.application.ports import (
     CampaignFolderScanner,
     CampaignRepository,
     Clock,
-    JobCleaner,
     IdGenerator,
+    JobCleaner,
     JobRepository,
     ParticipantRepository,
     PreparedAudioManifestStore,
     ProgressEventSnapshotStore,
-    RecapGuidances,
     RecapGenerator,
+    RecapGuidances,
     RecapRepository,
+    SourceAudioMetadataReader,
     SpeakerIdentifier,
     SpeakerMappingRepository,
     SpeakerReviewSubmissionRepository,
-    SourceAudioMetadataReader,
     Tokenizer,
     Transcriber,
-    TransientAudioCleaner,
     TranscriptRepository,
+    TransientAudioCleaner,
     VoiceSampleRepository,
+)
+from notekeeper.infrastructure.cleanup import (
+    LocalJobCleaner,
+    LocalTransientAudioCleaner,
 )
 from notekeeper.infrastructure.deepseek import (
     DeepSeekRecapGenerator,
     LocalDeepSeekRequestLogger,
     NoOpDeepSeekRequestLogger,
-)
-from notekeeper.infrastructure.cleanup import (
-    LocalJobCleaner,
-    LocalTransientAudioCleaner,
 )
 from notekeeper.infrastructure.ffmpeg import (
     FfmpegAudioProcessor,
@@ -70,11 +70,11 @@ from notekeeper.infrastructure.sqlite import (
     SQLiteTranscriptRepository,
     SQLiteVoiceSampleRepository,
 )
+from notekeeper.infrastructure.tokenization import TiktokenTranscriptTokenizer
 from notekeeper.infrastructure.whisperx import (
     LocalWhisperXPayloadStore,
     WhisperXTranscriber,
 )
-from notekeeper.infrastructure.tokenization import TiktokenTranscriptTokenizer
 
 from .settings import NoteKeeperSettings
 

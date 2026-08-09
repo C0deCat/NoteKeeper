@@ -4,7 +4,7 @@ from notekeeper.application.commands import DeleteProcessingJobCommand
 from notekeeper.application.errors import InvalidOperationError
 from notekeeper.application.ports import JobCleaner, JobRepository
 from notekeeper.application.results import DeleteProcessingJobResult
-from notekeeper.application.use_cases.utils import _require_job
+from notekeeper.application.use_cases.utils import require_job
 from notekeeper.domain import (
     DomainValidationError,
     ProcessingJobId,
@@ -18,7 +18,7 @@ class DeleteProcessingJob:
         self._job_cleaner = job_cleaner
 
     def execute(self, command: DeleteProcessingJobCommand) -> DeleteProcessingJobResult:
-        job = _require_job(self._job_repository, ProcessingJobId(command.job_id))
+        job = require_job(self._job_repository, ProcessingJobId(command.job_id))
         try:
             ensure_processing_job_can_be_deleted(job)
         except DomainValidationError as exc:

@@ -8,7 +8,7 @@ from notekeeper.application.ports import Clock, JobManager, JobRepository
 from notekeeper.application.results import QueueProcessingJobResult
 from notekeeper.application.use_cases.utils import (
     CampaignMutationPolicy,
-    _require_job,
+    require_job,
 )
 from notekeeper.domain import JobStatus, ProcessingJobId
 
@@ -31,9 +31,9 @@ class QueueProcessingJob:
         command: QueueProcessingJobCommand,
     ) -> QueueProcessingJobResult:
         job_id = ProcessingJobId(command.job_id)
-        job = _require_job(self._job_repository, job_id)
+        job = require_job(self._job_repository, job_id)
         with self._mutation_policy.queue_transition(job.campaign_id):
-            job = _require_job(self._job_repository, job_id)
+            job = require_job(self._job_repository, job_id)
             if job.status is not JobStatus.PENDING:
                 raise InvalidOperationError("processing job must be pending")
             queued_job = replace(

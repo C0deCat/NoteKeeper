@@ -11,9 +11,9 @@ from textual.widgets import Button, DataTable, Input, Select, Static, Switch, Te
 from notekeeper.application import (
     ClearFailedJobsForCampaignCommand,
     ClearFailedJobsForCampaignResult,
+    CreateCampaignResult,
     CreateProcessingJobForAudioTrackCommand,
     CreateProcessingJobForAudioTrackResult,
-    CreateCampaignResult,
     DashboardChangedEvent,
     DashboardRefreshScope,
     DeleteAudioTrackCommand,
@@ -24,9 +24,9 @@ from notekeeper.application import (
     GenerateRecapResult,
     GetCampaignCommand,
     GetCampaignResult,
-    GetRecapGuidancesResult,
-    GetRecapGuidancesCommand,
     GetJobStatusResult,
+    GetRecapGuidancesCommand,
+    GetRecapGuidancesResult,
     InspectAudioMetadataResult,
     InspectLocalAudioFileResult,
     ListAudioTracksResult,
@@ -37,16 +37,17 @@ from notekeeper.application import (
     ManualSpeakerMappingCommand,
     ProgressEvent,
     ProgressEventKind,
+    QueueProcessingJobCommand,
     RestartFailedProcessingJobCommand,
     RestartFailedProcessingJobResult,
-    QueueProcessingJobCommand,
+    SubmitRecordingForProcessingResult,
     SyncCampaignFolderCommand,
     SyncCampaignFolderResult,
     UpdateAudioTrackCommand,
     UpdateCampaignResult,
     UpdateParticipantCommand,
-    UpdateRecapGuidancesResult,
     UpdateRecapGuidancesCommand,
+    UpdateRecapGuidancesResult,
 )
 from notekeeper.domain import (
     ArtifactRef,
@@ -59,11 +60,20 @@ from notekeeper.domain import (
     ParticipantId,
     PipelineWarning,
     PipelineWarningKind,
-    ProgressBar,
     ProcessingJob,
+    ProgressBar,
     Recap,
     SpeakerLabel,
     VoiceSample,
+)
+from notekeeper.infrastructure.runtime import (
+    InMemoryDashboardEventHub,
+    InMemoryProgressEventHub,
+    PersistedProgressEventHub,
+)
+from notekeeper.infrastructure.sqlite import (
+    SQLiteDatabase,
+    SQLiteProgressEventSnapshotStore,
 )
 from notekeeper.interfaces import RuntimeDiagnostics, Stage1UseCases
 from notekeeper.interfaces.tui import (
@@ -92,15 +102,6 @@ from notekeeper.interfaces.tui.remove_voice_sample_screen import (
 from notekeeper.interfaces.tui.rename_screen import RenameScreen
 from notekeeper.interfaces.tui.review_app import ReviewMappingsScreen
 from notekeeper.interfaces.tui.tui import DashboardWarning
-from notekeeper.infrastructure.runtime import (
-    InMemoryDashboardEventHub,
-    InMemoryProgressEventHub,
-    PersistedProgressEventHub,
-)
-from notekeeper.infrastructure.sqlite import (
-    SQLiteDatabase,
-    SQLiteProgressEventSnapshotStore,
-)
 
 
 class FakeUseCase:
@@ -364,7 +365,13 @@ class FakeRuntime:
                     job=job,
                 ),
             ),
-            submit_recording_for_processing=FakeUseCase(None),
+            submit_recording_for_processing=FakeUseCase(
+                SubmitRecordingForProcessingResult(
+                    campaign=campaign,
+                    audio_track=audio_track,
+                    job=job,
+                ),
+            ),
             run_processing_job=FakeUseCase(GetJobStatusResult(job=job)),
             restart_failed_processing_job=FakeRestartUseCase(
                 RestartFailedProcessingJobResult(
@@ -443,6 +450,12 @@ class FakeRuntime:
 
     def format_artifact_location(self, artifact: ArtifactRef) -> str:
         return artifact.uri
+
+    def start_job_manager(self, *, recover_queued: bool = True) -> None:
+        pass
+
+    def shutdown_job_manager(self) -> None:
+        pass
 
 
 def test_tui_dashboard_loads_campaign_data() -> None:
