@@ -64,6 +64,7 @@ from .dashboard_messages import (
     SelectedObject,
 )
 from .identifier_data_table import IdentifierDataTable
+from .login_screen import LoginScreen
 from .participant_app import AddParticipantScreen
 
 
@@ -104,13 +105,19 @@ class NoteKeeperTui(App[None]):
         self._pending_content_refresh = False
         self._pending_selected_job_id: str | None = None
         self._review_job_id: str | None = None
+        self._dashboard_initialized = False
 
     def compose(self) -> ComposeResult:
+        auth = getattr(self.runtime, "auth", None)
+        auth_enabled = auth is not None and auth.enabled
         yield Header()
         with Horizontal(id="topbar"):
             yield Select((), prompt="Campaign", id="campaign-select")
             yield Button("Manage Campaign", id="manage-campaign")
             yield Button("Settings", id="settings")
+            if auth_enabled:
+                yield Static("", id="auth-user")
+                yield Button("Logout", id="logout")
             yield Static("Ready", id="status")
         with ItemGrid(
             id="campaign-actions",
@@ -181,13 +188,31 @@ class NoteKeeperTui(App[None]):
         yield Footer()
 
     def on_mount(self) -> None:
+        auth = getattr(self.runtime, "auth", None)
+        if auth is not None and auth.enabled and auth.current_user is None:
+            self.push_screen(LoginScreen(self.runtime), self._authenticated)
+            return
+        self._initialize_dashboard()
+
+    def _initialize_dashboard(self) -> None:
+        auth = getattr(self.runtime, "auth", None)
+        auth_enabled = auth is not None and auth.enabled
+        if auth is not None and auth_enabled and auth.current_user is not None:
+            self.query_one("#auth-user", Static).update(auth.current_user.login)
         self.runtime.start_job_manager(recover_queued=True)
-        self._dashboard_unsubscribe = self.runtime.dashboard_events.subscribe(
-            self._on_dashboard_changed,
-        )
-        self.query_one("#progress-panel", Vertical).display = False
-        self._setup_tables()
+        if not self._dashboard_initialized:
+            self._dashboard_unsubscribe = self.runtime.dashboard_events.subscribe(
+                self._on_dashboard_changed,
+            )
+            self.query_one("#progress-panel", Vertical).display = False
+            self._setup_tables()
+            self._dashboard_initialized = True
         self.refresh_dashboard()
+
+    def _authenticated(self, _user: object) -> None:
+        self._selected_campaign_id = None
+        self._selected_object = None
+        self._initialize_dashboard()
 
     def action_refresh(self) -> None:
         self.refresh_dashboard()
@@ -225,6 +250,11 @@ class NoteKeeperTui(App[None]):
             self._open_manage_campaigns()
         elif button_id == "settings":
             self._open_settings()
+        elif button_id == "logout":
+            self.runtime.auth.logout()
+            self._selected_campaign_id = None
+            self._selected_object = None
+            self.push_screen(LoginScreen(self.runtime), self._authenticated)
         elif button_id == "sync-folder":
             self._with_campaign(self._sync_campaign_folder)
         elif button_id == "add-player":

@@ -1,5 +1,7 @@
 """Application layer public facade."""
 
+from .auth_context import AuthContext
+
 from .commands import (
     AddParticipantToCampaignCommand,
     AddVoiceSampleCommand,
@@ -44,9 +46,12 @@ from .commands import (
 )
 from .errors import (
     ApplicationError,
+    AuthenticationRequiredError,
     InvalidOperationError,
+    InvalidCredentialsError,
     NotFoundError,
     PortExecutionError,
+    UserAlreadyExistsError,
 )
 from .results import (
     AddParticipantToCampaignResult,
@@ -156,6 +161,8 @@ __all__ = [
     "CancelProcessingJobCommand",
     "CancelProcessingJobResult",
     "ApplicationError",
+    "AuthContext",
+    "AuthenticationRequiredError",
     "CampaignFolderSnapshot",
     "ClearFailedJobsForCampaign",
     "ClearFailedJobsForCampaignCommand",
@@ -207,6 +214,7 @@ __all__ = [
     "InspectLocalAudioFileCommand",
     "InspectLocalAudioFileResult",
     "InvalidOperationError",
+    "InvalidCredentialsError",
     "ListAudioTracks",
     "ListAudioTracksCommand",
     "ListAudioTracksResult",
@@ -227,6 +235,7 @@ __all__ = [
     "ManualSpeakerMappingCommand",
     "NotFoundError",
     "PortExecutionError",
+    "UserAlreadyExistsError",
     "PreviewRecapMarkdown",
     "PreviewRecapMarkdownCommand",
     "PreviewTranscriptMarkdown",

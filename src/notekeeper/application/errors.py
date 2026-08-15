@@ -15,3 +15,15 @@ class NotFoundError(ApplicationError):
 
 class InvalidOperationError(ApplicationError):
     """Raised when a use case cannot be executed in the current state."""
+
+
+class AuthenticationRequiredError(ApplicationError):
+    """Raised when an operation requires an authenticated user."""
+
+
+class InvalidCredentialsError(ApplicationError):
+    """Raised when supplied authentication credentials are invalid."""
+
+
+class UserAlreadyExistsError(ApplicationError):
+    """Raised when a login is already registered."""

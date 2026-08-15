@@ -60,6 +60,23 @@ from notekeeper.application import (
 from notekeeper.application.ports import DashboardEventStream, ProgressEventStream
 from notekeeper.application.use_cases.utils import CampaignMutationUseCase
 from notekeeper.domain import ArtifactRef, ProcessingJob
+from notekeeper.domain import AuthenticatedUser
+
+
+class AuthRuntime(Protocol):
+    @property
+    def enabled(self) -> bool: ...
+
+    @property
+    def current_user(self) -> AuthenticatedUser | None: ...
+
+    def login(self, login: str, password: str) -> AuthenticatedUser: ...
+
+    def register(self, login: str, password: str) -> AuthenticatedUser: ...
+
+    def logout(self) -> None: ...
+
+    def require_user(self) -> AuthenticatedUser: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -163,6 +180,8 @@ class RuntimeDiagnostics:
 
 class InterfaceRuntime(Protocol):
     @property
+    def auth(self) -> AuthRuntime: ...
+    @property
     def use_cases(self) -> Stage1UseCases: ...
 
     @property
@@ -180,3 +199,6 @@ class InterfaceRuntime(Protocol):
     def diagnostics(self, campaign_id: str | None = None) -> RuntimeDiagnostics: ...
 
     def format_artifact_location(self, artifact: ArtifactRef) -> str: ...
+
+    @property
+    def cli_auth_session_path(self) -> str: ...

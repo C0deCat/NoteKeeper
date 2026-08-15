@@ -19,6 +19,12 @@ class NoteKeeperSettings(BaseSettings):
 
     storage_root: Path = Field(default=Path("data") / "artifacts")
     sqlite_path: Path = Field(default=Path("data") / "notekeeper.sqlite3")
+    auth_enabled: bool = False
+    auth_provider: str = "local"
+    local_auth_users_path: Path = Field(default=Path("data") / "users.json")
+    cli_auth_session_path: Path = Field(
+        default=Path("data") / "auth-session.json"
+    )
     audio_extensions: tuple[str, ...] = DEFAULT_AUDIO_EXTENSIONS
     ffmpeg_bin: Path | None = None
     ffmpeg_path: str = "ffmpeg"

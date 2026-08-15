@@ -74,3 +74,28 @@ def test_settings_reject_gpu_limit_above_total_limit() -> None:
             max_concurrent_jobs=1,
             max_concurrent_gpu_jobs=2,
         )
+
+
+def test_settings_load_local_auth_configuration(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".env").write_text(
+        "\n".join(
+            (
+                "NOTEKEEPER_AUTH_ENABLED=true",
+                "NOTEKEEPER_AUTH_PROVIDER=local",
+                "NOTEKEEPER_LOCAL_AUTH_USERS_PATH=private/users.json",
+                "NOTEKEEPER_CLI_AUTH_SESSION_PATH=private/session.json",
+            )
+        ),
+        encoding="utf-8",
+    )
+
+    settings = NoteKeeperSettings()
+
+    assert settings.auth_enabled is True
+    assert settings.auth_provider == "local"
+    assert settings.local_auth_users_path == Path("private/users.json")
+    assert settings.cli_auth_session_path == Path("private/session.json")

@@ -3,8 +3,12 @@
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS campaigns (
     id TEXT PRIMARY KEY,
-    name TEXT NOT NULL
+    name TEXT NOT NULL,
+    owner_user_id TEXT NOT NULL
 );
+
+CREATE INDEX IF NOT EXISTS idx_campaigns_owner
+    ON campaigns (owner_user_id, id);
 
 CREATE TABLE IF NOT EXISTS participants (
     id TEXT PRIMARY KEY,

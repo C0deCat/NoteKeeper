@@ -1,7 +1,8 @@
 """SQLite campaign repository."""
 
 from notekeeper.application.ports import CampaignRepository
-from notekeeper.domain import Campaign, CampaignId
+from notekeeper.application.errors import PortExecutionError
+from notekeeper.domain import Campaign, CampaignId, UserId
 
 from .database import SQLiteDatabase
 from .utils import (
@@ -21,7 +22,7 @@ class SQLiteCampaignRepository(CampaignRepository):
     def get(self, campaign_id: CampaignId) -> Campaign | None:
         with self._database.connect() as connection:
             row = connection.execute(
-                "SELECT id, name FROM campaigns WHERE id = ?",
+                "SELECT id, name, owner_user_id FROM campaigns WHERE id = ?",
                 (str(campaign_id),),
             ).fetchone()
             if row is None:
@@ -29,6 +30,7 @@ class SQLiteCampaignRepository(CampaignRepository):
             return Campaign(
                 id=CampaignId(row["id"]),
                 name=row["name"],
+                owner_user_id=UserId(row["owner_user_id"]),
                 participants=list_participants(connection, campaign_id),
                 voice_samples=list_voice_samples(connection, campaign_id),
                 audio_tracks=list_audio_tracks(connection, campaign_id),
@@ -46,12 +48,21 @@ class SQLiteCampaignRepository(CampaignRepository):
         with self._database.connect() as connection:
             connection.execute(
                 """
-                INSERT INTO campaigns (id, name)
-                VALUES (?, ?)
+                INSERT INTO campaigns (id, name, owner_user_id)
+                VALUES (?, ?, ?)
                 ON CONFLICT(id) DO UPDATE SET name = excluded.name
+                WHERE campaigns.owner_user_id = excluded.owner_user_id
                 """,
-                (str(campaign.id), campaign.name),
+                (str(campaign.id), campaign.name, str(campaign.owner_user_id)),
             )
+            owner_row = connection.execute(
+                "SELECT owner_user_id FROM campaigns WHERE id = ?",
+                (str(campaign.id),),
+            ).fetchone()
+            if owner_row is None or owner_row["owner_user_id"] != str(
+                campaign.owner_user_id
+            ):
+                raise PortExecutionError("campaign owner cannot be changed")
             connection.execute(
                 "DELETE FROM voice_samples WHERE campaign_id = ?",
                 (str(campaign.id),),

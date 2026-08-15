@@ -1,5 +1,7 @@
 """Ports used by the application layer."""
 
+from .auth import AuthProvider, CurrentUserProvider
+
 from .events import (
     DashboardEventHub,
     DashboardEventListener,
@@ -50,6 +52,8 @@ from .storage import (
 
 __all__ = [
     "ArtifactStorage",
+    "AuthProvider",
+    "CurrentUserProvider",
     "AudioMetadataReader",
     "AudioProcessor",
     "AudioRecordingNormalizer",

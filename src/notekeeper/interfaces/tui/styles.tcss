@@ -26,6 +26,31 @@ ModalScreen {
     margin-left: 1;
 }
 
+#auth-user {
+    width: 16;
+    margin-left: 1;
+    content-align: right middle;
+}
+
+#logout {
+    width: 10;
+    margin-left: 1;
+}
+
+.auth-modal {
+    width: 52;
+}
+
+.auth-modal Input {
+    margin-top: 1;
+}
+
+.auth-error {
+    min-height: 1;
+    margin: 1 0;
+    color: $error;
+}
+
 #status {
     width: 38;
     content-align: right middle;

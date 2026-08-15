@@ -6,6 +6,7 @@ from .participant import Participant
 from .processing_job import ProcessingJob
 from .recap import Recap, RecapChunk
 from .transcript import Transcript, TranscriptSegment
+from .user import AuthenticatedUser, User
 from .voice_sample import VoiceSample
 
 __all__ = [
@@ -17,5 +18,7 @@ __all__ = [
     "RecapChunk",
     "Transcript",
     "TranscriptSegment",
+    "AuthenticatedUser",
+    "User",
     "VoiceSample",
 ]

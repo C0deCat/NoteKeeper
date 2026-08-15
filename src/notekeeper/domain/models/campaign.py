@@ -3,7 +3,14 @@
 from dataclasses import dataclass
 
 from ..errors import CampaignValidationError
-from ..ids import AudioTrackId, CampaignId, ParticipantId, VoiceSampleId
+from ..ids import (
+    BUILTIN_ROOT_USER_ID,
+    AudioTrackId,
+    CampaignId,
+    ParticipantId,
+    UserId,
+    VoiceSampleId,
+)
 from ..validation import as_tuple, non_empty_str
 from .audio_track import AudioTrack
 from .participant import Participant
@@ -14,12 +21,18 @@ from .voice_sample import VoiceSample
 class Campaign:
     id: CampaignId
     name: str
+    owner_user_id: UserId = BUILTIN_ROOT_USER_ID
     participants: tuple[Participant, ...] = ()
     voice_samples: tuple[VoiceSample, ...] = ()
     audio_tracks: tuple[AudioTrack, ...] = ()
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "name", non_empty_str(self.name, "name"))
+        object.__setattr__(
+            self,
+            "owner_user_id",
+            UserId(non_empty_str(str(self.owner_user_id), "owner_user_id")),
+        )
         object.__setattr__(
             self,
             "participants",

@@ -39,7 +39,11 @@ from notekeeper.application import (
     UpdateRecapGuidances,
     UpdateVoiceSample,
 )
-from notekeeper.application.ports import JobManager, ProgressTrackerFactory
+from notekeeper.application.ports import (
+    CurrentUserProvider,
+    JobManager,
+    ProgressTrackerFactory,
+)
 from notekeeper.application.use_cases.utils import (
     CampaignMutationPolicy,
     GuardedCampaignMutation,
@@ -55,6 +59,7 @@ def wire_stage1_use_cases(
     progress_tracker_factory: ProgressTrackerFactory,
     job_manager: JobManager,
     mutation_policy: CampaignMutationPolicy,
+    current_user: CurrentUserProvider | None = None,
 ) -> Stage1UseCases:
     queue_processing_job = QueueProcessingJob(
         infrastructure.job_repository,
@@ -75,6 +80,7 @@ def wire_stage1_use_cases(
             infrastructure.id_generator,
             infrastructure.recap_guidances,
             infrastructure.artifact_storage,
+            current_user,
         ),
         get_campaign=GetCampaign(infrastructure.campaign_repository),
         list_campaigns=ListCampaigns(infrastructure.campaign_repository),

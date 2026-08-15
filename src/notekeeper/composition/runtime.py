@@ -6,7 +6,9 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 
 from notekeeper.application import (
+    AuthContext,
     ExecuteQueuedProcessingJob,
+    GetJobStatusCommand,
     ListJobsForCampaignCommand,
 )
 from notekeeper.application.errors import ApplicationError
@@ -28,7 +30,18 @@ from notekeeper.infrastructure.runtime import (
     MutationGuardingCampaignRepository,
     PersistedProgressEventHub,
     StreamingProgressTrackerFactory,
+    UserCampaignAccess,
+    UserScopedAudioTrackRepository,
+    UserScopedCampaignRepository,
+    UserScopedJobRepository,
+    UserScopedParticipantRepository,
+    UserScopedRecapRepository,
+    UserScopedSpeakerMappingRepository,
+    UserScopedSpeakerReviewSubmissionRepository,
+    UserScopedTranscriptRepository,
+    UserScopedVoiceSampleRepository,
 )
+from notekeeper.infrastructure.auth import LocalAuthProvider
 from notekeeper.interfaces import RuntimeDiagnostics, Stage1UseCases
 
 from .factory import InfrastructureBundle, build_infrastructure
@@ -41,11 +54,16 @@ from .stage1_use_cases import wire_stage1_use_cases
 @dataclass(frozen=True, slots=True)
 class NoteKeeperRuntime:
     settings: NoteKeeperSettings
+    auth: AuthContext
     use_cases: Stage1UseCases
     infrastructure: InfrastructureBundle
     progress_events: ProgressEventStream
     dashboard_events: DashboardEventStream
     job_manager: LocalJobManager
+
+    @property
+    def cli_auth_session_path(self) -> str:
+        return str(self.settings.cli_auth_session_path)
 
     def start_job_manager(self, *, recover_queued: bool = True) -> None:
         self.job_manager.start(recover_queued=recover_queued)
@@ -54,6 +72,7 @@ class NoteKeeperRuntime:
         self.job_manager.shutdown()
 
     def wait_for_job(self, job_id: str) -> ProcessingJob:
+        self.use_cases.get_job_status.execute(GetJobStatusCommand(job_id=job_id))
         return self.job_manager.wait_for_terminal(ProcessingJobId(job_id))
 
     def diagnostics(self, campaign_id: str | None = None) -> RuntimeDiagnostics:
@@ -78,6 +97,14 @@ class NoteKeeperRuntime:
 
 def build_runtime(settings: NoteKeeperSettings | None = None) -> NoteKeeperRuntime:
     infrastructure = build_infrastructure(settings)
+    if infrastructure.settings.auth_provider != "local":
+        raise ValueError(
+            f"unsupported auth provider: {infrastructure.settings.auth_provider}"
+        )
+    auth = AuthContext(
+        LocalAuthProvider(infrastructure.settings.local_auth_users_path),
+        enabled=infrastructure.settings.auth_enabled,
+    )
     infrastructure.transient_audio_cleaner.clean_stale()
     progress_events = PersistedProgressEventHub(
         infrastructure.progress_event_snapshot_store
@@ -106,14 +133,17 @@ def build_runtime(settings: NoteKeeperSettings | None = None) -> NoteKeeperRunti
         progress_events,
         dashboard_events,
     )
+    user_infrastructure = _scope_infrastructure(infrastructure, auth)
     return NoteKeeperRuntime(
         settings=infrastructure.settings,
+        auth=auth,
         use_cases=build_stage1_use_cases(
-            infrastructure,
+            user_infrastructure,
             progress_events=progress_events,
             dashboard_events=dashboard_events,
             job_manager=job_manager,
             mutation_policy=mutation_policy,
+            current_user=auth,
         ),
         infrastructure=infrastructure,
         progress_events=progress_events,
@@ -129,6 +159,7 @@ def build_stage1_use_cases(
     dashboard_events: InMemoryDashboardEventHub | None = None,
     job_manager: JobManager | None = None,
     mutation_policy: CampaignMutationPolicy | None = None,
+    current_user: AuthContext | None = None,
 ) -> Stage1UseCases:
     progress_events = progress_events or InMemoryProgressEventHub()
     dashboard_events = dashboard_events or InMemoryDashboardEventHub()
@@ -156,6 +187,47 @@ def build_stage1_use_cases(
         progress_tracker_factory=progress_tracker_factory,
         job_manager=job_manager,
         mutation_policy=mutation_policy,
+        current_user=current_user,
+    )
+
+
+def _scope_infrastructure(
+    infrastructure: InfrastructureBundle,
+    auth: AuthContext,
+) -> InfrastructureBundle:
+    raw_campaigns = infrastructure.campaign_repository
+    raw_jobs = infrastructure.job_repository
+    raw_transcripts = infrastructure.transcript_repository
+    access = UserCampaignAccess(raw_campaigns, auth)
+    return replace(
+        infrastructure,
+        campaign_repository=UserScopedCampaignRepository(raw_campaigns, access),
+        participant_repository=UserScopedParticipantRepository(
+            infrastructure.participant_repository, access
+        ),
+        voice_sample_repository=UserScopedVoiceSampleRepository(
+            infrastructure.voice_sample_repository, access
+        ),
+        audio_track_repository=UserScopedAudioTrackRepository(
+            infrastructure.audio_track_repository, access
+        ),
+        transcript_repository=UserScopedTranscriptRepository(
+            raw_transcripts, access
+        ),
+        recap_repository=UserScopedRecapRepository(
+            infrastructure.recap_repository, raw_transcripts, access
+        ),
+        job_repository=UserScopedJobRepository(raw_jobs, access),
+        speaker_mapping_repository=UserScopedSpeakerMappingRepository(
+            infrastructure.speaker_mapping_repository, raw_jobs, access
+        ),
+        speaker_review_submission_repository=(
+            UserScopedSpeakerReviewSubmissionRepository(
+                infrastructure.speaker_review_submission_repository,
+                raw_jobs,
+                access,
+            )
+        ),
     )
 
 

@@ -16,15 +16,18 @@ from .errors import (
     TranscriptValidationError,
 )
 from .ids import (
+    BUILTIN_ROOT_USER_ID,
     AudioTrackId,
     CampaignId,
     ParticipantId,
     ProcessingJobId,
     RecapId,
     TranscriptId,
+    UserId,
     VoiceSampleId,
 )
 from .models import (
+    AuthenticatedUser,
     AudioTrack,
     Campaign,
     Participant,
@@ -33,6 +36,7 @@ from .models import (
     RecapChunk,
     Transcript,
     TranscriptSegment,
+    User,
     VoiceSample,
 )
 from .services import (
@@ -66,9 +70,11 @@ from .value_objects import (
 
 __all__ = [
     "ArtifactRef",
+    "AuthenticatedUser",
     "AudioMetadata",
     "AudioTrack",
     "AudioTrackId",
+    "BUILTIN_ROOT_USER_ID",
     "Campaign",
     "CampaignId",
     "CampaignValidationError",
@@ -97,6 +103,8 @@ __all__ = [
     "Transcript",
     "TranscriptId",
     "TranscriptSegment",
+    "User",
+    "UserId",
     "TranscriptValidationError",
     "VoiceSample",
     "VoiceSampleId",

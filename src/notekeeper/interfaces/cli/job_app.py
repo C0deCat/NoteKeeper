@@ -65,6 +65,9 @@ def create_app(runtime_factory: RuntimeFactory) -> typer.Typer:
 
         def action() -> None:
             try:
+                runtime.use_cases.get_job_status.execute(
+                    GetJobStatusCommand(job_id=job_id)
+                )
                 with CliProgressDisplay(runtime, job_id):
                     (
                         runtime.use_cases.queue_processing_job
