@@ -6,6 +6,7 @@ import json
 import sqlite3
 from typing import Any
 
+from notekeeper.application import RepositoryScope, SystemScope
 from notekeeper.application.ports import SpeakerMappingRepository
 from notekeeper.application.results import SpeakerMappingRecord
 from notekeeper.domain import (
@@ -20,11 +21,13 @@ from notekeeper.domain import (
 from notekeeper.infrastructure.errors import InfrastructureError
 
 from .database import SQLiteDatabase
+from .scope import workspace_predicate
 
 
 class SQLiteSpeakerMappingRepository(SpeakerMappingRepository):
-    def __init__(self, database: SQLiteDatabase) -> None:
+    def __init__(self, database: SQLiteDatabase, scope: RepositoryScope) -> None:
         self._database = database
+        self._scope = scope
 
     def save_many(self, records: tuple[SpeakerMappingRecord, ...]) -> None:
         records = tuple(records)
@@ -32,6 +35,9 @@ class SQLiteSpeakerMappingRepository(SpeakerMappingRepository):
             return
 
         with self._database.connect() as connection:
+            if not isinstance(self._scope, SystemScope):
+                for record in records:
+                    self._require_record_access(connection, record)
             connection.executemany(
                 """
                 INSERT INTO speaker_mappings (
@@ -50,18 +56,60 @@ class SQLiteSpeakerMappingRepository(SpeakerMappingRepository):
                 tuple(_record_to_row(record) for record in records),
             )
 
+    def _require_record_access(
+        self,
+        connection: sqlite3.Connection,
+        record: SpeakerMappingRecord,
+    ) -> None:
+        predicate, parameters = workspace_predicate(self._scope)
+        visible = connection.execute(
+            f"""
+            SELECT 1 FROM jobs
+            JOIN transcripts
+              ON transcripts.id = ?
+             AND transcripts.campaign_id = jobs.campaign_id
+            LEFT JOIN campaigns ON campaigns.id = jobs.campaign_id
+            WHERE jobs.id = ? AND {predicate}
+            """,
+            (str(record.transcript_id), str(record.job_id), *parameters),
+        ).fetchone()
+        if visible is None:
+            raise InfrastructureError(
+                "speaker mappings reference resources outside repository scope"
+            )
+        participant_id = record.mapping.participant_id
+        if participant_id is None:
+            return
+        participant_visible = connection.execute(
+            f"""
+            SELECT 1 FROM participants
+            JOIN jobs ON jobs.id = ?
+                     AND jobs.campaign_id = participants.campaign_id
+            LEFT JOIN campaigns ON campaigns.id = jobs.campaign_id
+            WHERE participants.id = ? AND {predicate}
+            """,
+            (str(record.job_id), str(participant_id), *parameters),
+        ).fetchone()
+        if participant_visible is None:
+            raise InfrastructureError(
+                "speaker mapping participant is outside repository scope"
+            )
+
     def list_for_job(
         self,
         job_id: ProcessingJobId,
     ) -> tuple[SpeakerMappingRecord, ...]:
         with self._database.connect() as connection:
+            predicate, parameters = workspace_predicate(self._scope)
             rows = connection.execute(
-                """
-                SELECT * FROM speaker_mappings
-                WHERE job_id = ?
-                ORDER BY id
+                f"""
+                SELECT speaker_mappings.* FROM speaker_mappings
+                LEFT JOIN jobs ON jobs.id = speaker_mappings.job_id
+                LEFT JOIN campaigns ON campaigns.id = jobs.campaign_id
+                WHERE speaker_mappings.job_id = ? AND {predicate}
+                ORDER BY speaker_mappings.id
                 """,
-                (str(job_id),),
+                (str(job_id), *parameters),
             ).fetchall()
         return tuple(_record_from_row(row) for row in rows)
 
@@ -70,13 +118,16 @@ class SQLiteSpeakerMappingRepository(SpeakerMappingRepository):
         transcript_id: TranscriptId,
     ) -> tuple[SpeakerMappingRecord, ...]:
         with self._database.connect() as connection:
+            predicate, parameters = workspace_predicate(self._scope)
             rows = connection.execute(
-                """
-                SELECT * FROM speaker_mappings
-                WHERE transcript_id = ?
-                ORDER BY id
+                f"""
+                SELECT speaker_mappings.* FROM speaker_mappings
+                LEFT JOIN jobs ON jobs.id = speaker_mappings.job_id
+                LEFT JOIN campaigns ON campaigns.id = jobs.campaign_id
+                WHERE speaker_mappings.transcript_id = ? AND {predicate}
+                ORDER BY speaker_mappings.id
                 """,
-                (str(transcript_id),),
+                (str(transcript_id), *parameters),
             ).fetchall()
         return tuple(_record_from_row(row) for row in rows)
 

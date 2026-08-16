@@ -21,6 +21,10 @@ class AuthenticationRequiredError(ApplicationError):
     """Raised when an operation requires an authenticated user."""
 
 
+class AuthorizationError(ApplicationError):
+    """Raised when an authenticated actor lacks a required workspace role."""
+
+
 class InvalidCredentialsError(ApplicationError):
     """Raised when supplied authentication credentials are invalid."""
 

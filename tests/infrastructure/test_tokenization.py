@@ -27,9 +27,7 @@ def test_tokenizer_splits_transcript_on_segment_boundaries() -> None:
     chunks = tokenizer.split_transcript(transcript, target_token_count=22)
 
     assert len(chunks) == 3
-    assert chunks[0].text == (
-        "[00:00:00 - 00:00:01] **Alice:** We enter the crypt."
-    )
+    assert chunks[0].text == ("[00:00:00 - 00:00:01] **Alice:** We enter the crypt.")
     assert chunks[1].source_segment_indexes == (1,)
     assert chunks[2].source_segment_indexes == (2,)
 
@@ -64,8 +62,7 @@ def test_tokenizer_splits_very_long_segment_by_max_token_count() -> None:
     assert all(chunk.source_segment_indexes == (0,) for chunk in chunks)
     assert all(chunk.time_range == TimeRange(0, 5) for chunk in chunks)
     assert all(
-        chunk.text.startswith("[00:00:00 - 00:00:05] **Alice:**")
-        for chunk in chunks
+        chunk.text.startswith("[00:00:00 - 00:00:05] **Alice:**") for chunk in chunks
     )
 
 

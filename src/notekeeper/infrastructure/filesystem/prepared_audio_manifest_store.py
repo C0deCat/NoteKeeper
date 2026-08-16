@@ -25,10 +25,7 @@ class LocalPreparedAudioManifestStore(PreparedAudioManifestStore):
     ) -> str:
         campaign_name = safe_name(str(campaign_id), "campaign_id")
         job_name = safe_name(str(job_id), "job_id")
-        return (
-            f"{campaign_name}/records/manifests/"
-            f"{job_name}/prepared-audio.json"
-        )
+        return f"{campaign_name}/records/manifests/{job_name}/prepared-audio.json"
 
     def save(
         self,
@@ -52,7 +49,9 @@ class LocalPreparedAudioManifestStore(PreparedAudioManifestStore):
     def read(self, artifact: ArtifactRef) -> dict[str, Any]:
         path = self._storage.artifact_path(artifact)
         if not path.is_file():
-            raise InfrastructureError(f"manifest artifact does not exist: {artifact.uri}")
+            raise InfrastructureError(
+                f"manifest artifact does not exist: {artifact.uri}"
+            )
 
         try:
             payload = json.loads(path.read_text(encoding="utf-8"))

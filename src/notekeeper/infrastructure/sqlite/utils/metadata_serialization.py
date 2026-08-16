@@ -32,4 +32,3 @@ def metadata_from_dict(payload: dict[str, Any]) -> AudioMetadata:
 
 
 __all__ = ["metadata_from_dict", "metadata_to_dict"]
-

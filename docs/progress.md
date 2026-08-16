@@ -81,7 +81,7 @@ Tracker ограничивает промежуточные обновления
 flowchart LR
     FF["FFmpeg / WhisperX callbacks"] --> CT["StreamingProgressTracker"]
     CT --> PW["locked process pipe writer"]
-    PW --> EX["LocalProcessJobExecutor"]
+    PW --> EX["LocalJobManager"]
     EX --> HUB["InMemoryProgressEventHub"]
     UC["Review / GenerateRecap"] --> MT["main-process tracker"]
     MT --> HUB

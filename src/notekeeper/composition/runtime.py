@@ -1,69 +1,104 @@
-"""Runtime assembly for user interfaces."""
+"""Local host, immutable application sessions, and composition roots."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from notekeeper.application import (
-    AuthContext,
-    ExecuteQueuedProcessingJob,
-    GetJobStatusCommand,
+    AccessContext,
+    Authenticator,
     ListJobsForCampaignCommand,
+    NotFoundError,
+    WorkspaceScope,
 )
 from notekeeper.application.errors import ApplicationError
-from notekeeper.application.ports import (
-    DashboardEventStream,
-    JobManager,
-    ProgressEventHub,
-    ProgressEventStream,
-)
+from notekeeper.application.use_case_facade import ApplicationUseCases
 from notekeeper.application.use_cases.utils import CampaignMutationPolicy
-from notekeeper.domain import ArtifactRef, ProcessingJob, ProcessingJobId
-from notekeeper.infrastructure.runtime import (
-    EventPublishingCampaignRepository,
-    EventPublishingJobCleaner,
-    EventPublishingJobRepository,
-    InMemoryDashboardEventHub,
-    InMemoryProgressEventHub,
-    LocalCampaignMutationGuard,
-    MutationGuardingCampaignRepository,
-    PersistedProgressEventHub,
-    StreamingProgressTrackerFactory,
-    UserCampaignAccess,
-    UserScopedAudioTrackRepository,
-    UserScopedCampaignRepository,
-    UserScopedJobRepository,
-    UserScopedParticipantRepository,
-    UserScopedRecapRepository,
-    UserScopedSpeakerMappingRepository,
-    UserScopedSpeakerReviewSubmissionRepository,
-    UserScopedTranscriptRepository,
-    UserScopedVoiceSampleRepository,
+from notekeeper.domain import (
+    BUILTIN_ROOT_USER_ID,
+    ArtifactRef,
+    AuthenticatedUser,
+    User,
+    WorkspaceId,
 )
 from notekeeper.infrastructure.auth import LocalAuthProvider
-from notekeeper.interfaces import RuntimeDiagnostics, Stage1UseCases
+from notekeeper.infrastructure.runtime import (
+    LocalDashboardCampaignRepositoryDecorator,
+    LocalDashboardJobCleanerDecorator,
+    LocalDashboardJobRepositoryDecorator,
+    InMemoryDashboardEventHub,
+    PersistedProgressEventHub,
+    StreamingProgressTrackerFactory,
+)
+from notekeeper.infrastructure.sqlite import (
+    SQLiteAudioTrackRepository,
+    SQLiteCampaignRepository,
+    SQLiteJobRepository,
+    SQLiteParticipantRepository,
+    SQLiteRecapRepository,
+    SQLiteSpeakerMappingRepository,
+    SQLiteSpeakerReviewSubmissionRepository,
+    SQLiteTranscriptRepository,
+    SQLiteVoiceSampleRepository,
+)
+from notekeeper.interfaces import RuntimeDiagnostics
 
-from .factory import InfrastructureBundle, build_infrastructure
+from .factory import LocalServices, build_local_services
 from .job_pipeline import build_processing_pipeline
-from .process_job_executor import LocalJobManager
+from notekeeper.infrastructure.runtime.jobs import LocalJobManager
+from .repositories import SystemRepositories, WorkspaceRepositories
 from .settings import NoteKeeperSettings
-from .stage1_use_cases import wire_stage1_use_cases
+from .use_cases import wire_application_use_cases
+from .worker import execute_worker_process
+
+if TYPE_CHECKING:
+    from .local_interface_runtime import LocalInterfaceRuntime
 
 
 @dataclass(frozen=True, slots=True)
-class NoteKeeperRuntime:
+class ApplicationSession:
+    user: AuthenticatedUser
+    access: AccessContext
+    use_cases: ApplicationUseCases
+
+
+@dataclass(frozen=True, slots=True)
+class LocalApplicationHost:
     settings: NoteKeeperSettings
-    auth: AuthContext
-    use_cases: Stage1UseCases
-    infrastructure: InfrastructureBundle
-    progress_events: ProgressEventStream
-    dashboard_events: DashboardEventStream
+    authenticator: Authenticator
+    services: LocalServices
+    system_repositories: SystemRepositories
+    progress_events: PersistedProgressEventHub
+    dashboard_events: InMemoryDashboardEventHub
     job_manager: LocalJobManager
 
-    @property
-    def cli_auth_session_path(self) -> str:
-        return str(self.settings.cli_auth_session_path)
+    def authenticate(self, login: str, password: str) -> ApplicationSession:
+        return _build_application_session(
+            self,
+            self.authenticator.authenticate(login, password),
+            publish_dashboard_events=True,
+        )
+
+    def register(self, login: str, password: str) -> ApplicationSession:
+        return _build_application_session(
+            self,
+            self.authenticator.register(login, password),
+            publish_dashboard_events=True,
+        )
+
+    def root_session(self) -> ApplicationSession:
+        return _build_application_session(
+            self,
+            User(BUILTIN_ROOT_USER_ID, "root"),
+            publish_dashboard_events=True,
+        )
+
+    def interactive_runtime(self) -> LocalInterfaceRuntime:
+        from .local_interface_runtime import LocalInterfaceRuntime
+
+        return LocalInterfaceRuntime(self)
 
     def start_job_manager(self, *, recover_queued: bool = True) -> None:
         self.job_manager.start(recover_queued=recover_queued)
@@ -71,11 +106,11 @@ class NoteKeeperRuntime:
     def shutdown_job_manager(self) -> None:
         self.job_manager.shutdown()
 
-    def wait_for_job(self, job_id: str) -> ProcessingJob:
-        self.use_cases.get_job_status.execute(GetJobStatusCommand(job_id=job_id))
-        return self.job_manager.wait_for_terminal(ProcessingJobId(job_id))
-
-    def diagnostics(self, campaign_id: str | None = None) -> RuntimeDiagnostics:
+    def diagnostics(
+        self,
+        session: ApplicationSession,
+        campaign_id: str | None = None,
+    ) -> RuntimeDiagnostics:
         return RuntimeDiagnostics(
             storage_root=_path_text(self.settings.storage_root),
             sqlite_path=_path_text(self.settings.sqlite_path),
@@ -86,7 +121,7 @@ class NoteKeeperRuntime:
             whisperx_vad_method=self.settings.whisperx_vad_method,
             deepseek_configured=bool(self.settings.deepseek_api_key),
             huggingface_configured=bool(self.settings.whisperx_hf_token),
-            recent_messages=_recent_messages(self.use_cases, campaign_id),
+            recent_messages=_recent_messages(session.use_cases, campaign_id),
         )
 
     def format_artifact_location(self, artifact: ArtifactRef) -> str:
@@ -95,166 +130,187 @@ class NoteKeeperRuntime:
         return _path_text(self.settings.storage_root / Path(artifact.uri))
 
 
-def build_runtime(settings: NoteKeeperSettings | None = None) -> NoteKeeperRuntime:
-    infrastructure = build_infrastructure(settings)
-    if infrastructure.settings.auth_provider != "local":
+def build_local_host(
+    settings: NoteKeeperSettings | None = None,
+) -> LocalApplicationHost:
+    services = build_local_services(settings)
+    if services.settings.auth_provider != "local":
         raise ValueError(
-            f"unsupported auth provider: {infrastructure.settings.auth_provider}"
+            f"unsupported auth provider: {services.settings.auth_provider}"
         )
-    auth = AuthContext(
-        LocalAuthProvider(infrastructure.settings.local_auth_users_path),
-        enabled=infrastructure.settings.auth_enabled,
+    authenticator = Authenticator(
+        LocalAuthProvider(services.settings.local_auth_users_path),
+        enabled=services.settings.auth_enabled,
     )
-    infrastructure.transient_audio_cleaner.clean_stale()
-    progress_events = PersistedProgressEventHub(
-        infrastructure.progress_event_snapshot_store
-    )
+    services.transient_audio_cleaner.clean_stale()
+    progress_events = PersistedProgressEventHub(services.progress_event_snapshot_store)
     dashboard_events = InMemoryDashboardEventHub()
-    infrastructure = replace(
-        infrastructure,
-        campaign_repository=EventPublishingCampaignRepository(
-            infrastructure.campaign_repository,
-            dashboard_events,
-        ),
-        job_repository=EventPublishingJobRepository(
-            infrastructure.job_repository,
-            dashboard_events,
-        ),
-        job_cleaner=EventPublishingJobCleaner(
-            infrastructure.job_cleaner,
-            dashboard_events,
-        ),
+    system_repositories = _with_dashboard_events(
+        services.repositories,
+        dashboard_events,
     )
-    processing_pipeline = build_processing_pipeline(infrastructure)
-    mutation_policy = _build_campaign_mutation_policy(infrastructure)
+    pipeline = build_processing_pipeline(services, system_repositories)
     job_manager = _build_local_job_manager(
-        infrastructure,
-        processing_pipeline,
+        services,
+        system_repositories,
+        pipeline,
         progress_events,
         dashboard_events,
     )
-    user_infrastructure = _scope_infrastructure(infrastructure, auth)
-    return NoteKeeperRuntime(
-        settings=infrastructure.settings,
-        auth=auth,
-        use_cases=build_stage1_use_cases(
-            user_infrastructure,
-            progress_events=progress_events,
-            dashboard_events=dashboard_events,
-            job_manager=job_manager,
-            mutation_policy=mutation_policy,
-            current_user=auth,
-        ),
-        infrastructure=infrastructure,
+    return LocalApplicationHost(
+        settings=services.settings,
+        authenticator=authenticator,
+        services=services,
+        system_repositories=system_repositories,
         progress_events=progress_events,
         dashboard_events=dashboard_events,
         job_manager=job_manager,
     )
 
 
-def build_stage1_use_cases(
-    infrastructure: InfrastructureBundle,
+def build_application_session(
+    host: LocalApplicationHost,
+    user: AuthenticatedUser,
+    workspace_id: WorkspaceId | None = None,
+) -> ApplicationSession:
+    return _build_application_session(
+        host,
+        user,
+        workspace_id,
+        publish_dashboard_events=False,
+    )
+
+
+def _build_application_session(
+    host: LocalApplicationHost,
+    user: AuthenticatedUser,
+    workspace_id: WorkspaceId | None = None,
     *,
-    progress_events: ProgressEventHub | None = None,
-    dashboard_events: InMemoryDashboardEventHub | None = None,
-    job_manager: JobManager | None = None,
-    mutation_policy: CampaignMutationPolicy | None = None,
-    current_user: AuthContext | None = None,
-) -> Stage1UseCases:
-    progress_events = progress_events or InMemoryProgressEventHub()
-    dashboard_events = dashboard_events or InMemoryDashboardEventHub()
-    progress_tracker_factory = StreamingProgressTrackerFactory(progress_events)
-    mutation_policy = mutation_policy or _build_campaign_mutation_policy(infrastructure)
-
-    if job_manager is None:
-        processing_pipeline = build_processing_pipeline(infrastructure)
-        job_manager = _build_local_job_manager(
-            infrastructure,
-            processing_pipeline,
-            progress_events,
-            dashboard_events,
+    publish_dashboard_events: bool,
+) -> ApplicationSession:
+    workspace_repository = host.services.workspace_repository
+    if workspace_id is None:
+        membership = workspace_repository.ensure_personal(
+            user.id,
+            f"{user.login}'s workspace",
         )
-
-    guarded_infrastructure = replace(
-        infrastructure,
-        campaign_repository=MutationGuardingCampaignRepository(
-            infrastructure.campaign_repository,
-            mutation_policy,
-        ),
+    else:
+        membership = workspace_repository.membership(workspace_id, user.id)
+        if membership is None:
+            raise NotFoundError(f"workspace {workspace_id} was not found")
+    access = AccessContext(user.id, membership.workspace_id, membership.role)
+    repositories = _build_workspace_repositories(
+        host,
+        access,
+        publish_dashboard_events=publish_dashboard_events,
     )
-    return wire_stage1_use_cases(
-        guarded_infrastructure,
-        progress_tracker_factory=progress_tracker_factory,
-        job_manager=job_manager,
+    mutation_policy = CampaignMutationPolicy(
+        repositories.job_repository,
+        _campaign_mutation_guard(host.services),
+    )
+    session_services = host.services
+    if publish_dashboard_events:
+        session_services = replace(
+            host.services,
+            job_cleaner=LocalDashboardJobCleanerDecorator(
+                host.services.job_cleaner,
+                host.dashboard_events,
+            ),
+        )
+    use_cases = wire_application_use_cases(
+        session_services,
+        repositories,
+        progress_tracker_factory=StreamingProgressTrackerFactory(host.progress_events),
+        job_manager=host.job_manager,
         mutation_policy=mutation_policy,
-        current_user=current_user,
+        access=access,
     )
+    return ApplicationSession(user, access, use_cases)
 
 
-def _scope_infrastructure(
-    infrastructure: InfrastructureBundle,
-    auth: AuthContext,
-) -> InfrastructureBundle:
-    raw_campaigns = infrastructure.campaign_repository
-    raw_jobs = infrastructure.job_repository
-    raw_transcripts = infrastructure.transcript_repository
-    access = UserCampaignAccess(raw_campaigns, auth)
-    return replace(
-        infrastructure,
-        campaign_repository=UserScopedCampaignRepository(raw_campaigns, access),
-        participant_repository=UserScopedParticipantRepository(
-            infrastructure.participant_repository, access
+def _build_workspace_repositories(
+    host: LocalApplicationHost,
+    access: AccessContext,
+    *,
+    publish_dashboard_events: bool,
+) -> WorkspaceRepositories:
+    services = host.services
+    scope = WorkspaceScope(access.workspace_id)
+    campaign_repository = SQLiteCampaignRepository(services.database, scope)
+    job_repository = SQLiteJobRepository(services.database, scope)
+    if publish_dashboard_events:
+        campaign_repository = LocalDashboardCampaignRepositoryDecorator(
+            campaign_repository,
+            host.dashboard_events,
+        )
+        job_repository = LocalDashboardJobRepositoryDecorator(
+            job_repository,
+            host.dashboard_events,
+        )
+    return WorkspaceRepositories(
+        campaign_repository=campaign_repository,
+        participant_repository=SQLiteParticipantRepository(services.database, scope),
+        voice_sample_repository=SQLiteVoiceSampleRepository(services.database, scope),
+        audio_track_repository=SQLiteAudioTrackRepository(services.database, scope),
+        transcript_repository=SQLiteTranscriptRepository(
+            services.database, services.artifact_storage, scope
         ),
-        voice_sample_repository=UserScopedVoiceSampleRepository(
-            infrastructure.voice_sample_repository, access
+        recap_repository=SQLiteRecapRepository(
+            services.database, services.artifact_storage, scope
         ),
-        audio_track_repository=UserScopedAudioTrackRepository(
-            infrastructure.audio_track_repository, access
-        ),
-        transcript_repository=UserScopedTranscriptRepository(
-            raw_transcripts, access
-        ),
-        recap_repository=UserScopedRecapRepository(
-            infrastructure.recap_repository, raw_transcripts, access
-        ),
-        job_repository=UserScopedJobRepository(raw_jobs, access),
-        speaker_mapping_repository=UserScopedSpeakerMappingRepository(
-            infrastructure.speaker_mapping_repository, raw_jobs, access
+        job_repository=job_repository,
+        speaker_mapping_repository=SQLiteSpeakerMappingRepository(
+            services.database, scope
         ),
         speaker_review_submission_repository=(
-            UserScopedSpeakerReviewSubmissionRepository(
-                infrastructure.speaker_review_submission_repository,
-                raw_jobs,
-                access,
-            )
+            SQLiteSpeakerReviewSubmissionRepository(services.database, scope)
         ),
     )
 
 
-def _build_campaign_mutation_policy(
-    infrastructure: InfrastructureBundle,
-) -> CampaignMutationPolicy:
-    guard = LocalCampaignMutationGuard(_job_lock_root(infrastructure.settings))
-    return CampaignMutationPolicy(infrastructure.job_repository, guard)
+def _with_dashboard_events(
+    repositories: SystemRepositories,
+    events: InMemoryDashboardEventHub,
+) -> SystemRepositories:
+    return replace(
+        repositories,
+        campaign_repository=LocalDashboardCampaignRepositoryDecorator(
+            repositories.campaign_repository,
+            events,
+        ),
+        job_repository=LocalDashboardJobRepositoryDecorator(
+            repositories.job_repository,
+            events,
+        ),
+    )
+
+
+def _campaign_mutation_guard(services: LocalServices):
+    from notekeeper.infrastructure.runtime import LocalCampaignMutationGuard
+
+    return LocalCampaignMutationGuard(_job_lock_root(services.settings))
 
 
 def _build_local_job_manager(
-    infrastructure: InfrastructureBundle,
-    processing_pipeline: ExecuteQueuedProcessingJob,
-    progress_events: ProgressEventHub,
+    services: LocalServices,
+    repositories: SystemRepositories,
+    processing_pipeline,
+    progress_events: PersistedProgressEventHub,
     dashboard_events: InMemoryDashboardEventHub,
 ) -> LocalJobManager:
     return LocalJobManager(
-        infrastructure.settings,
+        services.settings,
         processing_pipeline,
-        infrastructure.job_repository,
-        infrastructure.clock,
-        lock_root=_job_lock_root(infrastructure.settings),
+        repositories.campaign_repository,
+        repositories.job_repository,
+        services.clock,
+        worker_target=execute_worker_process,
+        lock_root=_job_lock_root(services.settings),
         progress_events=progress_events,
         dashboard_events=dashboard_events,
-        transient_audio_cleaner=infrastructure.transient_audio_cleaner,
+        transient_audio_cleaner=services.transient_audio_cleaner,
         review_submission_repository=(
-            infrastructure.speaker_review_submission_repository
+            repositories.speaker_review_submission_repository
         ),
     )
 
@@ -265,19 +321,17 @@ def _job_lock_root(settings: NoteKeeperSettings) -> Path:
 
 
 def _recent_messages(
-    use_cases: Stage1UseCases,
+    use_cases: ApplicationUseCases,
     campaign_id: str | None,
 ) -> tuple[str, ...]:
     if campaign_id is None:
         return ()
-
     try:
-        jobs = use_cases.list_jobs_for_campaign.execute(
+        jobs = use_cases.jobs.list_for_campaign.execute(
             ListJobsForCampaignCommand(campaign_id=campaign_id)
         ).jobs
     except ApplicationError as exc:
         return (str(exc),)
-
     messages: list[str] = []
     for job in reversed(jobs):
         if job.error_message:
@@ -293,4 +347,9 @@ def _path_text(path: Path) -> str:
     return str(path.resolve(strict=False))
 
 
-__all__ = ["NoteKeeperRuntime", "build_runtime", "build_stage1_use_cases"]
+__all__ = [
+    "ApplicationSession",
+    "LocalApplicationHost",
+    "build_application_session",
+    "build_local_host",
+]

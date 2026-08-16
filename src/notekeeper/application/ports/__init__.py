@@ -1,6 +1,6 @@
 """Ports used by the application layer."""
 
-from .auth import AuthProvider, CurrentUserProvider
+from .auth import AuthProvider
 
 from .events import (
     DashboardEventHub,
@@ -41,6 +41,7 @@ from .repositories import (
     SpeakerReviewSubmissionRepository,
     TranscriptRepository,
     VoiceSampleRepository,
+    WorkspaceRepository,
 )
 from .runtime import Clock, IdGenerator
 from .storage import (
@@ -53,7 +54,6 @@ from .storage import (
 __all__ = [
     "ArtifactStorage",
     "AuthProvider",
-    "CurrentUserProvider",
     "AudioMetadataReader",
     "AudioProcessor",
     "AudioRecordingNormalizer",
@@ -94,4 +94,5 @@ __all__ = [
     "TranscriptRepository",
     "Unsubscribe",
     "VoiceSampleRepository",
+    "WorkspaceRepository",
 ]

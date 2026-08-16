@@ -25,7 +25,9 @@ class ProcessingJob:
 
     def __post_init__(self) -> None:
         if self.updated_at < self.created_at:
-            raise DomainValidationError("updated_at must not be earlier than created_at")
+            raise DomainValidationError(
+                "updated_at must not be earlier than created_at"
+            )
 
         object.__setattr__(self, "warnings", as_tuple(self.warnings))
         object.__setattr__(

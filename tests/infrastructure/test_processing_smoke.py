@@ -8,6 +8,7 @@ from io import StringIO
 from pathlib import Path
 from typing import Any
 
+from notekeeper.application import SYSTEM_SCOPE
 from notekeeper.application import (
     RunProcessingJob,
     RunProcessingJobCommand,
@@ -158,20 +159,20 @@ class FixedIds:
         return f"{prefix}-{self._counts[prefix]}"
 
 
-def test_stage1_processing_smoke_with_fake_external_boundaries(
+def test_processing_smoke_with_fake_external_boundaries(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
     storage = LocalCampaignArtifactStorage(tmp_path / "artifacts")
     database = SQLiteDatabase(tmp_path / "notekeeper.sqlite3")
     database.initialize()
-    campaigns = SQLiteCampaignRepository(database)
-    audio_tracks = SQLiteAudioTrackRepository(database)
-    transcripts = SQLiteTranscriptRepository(database, storage)
-    recaps = SQLiteRecapRepository(database, storage)
-    jobs = SQLiteJobRepository(database)
-    speaker_mappings = SQLiteSpeakerMappingRepository(database)
-    review_submissions = SQLiteSpeakerReviewSubmissionRepository(database)
+    campaigns = SQLiteCampaignRepository(database, SYSTEM_SCOPE)
+    audio_tracks = SQLiteAudioTrackRepository(database, SYSTEM_SCOPE)
+    transcripts = SQLiteTranscriptRepository(database, storage, SYSTEM_SCOPE)
+    recaps = SQLiteRecapRepository(database, storage, SYSTEM_SCOPE)
+    jobs = SQLiteJobRepository(database, SYSTEM_SCOPE)
+    speaker_mappings = SQLiteSpeakerMappingRepository(database, SYSTEM_SCOPE)
+    review_submissions = SQLiteSpeakerReviewSubmissionRepository(database, SYSTEM_SCOPE)
     manifest_store = LocalPreparedAudioManifestStore(storage)
     storage.ensure_campaign_layout(CampaignId("campaign-1"))
     sample_uri = "campaign-1/players/Alice/sample.wav"
@@ -298,10 +299,13 @@ def test_stage1_processing_smoke_with_fake_external_boundaries(
     mappings = speaker_mappings.list_for_job(result.job.id)
     assert len(mappings) == 1
     assert mappings[0].mapping.source is SpeakerMappingSource.SAMPLE_BASED
-    assert manifest_store.read_for_job(
-        campaign_id=CampaignId("campaign-1"),
-        job_id=result.job.id,
-    )["prepared_artifact"]["uri"] == "campaign-1/records/transient/job-1/prepared.wav"
+    assert (
+        manifest_store.read_for_job(
+            campaign_id=CampaignId("campaign-1"),
+            job_id=result.job.id,
+        )["prepared_artifact"]["uri"]
+        == "campaign-1/records/transient/job-1/prepared.wav"
+    )
     assert storage.path_for_uri(
         "campaign-1/transcripts/raw-whisperx/transcript-1.json",
     ).is_file()

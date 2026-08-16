@@ -72,7 +72,9 @@ class OpenAIDeepSeekChatClient(DeepSeekChatClient):
             choice = response.choices[0]
             content = choice.message.content
         except (AttributeError, IndexError, TypeError) as exc:
-            raise InfrastructureError("DeepSeek API returned malformed response") from exc
+            raise InfrastructureError(
+                "DeepSeek API returned malformed response"
+            ) from exc
 
         if not isinstance(content, str) or not content.strip():
             raise InfrastructureError("DeepSeek API returned empty response")

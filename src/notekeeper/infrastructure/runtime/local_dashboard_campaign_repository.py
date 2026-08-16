@@ -11,7 +11,7 @@ from notekeeper.application.results import (
 from notekeeper.domain import Campaign, CampaignId
 
 
-class EventPublishingCampaignRepository(CampaignRepository):
+class LocalDashboardCampaignRepositoryDecorator(CampaignRepository):
     def __init__(
         self,
         repository: CampaignRepository,
@@ -51,4 +51,4 @@ class EventPublishingCampaignRepository(CampaignRepository):
         )
 
 
-__all__ = ["EventPublishingCampaignRepository"]
+__all__ = ["LocalDashboardCampaignRepositoryDecorator"]

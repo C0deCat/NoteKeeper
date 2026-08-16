@@ -2,7 +2,10 @@
 
 from typing import Generic, Protocol, TypeVar
 
-from notekeeper.domain import CampaignId
+from notekeeper.application import AccessContext
+from notekeeper.application.errors import AuthorizationError, NotFoundError
+from notekeeper.application.ports import CampaignRepository
+from notekeeper.domain import CampaignId, WorkspaceRole
 
 from .campaign_mutation_policy import CampaignMutationPolicy
 
@@ -33,12 +36,24 @@ class GuardedCampaignMutation(Generic[CommandT, ResultT]):
         self,
         use_case: CampaignMutationUseCase[CommandT, ResultT],
         policy: CampaignMutationPolicy,
+        *,
+        campaign_repository: CampaignRepository | None = None,
+        access: AccessContext | None = None,
     ) -> None:
         self._use_case = use_case
         self._policy = policy
+        self._campaign_repository = campaign_repository
+        self._access = access
 
     def execute(self, command: CommandT) -> ResultT:
         campaign_id = CampaignId(command.campaign_id)
+        if self._access is not None and self._access.role is WorkspaceRole.VIEWER:
+            raise AuthorizationError("viewer membership is read-only")
+        if (
+            self._campaign_repository is not None
+            and self._campaign_repository.get(campaign_id) is None
+        ):
+            raise NotFoundError(f"campaign {campaign_id} was not found")
         with self._policy.mutation(campaign_id):
             return self._use_case.execute(command)
 

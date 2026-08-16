@@ -40,9 +40,7 @@ class RegistrationScreen(ModalScreen[AuthenticatedUser | None]):
             return
         login = self.query_one("#register-login", Input).value.strip()
         password = self.query_one("#register-password", Input).value
-        confirmation = self.query_one(
-            "#register-password-confirmation", Input
-        ).value
+        confirmation = self.query_one("#register-password-confirmation", Input).value
         if password != confirmation:
             self._show_error("Passwords do not match")
             return

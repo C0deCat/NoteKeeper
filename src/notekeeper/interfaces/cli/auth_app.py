@@ -78,13 +78,9 @@ def create_app(runtime_factory: RuntimeFactory) -> typer.Typer:
         def action() -> None:
             if not runtime.auth.enabled:
                 user = runtime.auth.require_user()
-                typer.echo(
-                    f"auth_enabled=false login={user.login} user_id={user.id}"
-                )
+                typer.echo(f"auth_enabled=false login={user.login} user_id={user.id}")
                 return
-            credentials = LocalCliSessionStore(
-                runtime.cli_auth_session_path
-            ).load()
+            credentials = LocalCliSessionStore(runtime.cli_auth_session_path).load()
             if credentials is None:
                 typer.echo("auth_enabled=true authenticated=false")
                 return

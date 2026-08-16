@@ -25,7 +25,7 @@ def create_app(runtime_factory: RuntimeFactory) -> typer.Typer:
         runtime = runtime_factory()
 
         def action() -> None:
-            result = runtime.use_cases.get_recap_guidances.execute(
+            result = runtime.use_cases.campaigns.get_recap_guidances.execute(
                 GetRecapGuidancesCommand(campaign_id=campaign_id),
             )
             _echo_guidances(
@@ -44,7 +44,7 @@ def create_app(runtime_factory: RuntimeFactory) -> typer.Typer:
         runtime = runtime_factory()
 
         def action() -> None:
-            result = runtime.use_cases.update_recap_guidances.execute(
+            result = runtime.use_cases.campaigns.update_recap_guidances.execute(
                 UpdateRecapGuidancesCommand(
                     campaign_id=campaign_id,
                     chunk_recap_guidances=_read_prompt_file(chunk_file),

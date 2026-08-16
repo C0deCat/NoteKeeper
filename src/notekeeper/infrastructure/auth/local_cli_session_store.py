@@ -31,7 +31,12 @@ class LocalCliSessionStore:
                 raise PortExecutionError("CLI auth session must be a JSON object")
             login = payload.get("login")
             password = payload.get("password")
-            if not isinstance(login, str) or not login or not isinstance(password, str) or not password:
+            if (
+                not isinstance(login, str)
+                or not login
+                or not isinstance(password, str)
+                or not password
+            ):
                 raise PortExecutionError(
                     "CLI auth session requires non-empty login and password"
                 )

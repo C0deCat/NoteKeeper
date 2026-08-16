@@ -55,7 +55,9 @@ def test_local_auth_provider_rejects_invalid_manual_file(tmp_path: Path) -> None
         LocalAuthProvider(users_path)
 
 
-def test_local_auth_provider_serializes_concurrent_registrations(tmp_path: Path) -> None:
+def test_local_auth_provider_serializes_concurrent_registrations(
+    tmp_path: Path,
+) -> None:
     users_path = tmp_path / "users.json"
 
     def register(index: int) -> str:

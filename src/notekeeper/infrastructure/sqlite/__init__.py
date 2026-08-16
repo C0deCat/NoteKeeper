@@ -13,6 +13,8 @@ from .speaker_review_submission_repository import (
 )
 from .transcript_repository import SQLiteTranscriptRepository
 from .voice_sample_repository import SQLiteVoiceSampleRepository
+from .workspace_ids import personal_workspace_id
+from .workspace_repository import SQLiteWorkspaceRepository
 
 __all__ = [
     "SQLiteAudioTrackRepository",
@@ -26,4 +28,6 @@ __all__ = [
     "SQLiteSpeakerReviewSubmissionRepository",
     "SQLiteTranscriptRepository",
     "SQLiteVoiceSampleRepository",
+    "SQLiteWorkspaceRepository",
+    "personal_workspace_id",
 ]

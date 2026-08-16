@@ -20,7 +20,7 @@ def create_app(runtime_factory: RuntimeFactory) -> typer.Typer:
         runtime = runtime_factory()
         run(
             lambda: typer.echo(
-                runtime.use_cases.preview_recap_markdown.execute(
+                runtime.use_cases.recaps.preview_markdown.execute(
                     PreviewRecapMarkdownCommand(recap_id=recap_id),
                 ).markdown,
                 nl=False,
@@ -32,7 +32,7 @@ def create_app(runtime_factory: RuntimeFactory) -> typer.Typer:
         runtime = runtime_factory()
 
         def action() -> None:
-            result = runtime.use_cases.export_recap_markdown.execute(
+            result = runtime.use_cases.recaps.export_markdown.execute(
                 ExportRecapMarkdownCommand(recap_id=recap_id),
             )
             typer.echo(runtime.format_artifact_location(result.artifact))

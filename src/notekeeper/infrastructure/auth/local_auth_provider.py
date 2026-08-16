@@ -41,7 +41,10 @@ class LocalAuthProvider(AuthProvider):
             users = self._read_users()
         login_key = normalized_login.casefold()
         for record in users:
-            if record["login"].casefold() == login_key and record["password"] == password:
+            if (
+                record["login"].casefold() == login_key
+                and record["password"] == password
+            ):
                 return User(UserId(record["user_id"]), record["login"])
         raise InvalidCredentialsError("invalid login or password")
 
@@ -98,7 +101,9 @@ class LocalAuthProvider(AuthProvider):
         logins: set[str] = set()
         for index, value in enumerate(payload):
             if not isinstance(value, dict):
-                raise PortExecutionError(f"local user at index {index} must be an object")
+                raise PortExecutionError(
+                    f"local user at index {index} must be an object"
+                )
             user_id = value.get("user_id")
             login = value.get("login")
             password = value.get("password")
@@ -115,7 +120,9 @@ class LocalAuthProvider(AuthProvider):
                 )
             normalized_login = login.strip()
             if not normalized_login:
-                raise PortExecutionError(f"local user at index {index} has an empty login")
+                raise PortExecutionError(
+                    f"local user at index {index} has an empty login"
+                )
             login_key = normalized_login.casefold()
             if user_id in user_ids:
                 raise PortExecutionError(f"duplicate local user_id {user_id!r}")

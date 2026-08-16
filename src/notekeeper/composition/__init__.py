@@ -1,14 +1,28 @@
 """Application composition helpers."""
 
-from .factory import InfrastructureBundle, build_infrastructure
-from .runtime import NoteKeeperRuntime, build_runtime, build_stage1_use_cases
+from .factory import LocalServices, build_local_services
+from .local_interface_runtime import LocalInterfaceRuntime
+from .repositories import SystemRepositories, WorkspaceRepositories
+from .runtime import (
+    ApplicationSession,
+    LocalApplicationHost,
+    build_application_session,
+    build_local_host,
+)
 from .settings import NoteKeeperSettings
+from .worker import WorkerRuntime, build_worker_runtime
 
 __all__ = [
-    "InfrastructureBundle",
-    "NoteKeeperRuntime",
+    "ApplicationSession",
+    "LocalApplicationHost",
+    "LocalInterfaceRuntime",
+    "LocalServices",
     "NoteKeeperSettings",
-    "build_infrastructure",
-    "build_runtime",
-    "build_stage1_use_cases",
+    "SystemRepositories",
+    "WorkspaceRepositories",
+    "WorkerRuntime",
+    "build_application_session",
+    "build_local_host",
+    "build_local_services",
+    "build_worker_runtime",
 ]

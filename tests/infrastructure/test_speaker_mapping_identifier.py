@@ -89,10 +89,7 @@ def test_sample_based_identifier_preserves_duplicate_label_candidates() -> None:
     assert {mapping.anonymous_label for mapping in mappings} == {
         SpeakerLabel.anonymous("SPEAKER_00"),
     }
-    assert all(
-        mapping.status is SpeakerMappingStatus.CONFIRMED
-        for mapping in mappings
-    )
+    assert all(mapping.status is SpeakerMappingStatus.CONFIRMED for mapping in mappings)
 
 
 def test_sample_based_identifier_returns_no_mapping_without_sample_overlap() -> None:

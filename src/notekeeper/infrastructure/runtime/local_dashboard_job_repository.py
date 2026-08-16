@@ -14,7 +14,7 @@ from notekeeper.domain import (
 )
 
 
-class EventPublishingJobRepository(JobRepository):
+class LocalDashboardJobRepositoryDecorator(JobRepository):
     def __init__(
         self,
         repository: JobRepository,
@@ -83,4 +83,4 @@ class EventPublishingJobRepository(JobRepository):
         )
 
 
-__all__ = ["EventPublishingJobRepository"]
+__all__ = ["LocalDashboardJobRepositoryDecorator"]

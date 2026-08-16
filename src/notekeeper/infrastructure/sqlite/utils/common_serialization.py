@@ -47,4 +47,3 @@ __all__ = [
     "time_range_from_dict",
     "time_range_to_dict",
 ]
-

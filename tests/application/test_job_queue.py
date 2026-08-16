@@ -8,6 +8,8 @@ from types import SimpleNamespace
 
 import pytest
 
+from notekeeper.application import AccessContext, SYSTEM_SCOPE
+
 from notekeeper.application import (
     ExecuteQueuedProcessingJob,
     InvalidOperationError,
@@ -18,8 +20,16 @@ from notekeeper.application import (
 from notekeeper.application.use_cases.utils import (
     CampaignMutationPolicy,
     GuardedCampaignMutation,
+    GuardedJobQueue,
 )
-from notekeeper.domain import CampaignId, JobStatus, ProcessingJob
+from notekeeper.domain import (
+    CampaignId,
+    JobStatus,
+    ProcessingJob,
+    UserId,
+    WorkspaceId,
+    WorkspaceRole,
+)
 from notekeeper.infrastructure.runtime import LocalCampaignMutationGuard
 from notekeeper.infrastructure.sqlite import SQLiteDatabase, SQLiteJobRepository
 
@@ -41,13 +51,30 @@ class _JobRepository:
         return self.job.campaign_id == campaign_id and self.job.status in statuses
 
 
+class _CampaignRepository:
+    def get(self, campaign_id):
+        if campaign_id == CampaignId("campaign-1"):
+            return SimpleNamespace(id=campaign_id)
+        return None
+
+
+def _access_context() -> AccessContext:
+    return AccessContext(
+        UserId("user-1"),
+        WorkspaceId("workspace-1"),
+        WorkspaceRole.OWNER,
+    )
+
+
 class _Guard:
     def __init__(self) -> None:
         self.active = False
+        self.acquisitions = 0
 
     @contextmanager
     def acquire(self, campaign_id):
         assert campaign_id == CampaignId("campaign-1")
+        self.acquisitions += 1
         self.active = True
         try:
             yield
@@ -60,9 +87,10 @@ class _Manager:
         self.guard = guard
         self.error = error
         self.enqueued = []
+        self.guard_was_active = False
 
     def enqueue(self, job_id) -> None:
-        assert not self.guard.active
+        self.guard_was_active = self.guard.active
         if self.error is not None:
             raise self.error
         self.enqueued.append(job_id)
@@ -87,14 +115,13 @@ def _job(status: JobStatus = JobStatus.PENDING) -> ProcessingJob:
     )
 
 
-def test_queue_processing_job_persists_before_enqueue_and_releases_guard() -> None:
+def test_queue_processing_job_persists_before_enqueue() -> None:
     repository = _JobRepository(_job())
     guard = _Guard()
     manager = _Manager(guard)
     use_case = QueueProcessingJob(
         repository,
         manager,
-        CampaignMutationPolicy(repository, guard),
         _Clock(),
     )
 
@@ -106,6 +133,25 @@ def test_queue_processing_job_persists_before_enqueue_and_releases_guard() -> No
     assert manager.enqueued == [result.job.id]
 
 
+def test_guarded_job_queue_holds_one_policy_lock_through_enqueue() -> None:
+    repository = _JobRepository(_job())
+    guard = _Guard()
+    manager = _Manager(guard)
+    use_case = GuardedJobQueue(
+        QueueProcessingJob(repository, manager, _Clock()),
+        CampaignMutationPolicy(repository, guard),
+        _CampaignRepository(),
+        repository,
+        _access_context(),
+    )
+
+    use_case.execute(QueueProcessingJobCommand(job_id="job-1"))
+
+    assert manager.guard_was_active
+    assert guard.acquisitions == 1
+    assert not guard.active
+
+
 def test_queue_processing_job_compensates_explicit_enqueue_failure() -> None:
     original = _job()
     repository = _JobRepository(original)
@@ -113,7 +159,6 @@ def test_queue_processing_job_compensates_explicit_enqueue_failure() -> None:
     use_case = QueueProcessingJob(
         repository,
         _Manager(guard, error=RuntimeError("broker unavailable")),
-        CampaignMutationPolicy(repository, guard),
         _Clock(),
     )
 
@@ -129,7 +174,6 @@ def test_queue_processing_job_rejects_second_delivery_from_public_api() -> None:
     use_case = QueueProcessingJob(
         repository,
         _Manager(guard),
-        CampaignMutationPolicy(repository, guard),
         _Clock(),
     )
 
@@ -190,9 +234,11 @@ def test_campaign_mutation_policy_allows_non_active_statuses(status) -> None:
 
 def test_guarded_campaign_mutation_rejects_before_delegate_side_effects() -> None:
     repository = _JobRepository(_job(JobStatus.RUNNING))
-    delegate = SimpleNamespace(execute=lambda command: (_ for _ in ()).throw(
-        AssertionError("delegate must not run")
-    ))
+    delegate = SimpleNamespace(
+        execute=lambda command: (_ for _ in ()).throw(
+            AssertionError("delegate must not run")
+        )
+    )
     use_case = GuardedCampaignMutation(
         delegate,
         CampaignMutationPolicy(repository, _Guard()),
@@ -207,7 +253,7 @@ def test_queue_transition_serializes_with_cross_process_campaign_mutation(
 ) -> None:
     database = SQLiteDatabase(tmp_path / "notekeeper.sqlite3")
     database.initialize()
-    repository = SQLiteJobRepository(database)
+    repository = SQLiteJobRepository(database, SYSTEM_SCOPE)
     repository.save(_job())
     lock_root = tmp_path / "locks"
     context = multiprocessing.get_context("spawn")
@@ -223,14 +269,21 @@ def test_queue_transition_serializes_with_cross_process_campaign_mutation(
 
     def queue_job() -> None:
         try:
-            QueueProcessingJob(
+            use_case = QueueProcessingJob(
                 repository,
                 _RecordingManager(),
-                CampaignMutationPolicy(
-                    repository,
-                    LocalCampaignMutationGuard(lock_root),
-                ),
                 _Clock(),
+            )
+            policy = CampaignMutationPolicy(
+                repository,
+                LocalCampaignMutationGuard(lock_root),
+            )
+            GuardedJobQueue(
+                use_case,
+                policy,
+                _CampaignRepository(),
+                repository,
+                _access_context(),
             ).execute(QueueProcessingJobCommand(job_id="job-1"))
         except Exception as exc:
             errors.append(exc)

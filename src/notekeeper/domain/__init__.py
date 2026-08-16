@@ -7,6 +7,7 @@ from .enums import (
     SpeakerLabelKind,
     SpeakerMappingSource,
     SpeakerMappingStatus,
+    WorkspaceRole,
 )
 from .errors import (
     CampaignValidationError,
@@ -17,6 +18,7 @@ from .errors import (
 )
 from .ids import (
     BUILTIN_ROOT_USER_ID,
+    BUILTIN_ROOT_WORKSPACE_ID,
     AudioTrackId,
     CampaignId,
     ParticipantId,
@@ -25,6 +27,7 @@ from .ids import (
     TranscriptId,
     UserId,
     VoiceSampleId,
+    WorkspaceId,
 )
 from .models import (
     AuthenticatedUser,
@@ -38,6 +41,8 @@ from .models import (
     TranscriptSegment,
     User,
     VoiceSample,
+    Workspace,
+    WorkspaceMembership,
 )
 from .services import (
     SpeakerMappingApplicationResult,
@@ -75,6 +80,7 @@ __all__ = [
     "AudioTrack",
     "AudioTrackId",
     "BUILTIN_ROOT_USER_ID",
+    "BUILTIN_ROOT_WORKSPACE_ID",
     "Campaign",
     "CampaignId",
     "CampaignValidationError",
@@ -108,6 +114,10 @@ __all__ = [
     "TranscriptValidationError",
     "VoiceSample",
     "VoiceSampleId",
+    "Workspace",
+    "WorkspaceId",
+    "WorkspaceMembership",
+    "WorkspaceRole",
     "add_audio_track",
     "add_participant",
     "add_voice_sample",

@@ -17,7 +17,9 @@ def ensure_processing_job_can_be_deleted(job: ProcessingJob) -> None:
         raise DomainValidationError("active processing job cannot be deleted")
 
 
-def cancel_processing_job(job: ProcessingJob, *, canceled_at: datetime) -> ProcessingJob:
+def cancel_processing_job(
+    job: ProcessingJob, *, canceled_at: datetime
+) -> ProcessingJob:
     if job.status in {JobStatus.QUEUED, JobStatus.WAITING_FOR_REVIEW}:
         return replace(job, status=JobStatus.CANCELED, updated_at=canceled_at)
     if job.status is JobStatus.RUNNING:

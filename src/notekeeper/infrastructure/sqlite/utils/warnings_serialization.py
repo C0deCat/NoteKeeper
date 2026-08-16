@@ -27,9 +27,7 @@ def warning_to_dict(warning: PipelineWarning) -> dict[str, Any]:
             else None
         ),
         "participant_id": (
-            str(warning.participant_id)
-            if warning.participant_id is not None
-            else None
+            str(warning.participant_id) if warning.participant_id is not None else None
         ),
     }
 

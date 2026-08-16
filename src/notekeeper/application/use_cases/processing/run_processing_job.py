@@ -424,6 +424,7 @@ class ExecuteQueuedProcessingJob:
             if progress is not None:
                 progress.close()
 
+
 def _port_error_message(error: PortExecutionError) -> str:
     message = str(error).strip()
     return message if message else type(error).__name__

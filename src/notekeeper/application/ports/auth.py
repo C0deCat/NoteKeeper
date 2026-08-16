@@ -2,7 +2,7 @@
 
 from typing import Protocol
 
-from notekeeper.domain import AuthenticatedUser, UserId
+from notekeeper.domain import AuthenticatedUser
 
 
 class AuthProvider(Protocol):
@@ -11,8 +11,4 @@ class AuthProvider(Protocol):
     def register(self, login: str, password: str) -> AuthenticatedUser: ...
 
 
-class CurrentUserProvider(Protocol):
-    def require_user_id(self) -> UserId: ...
-
-
-__all__ = ["AuthProvider", "CurrentUserProvider"]
+__all__ = ["AuthProvider"]

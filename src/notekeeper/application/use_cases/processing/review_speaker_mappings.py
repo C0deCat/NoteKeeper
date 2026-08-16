@@ -155,7 +155,9 @@ def _manual_mapping(
     participant: Participant | None,
     named_label: str | None,
 ) -> SpeakerMapping:
-    resolved_label = participant.display_name if participant is not None else named_label
+    resolved_label = (
+        participant.display_name if participant is not None else named_label
+    )
     if resolved_label is None:
         raise InvalidOperationError("manual speaker mapping has no resolved label")
     return SpeakerMapping(

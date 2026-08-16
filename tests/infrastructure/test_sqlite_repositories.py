@@ -4,6 +4,7 @@ from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
 
+from notekeeper.application import SYSTEM_SCOPE
 from notekeeper.application import (
     ProgressEvent,
     ProgressEventKind,
@@ -54,10 +55,10 @@ from notekeeper.infrastructure.sqlite import (
 
 def test_sqlite_campaign_repository_reconstructs_aggregate(tmp_path: Path) -> None:
     database = _database(tmp_path)
-    campaign_repository = SQLiteCampaignRepository(database)
-    voice_samples = SQLiteVoiceSampleRepository(database)
-    audio_tracks = SQLiteAudioTrackRepository(database)
-    jobs = SQLiteJobRepository(database)
+    campaign_repository = SQLiteCampaignRepository(database, SYSTEM_SCOPE)
+    voice_samples = SQLiteVoiceSampleRepository(database, SYSTEM_SCOPE)
+    audio_tracks = SQLiteAudioTrackRepository(database, SYSTEM_SCOPE)
+    jobs = SQLiteJobRepository(database, SYSTEM_SCOPE)
     progress_snapshots = SQLiteProgressEventSnapshotStore(database)
     campaign = _campaign()
 
@@ -76,14 +77,20 @@ def test_sqlite_campaign_repository_reconstructs_aggregate(tmp_path: Path) -> No
 
     assert loaded == campaign
     assert campaign_repository.list() == (campaign,)
-    assert voice_samples.get_by_artifact_uri(
-        campaign.id,
-        "campaign-1/players/Alice/sample.wav",
-    ) == campaign.voice_samples[0]
-    assert audio_tracks.get_by_artifact_uri(
-        campaign.id,
-        "campaign-1/records/normalized/audio-track-1.wav",
-    ) == campaign.audio_tracks[0]
+    assert (
+        voice_samples.get_by_artifact_uri(
+            campaign.id,
+            "campaign-1/players/Alice/sample.wav",
+        )
+        == campaign.voice_samples[0]
+    )
+    assert (
+        audio_tracks.get_by_artifact_uri(
+            campaign.id,
+            "campaign-1/records/normalized/audio-track-1.wav",
+        )
+        == campaign.audio_tracks[0]
+    )
 
     campaign_repository.delete(campaign.id)
 
@@ -115,9 +122,9 @@ def test_sqlite_transcript_and_recap_repositories_store_payload_files(
 ) -> None:
     database = _database(tmp_path)
     storage = LocalCampaignArtifactStorage(tmp_path / "artifacts")
-    campaign_repository = SQLiteCampaignRepository(database)
-    transcript_repository = SQLiteTranscriptRepository(database, storage)
-    recap_repository = SQLiteRecapRepository(database, storage)
+    campaign_repository = SQLiteCampaignRepository(database, SYSTEM_SCOPE)
+    transcript_repository = SQLiteTranscriptRepository(database, storage, SYSTEM_SCOPE)
+    recap_repository = SQLiteRecapRepository(database, storage, SYSTEM_SCOPE)
     campaign = _campaign()
     campaign_repository.save(campaign)
     transcript = Transcript(
@@ -166,7 +173,7 @@ def test_sqlite_transcript_and_recap_repositories_store_payload_files(
 
 def test_sqlite_job_repository_lists_and_deletes_by_audio_track(tmp_path: Path) -> None:
     database = _database(tmp_path)
-    jobs = SQLiteJobRepository(database)
+    jobs = SQLiteJobRepository(database, SYSTEM_SCOPE)
     job = ProcessingJob(
         id=ProcessingJobId("job-1"),
         campaign_id=CampaignId("campaign-1"),
@@ -214,7 +221,7 @@ def test_sqlite_job_repository_lists_and_deletes_by_audio_track(tmp_path: Path) 
 def test_sqlite_job_repository_conditionally_updates_expected_status(
     tmp_path: Path,
 ) -> None:
-    jobs = SQLiteJobRepository(_database(tmp_path))
+    jobs = SQLiteJobRepository(_database(tmp_path), SYSTEM_SCOPE)
     job = ProcessingJob(
         id="job-1",
         campaign_id="campaign-1",
@@ -241,7 +248,7 @@ def test_sqlite_job_repository_round_trips_failed_job_error(
     tmp_path: Path,
 ) -> None:
     database = _database(tmp_path)
-    jobs = SQLiteJobRepository(database)
+    jobs = SQLiteJobRepository(database, SYSTEM_SCOPE)
     job = ProcessingJob(
         id=ProcessingJobId("job-failed"),
         campaign_id=CampaignId("campaign-1"),
@@ -263,7 +270,7 @@ def test_sqlite_speaker_mapping_repository_round_trips_records(
     tmp_path: Path,
 ) -> None:
     database = _database(tmp_path)
-    mappings = SQLiteSpeakerMappingRepository(database)
+    mappings = SQLiteSpeakerMappingRepository(database, SYSTEM_SCOPE)
     record = SpeakerMappingRecord(
         job_id=ProcessingJobId("job-1"),
         transcript_id=TranscriptId("transcript-1"),
@@ -294,7 +301,7 @@ def test_sqlite_speaker_mapping_repository_round_trips_standalone_label(
     tmp_path: Path,
 ) -> None:
     database = _database(tmp_path)
-    mappings = SQLiteSpeakerMappingRepository(database)
+    mappings = SQLiteSpeakerMappingRepository(database, SYSTEM_SCOPE)
     record = SpeakerMappingRecord(
         job_id=ProcessingJobId("job-1"),
         transcript_id=TranscriptId("transcript-1"),
@@ -317,7 +324,9 @@ def test_sqlite_speaker_mapping_repository_round_trips_standalone_label(
 def test_sqlite_speaker_review_submission_round_trips_and_deletes(
     tmp_path: Path,
 ) -> None:
-    repository = SQLiteSpeakerReviewSubmissionRepository(_database(tmp_path))
+    repository = SQLiteSpeakerReviewSubmissionRepository(
+        _database(tmp_path), SYSTEM_SCOPE
+    )
     submission = SpeakerReviewSubmission(
         job_id=ProcessingJobId("job-1"),
         transcript_id=TranscriptId("transcript-1"),

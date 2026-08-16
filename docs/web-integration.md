@@ -108,7 +108,7 @@ interfaces и composition. FastAPI можно добавить как новый
 
 - Domain не зависит от FastAPI, SQLite, CLI, TUI или AI-провайдеров.
 - Application-сценарии работают через ports.
-- `Stage1UseCases` уже используется как общая фасадная структура CLI и TUI.
+- Сгруппированный `ApplicationUseCases` используется как общая фасадная структура CLI и TUI.
 - `composition/runtime.py` централизованно собирает инфраструктуру.
 - Ошибки разделены на domain, application и infrastructure.
 
@@ -138,7 +138,7 @@ Application layer уже покрывает большую часть проду
 
 ### Длительные задачи
 
-`LocalProcessJobExecutor` уже изолирует тяжелый pipeline в дочернем процессе и
+`LocalJobManager` уже изолирует тяжелый pipeline в дочернем процессе и
 поддерживает cancel. Условный `save_if_status` защищает отдельные переходы
 статусов.
 

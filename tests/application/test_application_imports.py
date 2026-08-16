@@ -35,9 +35,7 @@ def test_application_reexports_public_api() -> None:
         results.CreateProcessingJobForAudioTrackResult
     )
     assert application.GetRecapGuidances is use_cases.GetRecapGuidances
-    assert application.GetRecapGuidancesCommand is (
-        commands.GetRecapGuidancesCommand
-    )
+    assert application.GetRecapGuidancesCommand is (commands.GetRecapGuidancesCommand)
     assert application.GetRecapGuidancesResult is results.GetRecapGuidancesResult
     assert application.UpdateRecapGuidances is use_cases.UpdateRecapGuidances
     assert application.UpdateRecapGuidancesCommand is (

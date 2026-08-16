@@ -44,9 +44,7 @@ class LocalJobCleaner(JobCleaner):
         self._validate_jobs(campaign_id, jobs)
         plan = _CleanupPlan(
             job_ids=tuple(str(job.id) for job in jobs),
-            expected_statuses=tuple(
-                (str(job.id), job.status.value) for job in jobs
-            ),
+            expected_statuses=tuple((str(job.id), job.status.value) for job in jobs),
         )
         self._validate_database_rows(campaign_id, plan)
         self._delete_files(campaign_id, plan)

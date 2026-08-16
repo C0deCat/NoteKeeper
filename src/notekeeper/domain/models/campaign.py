@@ -4,11 +4,11 @@ from dataclasses import dataclass
 
 from ..errors import CampaignValidationError
 from ..ids import (
-    BUILTIN_ROOT_USER_ID,
+    BUILTIN_ROOT_WORKSPACE_ID,
     AudioTrackId,
     CampaignId,
     ParticipantId,
-    UserId,
+    WorkspaceId,
     VoiceSampleId,
 )
 from ..validation import as_tuple, non_empty_str
@@ -21,7 +21,7 @@ from .voice_sample import VoiceSample
 class Campaign:
     id: CampaignId
     name: str
-    owner_user_id: UserId = BUILTIN_ROOT_USER_ID
+    workspace_id: WorkspaceId = BUILTIN_ROOT_WORKSPACE_ID
     participants: tuple[Participant, ...] = ()
     voice_samples: tuple[VoiceSample, ...] = ()
     audio_tracks: tuple[AudioTrack, ...] = ()
@@ -30,8 +30,8 @@ class Campaign:
         object.__setattr__(self, "name", non_empty_str(self.name, "name"))
         object.__setattr__(
             self,
-            "owner_user_id",
-            UserId(non_empty_str(str(self.owner_user_id), "owner_user_id")),
+            "workspace_id",
+            WorkspaceId(non_empty_str(str(self.workspace_id), "workspace_id")),
         )
         object.__setattr__(
             self,
@@ -63,7 +63,9 @@ class Campaign:
 
             name_key = participant.display_name.casefold()
             if name_key in participant_names:
-                raise CampaignValidationError("campaign has duplicate participant names")
+                raise CampaignValidationError(
+                    "campaign has duplicate participant names"
+                )
 
             participant_ids.add(participant.id)
             participant_names.add(name_key)
@@ -71,7 +73,9 @@ class Campaign:
         sample_ids: set[VoiceSampleId] = set()
         for voice_sample in self.voice_samples:
             if voice_sample.campaign_id != self.id:
-                raise CampaignValidationError("voice sample belongs to another campaign")
+                raise CampaignValidationError(
+                    "voice sample belongs to another campaign"
+                )
             if voice_sample.participant_id not in participant_ids:
                 raise CampaignValidationError(
                     "voice sample participant is not in the campaign"

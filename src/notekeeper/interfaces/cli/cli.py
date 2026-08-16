@@ -39,7 +39,7 @@ def build_app(
         no_args_is_help=False,
         help="NoteKeeper application.",
     )
-    cli = typer.Typer(help="Scriptable Stage 1 commands.")
+    cli = typer.Typer(help="Scriptable NoteKeeper commands.")
 
     def authenticated_runtime_factory() -> InterfaceRuntime:
         runtime = runtime_factory()
@@ -67,13 +67,21 @@ def build_app(
     def run_tui() -> None:
         tui_runner(runtime_factory())
 
-    cli.add_typer(campaign_app.create_app(authenticated_runtime_factory), name="campaign")
-    cli.add_typer(participant_app.create_app(authenticated_runtime_factory), name="participant")
+    cli.add_typer(
+        campaign_app.create_app(authenticated_runtime_factory), name="campaign"
+    )
+    cli.add_typer(
+        participant_app.create_app(authenticated_runtime_factory), name="participant"
+    )
     cli.add_typer(sample_app.create_app(authenticated_runtime_factory), name="sample")
-    cli.add_typer(recording_app.create_app(authenticated_runtime_factory), name="recording")
+    cli.add_typer(
+        recording_app.create_app(authenticated_runtime_factory), name="recording"
+    )
     cli.add_typer(job_app.create_app(authenticated_runtime_factory), name="job")
     cli.add_typer(review_app.create_app(authenticated_runtime_factory), name="review")
-    cli.add_typer(transcript_app.create_app(authenticated_runtime_factory), name="transcript")
+    cli.add_typer(
+        transcript_app.create_app(authenticated_runtime_factory), name="transcript"
+    )
     cli.add_typer(recap_app.create_app(authenticated_runtime_factory), name="recap")
     cli.add_typer(
         recap_prompts_app.create_app(authenticated_runtime_factory),

@@ -14,9 +14,7 @@ class JobActionConfirmationScreen(ModalScreen[bool]):
 
     def compose(self) -> ComposeResult:
         if self._action == "delete":
-            message = (
-                f"Delete job {self._job_id} and its temporary files?"
-            )
+            message = f"Delete job {self._job_id} and its temporary files?"
             detail = "Transcripts and recaps will be preserved. This cannot be undone."
             label = "Delete Job"
         else:

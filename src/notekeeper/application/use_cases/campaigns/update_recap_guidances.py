@@ -4,10 +4,7 @@ from notekeeper.application.commands import UpdateRecapGuidancesCommand
 from notekeeper.application.errors import InvalidOperationError
 from notekeeper.application.ports import CampaignRepository, RecapGuidances
 from notekeeper.application.results import UpdateRecapGuidancesResult
-from notekeeper.application.use_cases.utils import (
-    CampaignMutationPolicy,
-    require_campaign,
-)
+from notekeeper.application.use_cases.utils import require_campaign
 from notekeeper.domain import CampaignId
 
 
@@ -16,20 +13,15 @@ class UpdateRecapGuidances:
         self,
         campaign_repository: CampaignRepository,
         recap_guidances: RecapGuidances,
-        mutation_policy: CampaignMutationPolicy | None = None,
     ) -> None:
         self._campaign_repository = campaign_repository
         self._recap_guidances = recap_guidances
-        self._mutation_policy = mutation_policy
 
     def execute(
         self,
         command: UpdateRecapGuidancesCommand,
     ) -> UpdateRecapGuidancesResult:
         campaign_id = CampaignId(command.campaign_id)
-        if self._mutation_policy is not None:
-            with self._mutation_policy.mutation(campaign_id):
-                return self._execute_mutation(command, campaign_id)
         return self._execute_mutation(command, campaign_id)
 
     def _execute_mutation(

@@ -28,6 +28,7 @@ Business entities and immutable aggregate data.
 - `src/notekeeper/domain/models/recap.py` — Recap entities.
 - `src/notekeeper/domain/models/transcript.py` — Transcript entities.
 - `src/notekeeper/domain/models/voice_sample.py` — Voice sample entity.
+- `src/notekeeper/domain/models/workspace.py` — Workspace and membership entities.
 
 ### `domain/services`
 
@@ -74,7 +75,10 @@ Validated small immutable domain values.
 Use-case orchestration and abstract ports. It depends on the domain, but not on concrete storage, APIs, subprocesses, or UI frameworks.
 
 - `src/notekeeper/application/__init__.py` — Explicit public facade for `application`.
+- `src/notekeeper/application/access_context.py` — Immutable actor context and explicit repository scopes.
+- `src/notekeeper/application/authenticator.py` — Stateless authentication service.
 - `src/notekeeper/application/errors.py` — Application-layer errors.
+- `src/notekeeper/application/use_case_facade.py` — Grouped application use-case facade.
 
 ### `application/commands`
 
@@ -175,7 +179,9 @@ Application workflows grouped by feature.
 - `src/notekeeper/application/use_cases/utils/audio_sources.py` — Validation and normalization for audio source inputs.
 - `src/notekeeper/application/use_cases/utils/campaign_mutation_policy.py` — Serialize campaign writes against processing-job queue transitions.
 - `src/notekeeper/application/use_cases/utils/guarded_campaign_mutation.py` — Typed whole-use-case campaign mutation guard.
+- `src/notekeeper/application/use_cases/utils/guarded_job_queue.py` — Authorization, visibility, and locking for queue transitions.
 - `src/notekeeper/application/use_cases/utils/lookups.py` — Repository lookup helpers with consistent not-found errors.
+- `src/notekeeper/application/use_cases/utils/role_authorized_use_case.py` — Workspace-role authorization boundary.
 
 
 ## `infrastructure`
@@ -255,16 +261,25 @@ In-process and persisted event/runtime adapters.
 - `src/notekeeper/infrastructure/runtime/__init__.py` — Explicit public facade for `infrastructure/runtime`.
 - `src/notekeeper/infrastructure/runtime/campaign_mutation_guard.py` — Cross-process campaign mutation locks for a local NoteKeeper database.
 - `src/notekeeper/infrastructure/runtime/dashboard_event_hub.py` — Process-local dashboard invalidation event distribution.
-- `src/notekeeper/infrastructure/runtime/event_publishing_campaign_repository.py` — Campaign repository decorator that invalidates dashboard views.
-- `src/notekeeper/infrastructure/runtime/event_publishing_job_cleaner.py` — Processing-job cleaner decorator that invalidates dashboard views.
-- `src/notekeeper/infrastructure/runtime/event_publishing_job_repository.py` — Processing-job repository decorator that invalidates dashboard views.
-- `src/notekeeper/infrastructure/runtime/mutation_guarding_campaign_repository.py` — Campaign repository decorator enforcing the active-job mutation policy.
+- `src/notekeeper/infrastructure/runtime/local_dashboard_campaign_repository.py` — Local dashboard campaign repository decorator.
+- `src/notekeeper/infrastructure/runtime/local_dashboard_job_cleaner.py` — Local dashboard job-cleaner decorator.
+- `src/notekeeper/infrastructure/runtime/local_dashboard_job_repository.py` — Local dashboard job repository decorator.
 - `src/notekeeper/infrastructure/runtime/persisted_progress_event_hub.py` — Cross-runtime progress distribution backed by persisted snapshots.
 - `src/notekeeper/infrastructure/runtime/progress_event_hub.py` — Process-local progress event distribution.
 - `src/notekeeper/infrastructure/runtime/progress_tracker.py` — Streaming progress tracker implementation.
 - `src/notekeeper/infrastructure/runtime/progress_tracker_factory.py` — Factory for streaming progress trackers.
 - `src/notekeeper/infrastructure/runtime/system_clock.py` — System clock adapter.
 - `src/notekeeper/infrastructure/runtime/uuid_generator.py` — UUID-backed id generator adapter.
+
+### `infrastructure/runtime/jobs`
+
+Local process execution, capacity, IPC, and process-tree infrastructure.
+
+- `src/notekeeper/infrastructure/runtime/jobs/job_capacity.py` — Cross-process processing capacity allocation.
+- `src/notekeeper/infrastructure/runtime/jobs/process_execution_registry.py` — Persisted worker process identities.
+- `src/notekeeper/infrastructure/runtime/jobs/process_job_executor.py` — Local queued-job manager.
+- `src/notekeeper/infrastructure/runtime/jobs/process_message_writer.py` — Serialized worker IPC writes.
+- `src/notekeeper/infrastructure/runtime/jobs/process_tree.py` — Operating-system process-tree termination.
 
 ### `infrastructure/speaker_mapping`
 
@@ -286,10 +301,13 @@ SQLite database and repository implementations.
 - `src/notekeeper/infrastructure/sqlite/progress_event_snapshot_store.py` — SQLite persistence for cross-runtime progress snapshots.
 - `src/notekeeper/infrastructure/sqlite/recap_repository.py` — SQLite recap repository.
 - `src/notekeeper/infrastructure/sqlite/schema.py` — SQLite schema definition.
+- `src/notekeeper/infrastructure/sqlite/scope.py` — SQL tenant predicates and scoped-write checks.
 - `src/notekeeper/infrastructure/sqlite/speaker_mapping_repository.py` — SQLite speaker mapping repository.
 - `src/notekeeper/infrastructure/sqlite/speaker_review_submission_repository.py` — SQLite persistence for queued speaker-review decisions.
 - `src/notekeeper/infrastructure/sqlite/transcript_repository.py` — SQLite transcript repository.
 - `src/notekeeper/infrastructure/sqlite/voice_sample_repository.py` — SQLite voice sample repository.
+- `src/notekeeper/infrastructure/sqlite/workspace_ids.py` — Deterministic personal workspace identifiers.
+- `src/notekeeper/infrastructure/sqlite/workspace_repository.py` — SQLite workspace and membership repository.
 
 ### `infrastructure/sqlite/utils`
 
@@ -394,18 +412,20 @@ Interactive Textual dashboard, screens, and actions.
 
 ## `composition`
 
-The composition root: settings, concrete dependency construction, worker-process management, and executable entry points.
+The composition root: settings, concrete dependency construction, host/session/worker assembly, and executable entry points.
 
 - `src/notekeeper/composition/__init__.py` — Explicit public facade for `composition`.
-- `src/notekeeper/composition/factory.py` — Infrastructure composition factory.
-- `src/notekeeper/composition/isolated_run_processing_job.py` — Compatibility facade for queueing processing jobs.
-- `src/notekeeper/composition/job_capacity.py` — Cross-process capacity allocation for queued processing jobs.
+- `src/notekeeper/composition/factory.py` — Local technical-service composition factory.
 - `src/notekeeper/composition/job_pipeline.py` — Construction of the in-process processing pipeline.
+- `src/notekeeper/composition/local_interface_runtime.py` — CLI/TUI-owned mutable session controller.
 - `src/notekeeper/composition/main.py` — Application entrypoint.
-- `src/notekeeper/composition/process_execution_registry.py` — Persisted identity records for processing worker processes.
-- `src/notekeeper/composition/process_job_executor.py` — Local queued-job manager backed by isolated operating-system processes.
-- `src/notekeeper/composition/process_message_writer.py` — Serialized writes to a processing worker pipe.
-- `src/notekeeper/composition/process_tree.py` — Operating-system process-tree termination.
-- `src/notekeeper/composition/runtime.py` — Runtime assembly for user interfaces.
+- `src/notekeeper/composition/repositories.py` — Typed system and workspace repository sets.
+- `src/notekeeper/composition/runtime.py` — Local host and immutable application-session roots.
 - `src/notekeeper/composition/settings.py` — Application settings.
-- `src/notekeeper/composition/stage1_use_cases.py` — Construction of the application use-case facade.
+- `src/notekeeper/composition/use_cases.py` — Aggregation of grouped use-case builders.
+- `src/notekeeper/composition/worker.py` — Isolated system-scope worker composition root.
+
+### `composition/use_case_builders`
+
+One focused builder per public use-case group: campaigns, participants, samples,
+recordings, jobs, transcripts, recaps, and media.

@@ -32,7 +32,9 @@ def unambiguous_confirmed_mappings(
             for mapping in label_mappings
             if mapping.named_label is not None
         }
-        participant_ids_for_label = {mapping.participant_id for mapping in label_mappings}
+        participant_ids_for_label = {
+            mapping.participant_id for mapping in label_mappings
+        }
         if (
             len(label_mappings) == 1
             and len(named_labels) == 1

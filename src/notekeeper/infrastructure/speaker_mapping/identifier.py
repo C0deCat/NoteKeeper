@@ -43,8 +43,7 @@ class SampleBasedSpeakerIdentifier(SpeakerIdentifier):
         prepared_audio: PreparedAudioResult,
     ) -> tuple[SpeakerMapping, ...]:
         participants = {
-            participant.id: participant
-            for participant in campaign.participants
+            participant.id: participant for participant in campaign.participants
         }
         overlap_by_participant: dict[
             ParticipantId,
@@ -65,9 +64,9 @@ class SampleBasedSpeakerIdentifier(SpeakerIdentifier):
                     segment.time_range,
                 )
                 if overlap_seconds > 0:
-                    overlap_by_participant[participant.id][
-                        segment.speaker_label
-                    ] += overlap_seconds
+                    overlap_by_participant[participant.id][segment.speaker_label] += (
+                        overlap_seconds
+                    )
 
         mappings: list[SpeakerMapping] = []
         for participant_id, labels in overlap_by_participant.items():

@@ -8,6 +8,7 @@ from .recap import Recap, RecapChunk
 from .transcript import Transcript, TranscriptSegment
 from .user import AuthenticatedUser, User
 from .voice_sample import VoiceSample
+from .workspace import Workspace, WorkspaceMembership
 
 __all__ = [
     "AudioTrack",
@@ -21,4 +22,6 @@ __all__ = [
     "AuthenticatedUser",
     "User",
     "VoiceSample",
+    "Workspace",
+    "WorkspaceMembership",
 ]

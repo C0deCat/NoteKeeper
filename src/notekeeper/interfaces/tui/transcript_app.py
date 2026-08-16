@@ -23,7 +23,7 @@ def preview_transcript(app: NoteKeeperTui) -> None:
         app._set_status("No transcript")
         return
     try:
-        result = app.runtime.use_cases.preview_transcript_markdown.execute(
+        result = app.runtime.use_cases.transcripts.preview_markdown.execute(
             PreviewTranscriptMarkdownCommand(transcript_id=str(job.transcript_id)),
         )
         app.push_screen(MarkdownPreviewScreen("Transcript", result.markdown))
@@ -37,7 +37,7 @@ def export_transcript(app: NoteKeeperTui) -> None:
         app._set_status("No transcript")
         return
     try:
-        result = app.runtime.use_cases.export_transcript_markdown.execute(
+        result = app.runtime.use_cases.transcripts.export_markdown.execute(
             ExportTranscriptMarkdownCommand(transcript_id=str(job.transcript_id)),
         )
         location = app.runtime.format_artifact_location(result.artifact)

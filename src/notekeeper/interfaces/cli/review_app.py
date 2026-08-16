@@ -56,7 +56,7 @@ def create_app(runtime_factory: RuntimeFactory) -> typer.Typer:
                 )
             try:
                 with CliProgressDisplay(runtime, job_id):
-                    runtime.use_cases.review_speaker_mappings.execute(
+                    runtime.use_cases.jobs.review_speaker_mappings.execute(
                         ReviewSpeakerMappingsCommand(
                             job_id=job_id,
                             mappings=mappings,

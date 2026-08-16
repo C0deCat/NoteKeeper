@@ -256,7 +256,7 @@ interface first.
 
 ### 10. Extend composition settings for processing adapters
 
-Extend `NoteKeeperSettings` and `build_infrastructure()` to support real Stage 1
+Extend `NoteKeeperSettings` and `build_local_services()` to support the real
 processing adapters.
 
 Expected files:
@@ -270,8 +270,8 @@ Responsibilities:
   settings.
 - Instantiate the concrete infrastructure adapters.
 - Keep optional heavy dependencies lazy where practical.
-- Expose the adapters in `InfrastructureBundle` so interfaces can wire
-  `RunProcessingJob`, `ReviewSpeakerMappings`, and `GenerateRecap`.
+- Expose the adapters in `LocalServices` so grouped application use cases can
+  wire processing, speaker review, and recap generation.
 
 This task can be split into smaller wiring patches as each adapter lands.
 
@@ -329,4 +329,3 @@ The tasks are intentionally separable, but this order minimizes contract churn:
 8. Mapping/diagnostic persistence.
 9. Job failure handling.
 10. Broader smoke/integration tests.
-

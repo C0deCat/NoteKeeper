@@ -74,7 +74,7 @@ class ManageCampaignsScreen(ModalScreen[str | None]):
 
     def _refresh_campaigns(self) -> None:
         try:
-            campaigns = self._runtime.use_cases.list_campaigns.execute(
+            campaigns = self._runtime.use_cases.campaigns.list.execute(
                 ListCampaignsCommand(),
             ).campaigns
         except (ApplicationError, DomainError, ValueError) as exc:
@@ -83,9 +83,7 @@ class ManageCampaignsScreen(ModalScreen[str | None]):
 
         self._campaigns_by_id = {str(campaign.id): campaign for campaign in campaigns}
         if self._selected_campaign_id not in self._campaigns_by_id:
-            self._selected_campaign_id = (
-                str(campaigns[0].id) if campaigns else None
-            )
+            self._selected_campaign_id = str(campaigns[0].id) if campaigns else None
 
         table = self.query_one("#campaigns-table", IdentifierDataTable)
         table.clear(columns=True)
@@ -127,7 +125,7 @@ class ManageCampaignsScreen(ModalScreen[str | None]):
         if not name:
             return
         try:
-            campaign = self._runtime.use_cases.create_campaign.execute(
+            campaign = self._runtime.use_cases.campaigns.create.execute(
                 CreateCampaignCommand(name=name),
             ).campaign
         except (ApplicationError, DomainError, ValueError) as exc:
@@ -144,7 +142,7 @@ class ManageCampaignsScreen(ModalScreen[str | None]):
         if campaign_id is None or not name:
             return
         try:
-            campaign = self._runtime.use_cases.update_campaign.execute(
+            campaign = self._runtime.use_cases.campaigns.update.execute(
                 UpdateCampaignCommand(campaign_id=campaign_id, name=name),
             ).campaign
         except (ApplicationError, DomainError, ValueError) as exc:
@@ -168,7 +166,7 @@ class ManageCampaignsScreen(ModalScreen[str | None]):
         if campaign_id is None or delete_files is None:
             return
         try:
-            self._runtime.use_cases.delete_campaign.execute(
+            self._runtime.use_cases.campaigns.delete.execute(
                 DeleteCampaignCommand(
                     campaign_id=campaign_id,
                     delete_files=delete_files,

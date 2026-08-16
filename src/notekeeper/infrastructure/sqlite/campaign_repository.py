@@ -1,10 +1,12 @@
 """SQLite campaign repository."""
 
+from notekeeper.application import RepositoryScope
 from notekeeper.application.ports import CampaignRepository
 from notekeeper.application.errors import PortExecutionError
-from notekeeper.domain import Campaign, CampaignId, UserId
+from notekeeper.domain import Campaign, CampaignId, WorkspaceId
 
 from .database import SQLiteDatabase
+from .scope import require_existing_resource_access, workspace_predicate
 from .utils import (
     list_audio_tracks,
     list_participants,
@@ -16,21 +18,23 @@ from .utils import (
 
 
 class SQLiteCampaignRepository(CampaignRepository):
-    def __init__(self, database: SQLiteDatabase) -> None:
+    def __init__(self, database: SQLiteDatabase, scope: RepositoryScope) -> None:
         self._database = database
+        self._scope = scope
 
     def get(self, campaign_id: CampaignId) -> Campaign | None:
         with self._database.connect() as connection:
+            predicate, parameters = workspace_predicate(self._scope)
             row = connection.execute(
-                "SELECT id, name, owner_user_id FROM campaigns WHERE id = ?",
-                (str(campaign_id),),
+                f"SELECT id, name, workspace_id FROM campaigns WHERE id = ? AND {predicate}",
+                (str(campaign_id), *parameters),
             ).fetchone()
             if row is None:
                 return None
             return Campaign(
                 id=CampaignId(row["id"]),
                 name=row["name"],
-                owner_user_id=UserId(row["owner_user_id"]),
+                workspace_id=WorkspaceId(row["workspace_id"]),
                 participants=list_participants(connection, campaign_id),
                 voice_samples=list_voice_samples(connection, campaign_id),
                 audio_tracks=list_audio_tracks(connection, campaign_id),
@@ -38,8 +42,10 @@ class SQLiteCampaignRepository(CampaignRepository):
 
     def list(self) -> tuple[Campaign, ...]:
         with self._database.connect() as connection:
+            predicate, parameters = workspace_predicate(self._scope)
             rows = connection.execute(
-                "SELECT id FROM campaigns ORDER BY rowid",
+                f"SELECT id FROM campaigns WHERE {predicate} ORDER BY rowid",
+                parameters,
             ).fetchall()
         campaigns = [self.get(CampaignId(row["id"])) for row in rows]
         return tuple(campaign for campaign in campaigns if campaign is not None)
@@ -48,21 +54,35 @@ class SQLiteCampaignRepository(CampaignRepository):
         with self._database.connect() as connection:
             connection.execute(
                 """
-                INSERT INTO campaigns (id, name, owner_user_id)
+                INSERT INTO campaigns (id, name, workspace_id)
                 VALUES (?, ?, ?)
                 ON CONFLICT(id) DO UPDATE SET name = excluded.name
-                WHERE campaigns.owner_user_id = excluded.owner_user_id
+                WHERE campaigns.workspace_id = excluded.workspace_id
                 """,
-                (str(campaign.id), campaign.name, str(campaign.owner_user_id)),
+                (str(campaign.id), campaign.name, str(campaign.workspace_id)),
             )
+            predicate, parameters = workspace_predicate(self._scope)
             owner_row = connection.execute(
-                "SELECT owner_user_id FROM campaigns WHERE id = ?",
-                (str(campaign.id),),
+                f"SELECT workspace_id FROM campaigns WHERE id = ? AND {predicate}",
+                (str(campaign.id), *parameters),
             ).fetchone()
-            if owner_row is None or owner_row["owner_user_id"] != str(
-                campaign.owner_user_id
+            if owner_row is None or owner_row["workspace_id"] != str(
+                campaign.workspace_id
             ):
-                raise PortExecutionError("campaign owner cannot be changed")
+                raise PortExecutionError("campaign workspace cannot be changed")
+            for table, resources in (
+                ("participants", campaign.participants),
+                ("voice_samples", campaign.voice_samples),
+                ("audio_tracks", campaign.audio_tracks),
+            ):
+                for resource in resources:
+                    require_existing_resource_access(
+                        connection,
+                        self._scope,
+                        table=table,
+                        key_column="id",
+                        key=str(resource.id),
+                    )
             connection.execute(
                 "DELETE FROM voice_samples WHERE campaign_id = ?",
                 (str(campaign.id),),
@@ -84,6 +104,13 @@ class SQLiteCampaignRepository(CampaignRepository):
 
     def delete(self, campaign_id: CampaignId) -> None:
         with self._database.connect() as connection:
+            predicate, parameters = workspace_predicate(self._scope)
+            visible = connection.execute(
+                f"SELECT 1 FROM campaigns WHERE id = ? AND {predicate}",
+                (str(campaign_id), *parameters),
+            ).fetchone()
+            if visible is None:
+                return
             job_rows = connection.execute(
                 "SELECT id FROM jobs WHERE campaign_id = ?",
                 (str(campaign_id),),

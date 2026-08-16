@@ -46,7 +46,7 @@ class RecapPromptEditorScreen(ModalScreen[None]):
 
     def on_mount(self) -> None:
         try:
-            result = self._runtime.use_cases.get_recap_guidances.execute(
+            result = self._runtime.use_cases.campaigns.get_recap_guidances.execute(
                 GetRecapGuidancesCommand(campaign_id=self._campaign_id),
             )
         except (ApplicationError, DomainError, ValueError) as exc:
@@ -78,15 +78,13 @@ class RecapPromptEditorScreen(ModalScreen[None]):
             return
         command = UpdateRecapGuidancesCommand(
             campaign_id=self._campaign_id,
-            chunk_recap_guidances=(
-                guidance if self._prompt_kind == "chunk" else None
-            ),
+            chunk_recap_guidances=(guidance if self._prompt_kind == "chunk" else None),
             combined_recap_guidances=(
                 guidance if self._prompt_kind == "combined" else None
             ),
         )
         try:
-            self._runtime.use_cases.update_recap_guidances.execute(command)
+            self._runtime.use_cases.campaigns.update_recap_guidances.execute(command)
         except (ApplicationError, DomainError, ValueError) as exc:
             self._set_status(str(exc))
             return

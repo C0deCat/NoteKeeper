@@ -116,17 +116,17 @@ Review completion means the file was checked for unused code and imports, clarit
 
 - [x] `src/notekeeper/composition/__init__.py`
 - [x] `src/notekeeper/composition/factory.py`
-- [x] `src/notekeeper/composition/isolated_run_processing_job.py`
+- [x] `src/notekeeper/composition/worker.py`
 - [x] `src/notekeeper/composition/job_capacity.py`
 - [x] `src/notekeeper/composition/job_pipeline.py`
 - [x] `src/notekeeper/composition/main.py`
-- [x] `src/notekeeper/composition/process_execution_registry.py`
-- [x] `src/notekeeper/composition/process_job_executor.py`
-- [x] `src/notekeeper/composition/process_message_writer.py`
-- [x] `src/notekeeper/composition/process_tree.py`
+- [x] `src/notekeeper/infrastructure/runtime/jobs/process_execution_registry.py`
+- [x] `src/notekeeper/infrastructure/runtime/jobs/process_job_executor.py`
+- [x] `src/notekeeper/infrastructure/runtime/jobs/process_message_writer.py`
+- [x] `src/notekeeper/infrastructure/runtime/jobs/process_tree.py`
 - [x] `src/notekeeper/composition/runtime.py`
 - [x] `src/notekeeper/composition/settings.py`
-- [x] `src/notekeeper/composition/stage1_use_cases.py`
+- [x] `src/notekeeper/composition/use_cases.py`
 
 ### `domain`
 

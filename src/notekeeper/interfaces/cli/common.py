@@ -40,7 +40,7 @@ def inspect_audio(
     artifact_uri: str,
     artifact_kind: str,
 ) -> AudioMetadata:
-    return runtime.use_cases.inspect_audio_metadata.execute(
+    return runtime.use_cases.media.inspect_metadata.execute(
         InspectAudioMetadataCommand(
             artifact_uri=artifact_uri,
             artifact_kind=artifact_kind,

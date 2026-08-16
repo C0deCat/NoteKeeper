@@ -27,9 +27,7 @@ class InMemoryProgressEventHub:
                 self._latest.pop(event.operation_id, None)
             else:
                 self._latest[event.operation_id] = event
-            listeners = tuple(
-                self._listeners.get(event.operation_id, {}).values()
-            )
+            listeners = tuple(self._listeners.get(event.operation_id, {}).values())
 
         for listener in listeners:
             self._notify(listener, event)

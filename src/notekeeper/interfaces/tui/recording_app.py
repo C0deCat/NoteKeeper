@@ -75,7 +75,7 @@ class RecordingScreen(ModalScreen[bool]):
         if self._source_path is None:
             return
         try:
-            result = self.runtime.use_cases.inspect_local_audio_file.execute(
+            result = self.runtime.use_cases.media.inspect_local_file.execute(
                 InspectLocalAudioFileCommand(source_path=str(self._source_path)),
             )
             self._source_path = Path(result.source_path)
@@ -96,7 +96,7 @@ class RecordingScreen(ModalScreen[bool]):
         self.query_one("#choose-file", Button).disabled = True
         self.query_one("#metadata", Static).update("Normalizing…")
         self.run_worker(
-            lambda: self.runtime.use_cases.submit_recording_for_processing.execute(
+            lambda: self.runtime.use_cases.recordings.submit_for_processing.execute(
                 SubmitRecordingForProcessingCommand(
                     campaign_id=self.campaign_id,
                     source_path=str(self._source_path),
@@ -157,7 +157,7 @@ def _rename_recording(
     if not name:
         return
     try:
-        app.runtime.use_cases.update_audio_track.execute(
+        app.runtime.use_cases.recordings.update.execute(
             UpdateAudioTrackCommand(
                 campaign_id=str(audio_track.campaign_id),
                 audio_track_id=str(audio_track.id),
@@ -190,7 +190,7 @@ def _remove_recording(
     if not confirmed:
         return
     try:
-        app.runtime.use_cases.delete_audio_track.execute(
+        app.runtime.use_cases.recordings.delete.execute(
             DeleteAudioTrackCommand(
                 campaign_id=str(audio_track.campaign_id),
                 audio_track_id=str(audio_track.id),

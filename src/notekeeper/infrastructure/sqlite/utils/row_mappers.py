@@ -78,8 +78,7 @@ def job_from_row(row: sqlite3.Row) -> ProcessingJob:
         ),
         recap_id=RecapId(row["recap_id"]) if row["recap_id"] is not None else None,
         warnings=tuple(
-            warning_from_dict(warning)
-            for warning in json.loads(row["warnings_json"])
+            warning_from_dict(warning) for warning in json.loads(row["warnings_json"])
         ),
         error_message=row["error_message"],
     )

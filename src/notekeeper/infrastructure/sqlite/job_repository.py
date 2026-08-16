@@ -2,6 +2,7 @@
 
 import json
 
+from notekeeper.application import RepositoryScope, SystemScope
 from notekeeper.application.ports import JobRepository
 from notekeeper.domain import (
     AudioTrackId,
@@ -10,21 +11,33 @@ from notekeeper.domain import (
     ProcessingJob,
     ProcessingJobId,
 )
+from notekeeper.infrastructure.errors import InfrastructureError
 
 from .database import SQLiteDatabase
+from .scope import (
+    require_campaign_access,
+    require_existing_resource_access,
+    workspace_predicate,
+)
 from .utils import job_from_row
 from .utils.serialization import datetime_to_text, warning_to_dict
 
 
 class SQLiteJobRepository(JobRepository):
-    def __init__(self, database: SQLiteDatabase) -> None:
+    def __init__(self, database: SQLiteDatabase, scope: RepositoryScope) -> None:
         self._database = database
+        self._scope = scope
 
     def get(self, job_id: ProcessingJobId) -> ProcessingJob | None:
         with self._database.connect() as connection:
+            predicate, parameters = workspace_predicate(self._scope)
             row = connection.execute(
-                "SELECT * FROM jobs WHERE id = ?",
-                (str(job_id),),
+                f"""
+                SELECT jobs.* FROM jobs
+                LEFT JOIN campaigns ON campaigns.id = jobs.campaign_id
+                WHERE jobs.id = ? AND {predicate}
+                """,
+                (str(job_id), *parameters),
             ).fetchone()
         return job_from_row(row) if row is not None else None
 
@@ -33,13 +46,15 @@ class SQLiteJobRepository(JobRepository):
         campaign_id: CampaignId,
     ) -> tuple[ProcessingJob, ...]:
         with self._database.connect() as connection:
+            predicate, parameters = workspace_predicate(self._scope)
             rows = connection.execute(
-                """
-                SELECT * FROM jobs
-                WHERE campaign_id = ?
-                ORDER BY rowid
+                f"""
+                SELECT jobs.* FROM jobs
+                LEFT JOIN campaigns ON campaigns.id = jobs.campaign_id
+                WHERE jobs.campaign_id = ? AND {predicate}
+                ORDER BY jobs.rowid
                 """,
-                (str(campaign_id),),
+                (str(campaign_id), *parameters),
             ).fetchall()
         return tuple(job_from_row(row) for row in rows)
 
@@ -48,13 +63,15 @@ class SQLiteJobRepository(JobRepository):
         audio_track_id: AudioTrackId,
     ) -> tuple[ProcessingJob, ...]:
         with self._database.connect() as connection:
+            predicate, parameters = workspace_predicate(self._scope)
             rows = connection.execute(
-                """
-                SELECT * FROM jobs
-                WHERE audio_track_id = ?
-                ORDER BY rowid
+                f"""
+                SELECT jobs.* FROM jobs
+                LEFT JOIN campaigns ON campaigns.id = jobs.campaign_id
+                WHERE jobs.audio_track_id = ? AND {predicate}
+                ORDER BY jobs.rowid
                 """,
-                (str(audio_track_id),),
+                (str(audio_track_id), *parameters),
             ).fetchall()
         return tuple(job_from_row(row) for row in rows)
 
@@ -67,13 +84,15 @@ class SQLiteJobRepository(JobRepository):
             return ()
         placeholders = ", ".join("?" for _ in statuses)
         with self._database.connect() as connection:
+            predicate, parameters = workspace_predicate(self._scope)
             rows = connection.execute(
                 f"""
-                SELECT * FROM jobs
-                WHERE status IN ({placeholders})
-                ORDER BY updated_at, rowid
+                SELECT jobs.* FROM jobs
+                LEFT JOIN campaigns ON campaigns.id = jobs.campaign_id
+                WHERE status IN ({placeholders}) AND {predicate}
+                ORDER BY updated_at, jobs.rowid
                 """,
-                tuple(status.value for status in statuses),
+                (*tuple(status.value for status in statuses), *parameters),
             ).fetchall()
         return tuple(job_from_row(row) for row in rows)
 
@@ -87,18 +106,33 @@ class SQLiteJobRepository(JobRepository):
             return False
         placeholders = ", ".join("?" for _ in statuses)
         with self._database.connect() as connection:
+            predicate, parameters = workspace_predicate(self._scope)
             row = connection.execute(
                 f"""
                 SELECT 1 FROM jobs
-                WHERE campaign_id = ? AND status IN ({placeholders})
+                LEFT JOIN campaigns ON campaigns.id = jobs.campaign_id
+                WHERE jobs.campaign_id = ? AND status IN ({placeholders})
+                  AND {predicate}
                 LIMIT 1
                 """,
-                (str(campaign_id), *(status.value for status in statuses)),
+                (
+                    str(campaign_id),
+                    *(status.value for status in statuses),
+                    *parameters,
+                ),
             ).fetchone()
         return row is not None
 
     def save(self, job: ProcessingJob) -> None:
         with self._database.connect() as connection:
+            require_campaign_access(connection, job.campaign_id, self._scope)
+            require_existing_resource_access(
+                connection,
+                self._scope,
+                table="jobs",
+                key_column="id",
+                key=str(job.id),
+            )
             connection.execute(
                 """
                 INSERT INTO jobs (
@@ -145,13 +179,25 @@ class SQLiteJobRepository(JobRepository):
         expected_status: JobStatus,
     ) -> bool:
         with self._database.connect() as connection:
+            try:
+                require_campaign_access(connection, job.campaign_id, self._scope)
+            except InfrastructureError:
+                return False
+            predicate, parameters = workspace_predicate(self._scope)
+            scope_condition = (
+                ""
+                if isinstance(self._scope, SystemScope)
+                else f""" AND campaign_id IN (
+                    SELECT id FROM campaigns WHERE {predicate}
+                )"""
+            )
             cursor = connection.execute(
-                """
+                f"""
                 UPDATE jobs
                 SET campaign_id = ?, audio_track_id = ?, status = ?,
                     created_at = ?, updated_at = ?, transcript_id = ?, recap_id = ?,
                     warnings_json = ?, error_message = ?
-                WHERE id = ? AND status = ?
+                WHERE id = ? AND status = ?{scope_condition}
                 """,
                 (
                     str(job.campaign_id),
@@ -165,12 +211,24 @@ class SQLiteJobRepository(JobRepository):
                     job.error_message,
                     str(job.id),
                     expected_status.value,
+                    *(parameters if scope_condition else ()),
                 ),
             )
             return cursor.rowcount == 1
 
     def delete(self, job_id: ProcessingJobId) -> None:
         with self._database.connect() as connection:
+            predicate, parameters = workspace_predicate(self._scope)
+            visible = connection.execute(
+                f"""
+                SELECT 1 FROM jobs
+                LEFT JOIN campaigns ON campaigns.id = jobs.campaign_id
+                WHERE jobs.id = ? AND {predicate}
+                """,
+                (str(job_id), *parameters),
+            ).fetchone()
+            if visible is None:
+                return
             connection.execute(
                 "DELETE FROM progress_event_snapshots WHERE operation_id = ?",
                 (str(job_id),),

@@ -124,8 +124,7 @@ class LocalDeepSeekRequestLogger(DeepSeekRequestLogger):
             stem = f"{operation_name}-{attempt_name}.json"
         else:
             stem = (
-                f"{operation_name}-chunk-{context.chunk_index:04d}-"
-                f"{attempt_name}.json"
+                f"{operation_name}-chunk-{context.chunk_index:04d}-{attempt_name}.json"
             )
         return f"llm-diagnostics/{recap_name}/{stem}"
 

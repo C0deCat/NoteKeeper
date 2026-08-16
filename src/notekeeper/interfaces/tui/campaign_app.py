@@ -12,7 +12,7 @@ if TYPE_CHECKING:
 
 def sync_campaign_folder(app: NoteKeeperTui, campaign_id: str) -> None:
     app.run_worker(
-        lambda: app.runtime.use_cases.sync_campaign_folder.execute(
+        lambda: app.runtime.use_cases.campaigns.sync_folder.execute(
             SyncCampaignFolderCommand(campaign_id=campaign_id),
         ),
         group="sync",

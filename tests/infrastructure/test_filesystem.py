@@ -17,7 +17,9 @@ from notekeeper.infrastructure.filesystem import (
 )
 
 
-def test_storage_creates_campaign_layout_and_saves_campaign_text(tmp_path: Path) -> None:
+def test_storage_creates_campaign_layout_and_saves_campaign_text(
+    tmp_path: Path,
+) -> None:
     storage = LocalCampaignArtifactStorage(tmp_path)
 
     storage.ensure_campaign_layout(CampaignId("campaign-1"))
@@ -35,7 +37,9 @@ def test_storage_creates_campaign_layout_and_saves_campaign_text(tmp_path: Path)
     assert storage.read_text(artifact) == "# Session"
 
 
-def test_storage_delete_campaign_removes_only_its_campaign_folder(tmp_path: Path) -> None:
+def test_storage_delete_campaign_removes_only_its_campaign_folder(
+    tmp_path: Path,
+) -> None:
     storage = LocalCampaignArtifactStorage(tmp_path)
     storage.ensure_campaign_layout(CampaignId("campaign-1"))
     storage.ensure_campaign_layout(CampaignId("campaign-2"))
@@ -118,9 +122,7 @@ def test_prepared_audio_manifest_store_saves_and_reads_json(tmp_path: Path) -> N
         payload=payload,
     )
 
-    assert artifact.uri == (
-        "campaign-1/records/manifests/job-1/prepared-audio.json"
-    )
+    assert artifact.uri == ("campaign-1/records/manifests/job-1/prepared-audio.json")
     assert store.read(artifact) == payload
     raw_payload = json.loads((tmp_path / artifact.uri).read_text(encoding="utf-8"))
     assert raw_payload["prepared_artifact"]["uri"].startswith("campaign-1/")

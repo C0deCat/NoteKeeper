@@ -13,9 +13,9 @@ from notekeeper.domain import (
     ProcessingJobId,
 )
 from notekeeper.infrastructure.runtime import (
-    EventPublishingCampaignRepository,
-    EventPublishingJobCleaner,
-    EventPublishingJobRepository,
+    LocalDashboardCampaignRepositoryDecorator,
+    LocalDashboardJobCleanerDecorator,
+    LocalDashboardJobRepositoryDecorator,
     InMemoryDashboardEventHub,
 )
 
@@ -39,7 +39,7 @@ def test_dashboard_event_hub_fans_out_and_unsubscribes() -> None:
 def test_campaign_repository_publishes_scope_after_successful_save() -> None:
     repository = _CampaignRepository()
     events = _CollectingEvents()
-    decorated = EventPublishingCampaignRepository(repository, events)
+    decorated = LocalDashboardCampaignRepositoryDecorator(repository, events)
     campaign = Campaign(id=CampaignId("campaign-1"), name="Demo")
 
     decorated.save(campaign)
@@ -57,18 +57,24 @@ def test_job_repository_publishes_only_successful_mutations() -> None:
     job = _job(JobStatus.PENDING)
     repository = _JobRepository(job)
     events = _CollectingEvents()
-    decorated = EventPublishingJobRepository(repository, events)
+    decorated = LocalDashboardJobRepositoryDecorator(repository, events)
 
-    assert decorated.save_if_status(
-        _job(JobStatus.RUNNING),
-        JobStatus.FAILED,
-    ) is False
+    assert (
+        decorated.save_if_status(
+            _job(JobStatus.RUNNING),
+            JobStatus.FAILED,
+        )
+        is False
+    )
     assert events.items == []
 
-    assert decorated.save_if_status(
-        _job(JobStatus.RUNNING),
-        JobStatus.PENDING,
-    ) is True
+    assert (
+        decorated.save_if_status(
+            _job(JobStatus.RUNNING),
+            JobStatus.PENDING,
+        )
+        is True
+    )
     decorated.delete(job.id)
 
     assert len(events.items) == 2
@@ -81,7 +87,7 @@ def test_job_repository_publishes_only_successful_mutations() -> None:
 
 def test_job_cleaner_publishes_once_after_successful_batch() -> None:
     events = _CollectingEvents()
-    decorated = EventPublishingJobCleaner(_JobCleaner(), events)
+    decorated = LocalDashboardJobCleanerDecorator(_JobCleaner(), events)
     job = _job(JobStatus.FAILED)
 
     deleted = decorated.clean(job.campaign_id, (job,))

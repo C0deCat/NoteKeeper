@@ -8,7 +8,7 @@ from notekeeper.application.results import (
 from notekeeper.domain import CampaignId, ProcessingJob, ProcessingJobId
 
 
-class EventPublishingJobCleaner(JobCleaner):
+class LocalDashboardJobCleanerDecorator(JobCleaner):
     def __init__(
         self,
         cleaner: JobCleaner,
@@ -33,4 +33,4 @@ class EventPublishingJobCleaner(JobCleaner):
         return deleted_ids
 
 
-__all__ = ["EventPublishingJobCleaner"]
+__all__ = ["LocalDashboardJobCleanerDecorator"]

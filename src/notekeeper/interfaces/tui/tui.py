@@ -69,7 +69,7 @@ from .participant_app import AddParticipantScreen
 
 
 class NoteKeeperTui(App[None]):
-    """Dashboard-first Textual interface for Stage 1."""
+    """Dashboard-first Textual interface for NoteKeeper."""
 
     CSS_PATH = Path(__file__).with_name("styles.tcss")
 
@@ -471,7 +471,7 @@ class NoteKeeperTui(App[None]):
             self._set_status("Select a campaign")
             return
         try:
-            campaign = self.runtime.use_cases.get_campaign.execute(
+            campaign = self.runtime.use_cases.campaigns.get.execute(
                 GetCampaignCommand(campaign_id=campaign_id),
             ).campaign
         except (ApplicationError, DomainError, ValueError) as exc:
@@ -537,7 +537,7 @@ class NoteKeeperTui(App[None]):
         self._clear_failed_jobs_in_progress = True
         self._update_action_buttons()
         self.run_worker(
-            lambda: self.runtime.use_cases.clear_failed_jobs_for_campaign.execute(
+            lambda: self.runtime.use_cases.jobs.clear_failed.execute(
                 ClearFailedJobsForCampaignCommand(campaign_id=campaign_id),
             ),
             group="cleanup",

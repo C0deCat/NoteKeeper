@@ -4,9 +4,13 @@ from pathlib import Path
 from textual.widgets import Button, Input, Static
 from typer.testing import CliRunner
 
-from notekeeper.composition import NoteKeeperSettings, build_runtime
+from notekeeper.composition import NoteKeeperSettings, build_local_host
 from notekeeper.interfaces.cli import build_app
 from notekeeper.interfaces.tui import LoginScreen, NoteKeeperTui, RegistrationScreen
+
+
+def _interactive_runtime(settings: NoteKeeperSettings):
+    return build_local_host(settings).interactive_runtime()
 
 
 def _settings(tmp_path: Path, *, auth_enabled: bool = True) -> NoteKeeperSettings:
@@ -23,7 +27,7 @@ def _settings(tmp_path: Path, *, auth_enabled: bool = True) -> NoteKeeperSetting
 
 def test_cli_auth_session_controls_existing_working_commands(tmp_path: Path) -> None:
     settings = _settings(tmp_path)
-    app = build_app(lambda: build_runtime(settings), lambda _runtime: None)
+    app = build_app(lambda: _interactive_runtime(settings), lambda _runtime: None)
     runner = CliRunner()
 
     missing = runner.invoke(app, ["cli", "campaign", "list"])
@@ -60,7 +64,7 @@ def test_cli_auth_session_controls_existing_working_commands(tmp_path: Path) -> 
 
 def test_tui_requires_login_and_registration_logs_user_in(tmp_path: Path) -> None:
     async def run() -> None:
-        runtime = build_runtime(_settings(tmp_path))
+        runtime = _interactive_runtime(_settings(tmp_path))
         app = NoteKeeperTui(runtime)
         async with app.run_test() as pilot:
             await pilot.pause()
@@ -109,7 +113,7 @@ def test_tui_requires_login_and_registration_logs_user_in(tmp_path: Path) -> Non
 
 def test_tui_skips_authentication_when_disabled(tmp_path: Path) -> None:
     async def run() -> None:
-        runtime = build_runtime(_settings(tmp_path, auth_enabled=False))
+        runtime = _interactive_runtime(_settings(tmp_path, auth_enabled=False))
         app = NoteKeeperTui(runtime)
         async with app.run_test() as pilot:
             await pilot.pause()

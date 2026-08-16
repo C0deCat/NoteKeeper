@@ -69,4 +69,3 @@ def _format_seconds(seconds: float) -> str:
 
 
 __all__ = ["chunk_user_message", "combined_user_message"]
-

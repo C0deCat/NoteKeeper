@@ -217,8 +217,12 @@ def test_find_speaker_mapping_issues_reports_uncertain_and_unknown() -> None:
 
     warnings = find_speaker_mapping_issues(campaign, transcript, mappings)
 
-    assert PipelineWarningKind.UNCERTAIN_MAPPING in {warning.kind for warning in warnings}
-    assert PipelineWarningKind.UNKNOWN_PARTICIPANT in {warning.kind for warning in warnings}
+    assert PipelineWarningKind.UNCERTAIN_MAPPING in {
+        warning.kind for warning in warnings
+    }
+    assert PipelineWarningKind.UNKNOWN_PARTICIPANT in {
+        warning.kind for warning in warnings
+    }
 
 
 def test_find_speaker_mapping_issues_reports_duplicate_and_conflict() -> None:
