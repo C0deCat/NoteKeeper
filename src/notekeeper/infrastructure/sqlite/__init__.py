@@ -15,6 +15,8 @@ from .transcript_repository import SQLiteTranscriptRepository
 from .voice_sample_repository import SQLiteVoiceSampleRepository
 from .workspace_ids import personal_workspace_id
 from .workspace_repository import SQLiteWorkspaceRepository
+from .workspace_settings_repository import SQLiteWorkspaceSettingsRepository
+from .user_preferences_repository import SQLiteUserPreferencesRepository
 
 __all__ = [
     "SQLiteAudioTrackRepository",
@@ -29,5 +31,7 @@ __all__ = [
     "SQLiteTranscriptRepository",
     "SQLiteVoiceSampleRepository",
     "SQLiteWorkspaceRepository",
+    "SQLiteWorkspaceSettingsRepository",
+    "SQLiteUserPreferencesRepository",
     "personal_workspace_id",
 ]

@@ -56,6 +56,7 @@ def build_recording_use_cases(context: UseCaseWiringContext) -> RecordingUseCase
                 services.clock,
                 services.id_generator,
                 audio_normalizer=services.audio_normalizer,
+                settings_service=context.settings_service,
             ),
         ),
     )

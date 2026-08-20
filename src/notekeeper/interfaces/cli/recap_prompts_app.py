@@ -25,6 +25,14 @@ def create_app(runtime_factory: RuntimeFactory) -> typer.Typer:
         runtime = runtime_factory()
 
         def action() -> None:
+            settings = runtime.use_cases.settings
+            if settings is not None:
+                result = settings.get_campaign(campaign_id)
+                _echo_guidances(
+                    result.chunk_recap_prompt,
+                    result.combine_chunks_prompt,
+                )
+                return
             result = runtime.use_cases.campaigns.get_recap_guidances.execute(
                 GetRecapGuidancesCommand(campaign_id=campaign_id),
             )
@@ -44,11 +52,25 @@ def create_app(runtime_factory: RuntimeFactory) -> typer.Typer:
         runtime = runtime_factory()
 
         def action() -> None:
+            chunk_prompt = _read_prompt_file(chunk_file)
+            combined_prompt = _read_prompt_file(combined_file)
+            settings = runtime.use_cases.settings
+            if settings is not None:
+                result = settings.update_campaign(
+                    campaign_id,
+                    chunk_recap_prompt=chunk_prompt,
+                    combine_chunks_prompt=combined_prompt,
+                )
+                _echo_guidances(
+                    result.chunk_recap_prompt,
+                    result.combine_chunks_prompt,
+                )
+                return
             result = runtime.use_cases.campaigns.update_recap_guidances.execute(
                 UpdateRecapGuidancesCommand(
                     campaign_id=campaign_id,
-                    chunk_recap_guidances=_read_prompt_file(chunk_file),
-                    combined_recap_guidances=_read_prompt_file(combined_file),
+                    chunk_recap_guidances=chunk_prompt,
+                    combined_recap_guidances=combined_prompt,
                 ),
             )
             _echo_guidances(

@@ -25,6 +25,7 @@ def build_job_use_cases(context: UseCaseWiringContext) -> JobUseCases:
         repositories.job_repository,
         context.job_manager,
         services.clock,
+        context.settings_service,
     )
     restart = RestartProcessingJob(
         repositories.campaign_repository,
@@ -32,6 +33,7 @@ def build_job_use_cases(context: UseCaseWiringContext) -> JobUseCases:
         repositories.job_repository,
         services.clock,
         services.id_generator,
+        context.settings_service,
     )
     return JobUseCases(
         create=authorize_mutation(
@@ -42,6 +44,7 @@ def build_job_use_cases(context: UseCaseWiringContext) -> JobUseCases:
                 repositories.job_repository,
                 services.clock,
                 services.id_generator,
+                context.settings_service,
             ),
         ),
         queue=GuardedJobQueue(
@@ -50,6 +53,7 @@ def build_job_use_cases(context: UseCaseWiringContext) -> JobUseCases:
             repositories.campaign_repository,
             repositories.job_repository,
             context.access,
+            context.services.workspace_repository,
         ),
         restart_failed=authorize_mutation(context, restart),
         restart=authorize_mutation(context, restart),

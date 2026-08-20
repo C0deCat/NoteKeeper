@@ -30,7 +30,7 @@ from .processing import (
     Transcriber,
     TransientAudioCleaner,
 )
-from .recaps import RecapGenerator, RecapGuidances
+from .recaps import RecapGenerator, RecapGeneratorFactory, RecapGuidances
 from .repositories import (
     AudioTrackRepository,
     CampaignRepository,
@@ -44,6 +44,7 @@ from .repositories import (
     WorkspaceRepository,
 )
 from .runtime import Clock, IdGenerator
+from .settings import UserPreferencesRepository, WorkspaceSettingsRepository
 from .storage import (
     ArtifactStorage,
     CampaignArtifactStorage,
@@ -82,6 +83,7 @@ __all__ = [
     "ProgressTracker",
     "ProgressTrackerFactory",
     "RecapGenerator",
+    "RecapGeneratorFactory",
     "RecapGuidances",
     "RecapRepository",
     "SourceAudioMetadataReader",
@@ -93,6 +95,8 @@ __all__ = [
     "TransientAudioCleaner",
     "TranscriptRepository",
     "Unsubscribe",
+    "UserPreferencesRepository",
     "VoiceSampleRepository",
     "WorkspaceRepository",
+    "WorkspaceSettingsRepository",
 ]

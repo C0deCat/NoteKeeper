@@ -21,6 +21,7 @@ from notekeeper.domain import (
     ArtifactRef,
     AuthenticatedUser,
     User,
+    UserPreferences,
     WorkspaceId,
 )
 from notekeeper.infrastructure.auth import LocalAuthProvider
@@ -75,23 +76,37 @@ class LocalApplicationHost:
     job_manager: LocalJobManager
 
     def authenticate(self, login: str, password: str) -> ApplicationSession:
-        return _build_application_session(
-            self,
-            self.authenticator.authenticate(login, password),
-            publish_dashboard_events=True,
+        user = self.authenticator.authenticate(login, password)
+        return _build_preferred_application_session(
+            self, user, publish_dashboard_events=True
         )
 
     def register(self, login: str, password: str) -> ApplicationSession:
-        return _build_application_session(
-            self,
-            self.authenticator.register(login, password),
-            publish_dashboard_events=True,
+        user = self.authenticator.register(login, password)
+        session = _build_application_session(
+            self, user, publish_dashboard_events=True
         )
+        self.services.user_preferences_repository.save(
+            UserPreferences(user.id, session.access.workspace_id)
+        )
+        return session
 
     def root_session(self) -> ApplicationSession:
         return _build_application_session(
             self,
             User(BUILTIN_ROOT_USER_ID, "root"),
+            publish_dashboard_events=True,
+        )
+
+    def session_for(
+        self,
+        user: AuthenticatedUser,
+        workspace_id: WorkspaceId,
+    ) -> ApplicationSession:
+        return _build_application_session(
+            self,
+            user,
+            workspace_id,
             publish_dashboard_events=True,
         )
 
@@ -111,17 +126,42 @@ class LocalApplicationHost:
         session: ApplicationSession,
         campaign_id: str | None = None,
     ) -> RuntimeDiagnostics:
+        mutable_settings = session.use_cases.settings
+        effective = (
+            mutable_settings.get_workspace()
+            if mutable_settings is not None
+            else None
+        )
         return RuntimeDiagnostics(
             storage_root=_path_text(self.settings.storage_root),
             sqlite_path=_path_text(self.settings.sqlite_path),
             processing_work_root=_path_text(self.settings.processing_work_root),
-            whisperx_model_name=self.settings.whisperx_model_name,
+            whisperx_model_name=(
+                effective.whisperx_model_name
+                if effective is not None
+                else self.settings.whisperx_model_name
+            ),
             whisperx_device=self.settings.whisperx_device,
             whisperx_compute_type=self.settings.whisperx_compute_type,
             whisperx_vad_method=self.settings.whisperx_vad_method,
             deepseek_configured=bool(self.settings.deepseek_api_key),
             huggingface_configured=bool(self.settings.whisperx_hf_token),
             recent_messages=_recent_messages(session.use_cases, campaign_id),
+            whisperx_language=(
+                effective.whisperx_language
+                if effective is not None
+                else self.settings.whisperx_language
+            ),
+            deepseek_model_name=(
+                effective.deepseek_model_name
+                if effective is not None
+                else self.settings.deepseek_model_name
+            ),
+            deepseek_temperature=(
+                effective.deepseek_temperature
+                if effective is not None
+                else self.settings.deepseek_temperature
+            ),
         )
 
     def format_artifact_location(self, artifact: ArtifactRef) -> str:
@@ -224,8 +264,39 @@ def _build_application_session(
         job_manager=host.job_manager,
         mutation_policy=mutation_policy,
         access=access,
+        authenticator=host.authenticator,
     )
     return ApplicationSession(user, access, use_cases)
+
+
+def _build_preferred_application_session(
+    host: LocalApplicationHost,
+    user: AuthenticatedUser,
+    *,
+    publish_dashboard_events: bool,
+) -> ApplicationSession:
+    personal = host.services.workspace_repository.ensure_personal(
+        user.id,
+        f"{user.login}'s workspace",
+    )
+    preferences = host.services.user_preferences_repository.get(user.id)
+    workspace_id = (
+        preferences.default_workspace_id if preferences is not None else None
+    )
+    if (
+        workspace_id is None
+        or host.services.workspace_repository.membership(workspace_id, user.id) is None
+    ):
+        workspace_id = personal.workspace_id
+        host.services.user_preferences_repository.save(
+            UserPreferences(user.id, workspace_id)
+        )
+    return _build_application_session(
+        host,
+        user,
+        workspace_id,
+        publish_dashboard_events=publish_dashboard_events,
+    )
 
 
 def _build_workspace_repositories(

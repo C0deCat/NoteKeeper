@@ -57,10 +57,13 @@ def diagnostics_text(diagnostics: RuntimeDiagnostics) -> str:
         f"sqlite path: {diagnostics.sqlite_path}",
         f"processing work root: {diagnostics.processing_work_root}",
         f"whisperx model: {diagnostics.whisperx_model_name}",
+        f"whisperx language: {diagnostics.whisperx_language or 'auto'}",
         f"whisperx device: {diagnostics.whisperx_device}",
         f"whisperx compute type: {diagnostics.whisperx_compute_type}",
         f"whisperx VAD method: {diagnostics.whisperx_vad_method}",
         f"deepseek configured: {diagnostics.deepseek_configured}",
+        f"deepseek model: {diagnostics.deepseek_model_name}",
+        f"deepseek temperature: {diagnostics.deepseek_temperature:.1f}",
         f"huggingface configured: {diagnostics.huggingface_configured}",
     ]
     lines.extend(f"recent: {message}" for message in diagnostics.recent_messages)

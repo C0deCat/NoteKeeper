@@ -24,7 +24,9 @@ from notekeeper.application.ports import (
     Tokenizer,
     Transcriber,
     TransientAudioCleaner,
+    UserPreferencesRepository,
     WorkspaceRepository,
+    WorkspaceSettingsRepository,
 )
 from notekeeper.application import SYSTEM_SCOPE
 from notekeeper.infrastructure.cleanup import (
@@ -63,6 +65,8 @@ from notekeeper.infrastructure.sqlite import (
     SQLiteTranscriptRepository,
     SQLiteVoiceSampleRepository,
     SQLiteWorkspaceRepository,
+    SQLiteWorkspaceSettingsRepository,
+    SQLiteUserPreferencesRepository,
 )
 from notekeeper.infrastructure.tokenization import TiktokenTranscriptTokenizer
 from notekeeper.infrastructure.whisperx import (
@@ -100,6 +104,8 @@ class LocalServices:
     clock: Clock
     id_generator: IdGenerator
     workspace_repository: WorkspaceRepository
+    workspace_settings_repository: WorkspaceSettingsRepository
+    user_preferences_repository: UserPreferencesRepository
 
 
 def build_local_services(
@@ -183,7 +189,10 @@ def build_local_services(
         encoding_name=resolved_settings.tokenizer_encoding_name,
         max_token_count=resolved_settings.tokenizer_max_token_count,
     )
-    recap_guidances = JsonCampaignRecapGuidances(artifact_storage)
+    recap_guidances = JsonCampaignRecapGuidances(
+        artifact_storage,
+        resolved_settings.recap_prompts_template_path,
+    )
     deepseek_request_logger = (
         LocalDeepSeekRequestLogger(
             artifact_storage,
@@ -249,6 +258,8 @@ def build_local_services(
         clock=clock,
         id_generator=id_generator,
         workspace_repository=SQLiteWorkspaceRepository(database),
+        workspace_settings_repository=SQLiteWorkspaceSettingsRepository(database),
+        user_preferences_repository=SQLiteUserPreferencesRepository(database),
     )
 
 

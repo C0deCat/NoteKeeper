@@ -66,6 +66,7 @@ from .dashboard_messages import (
 from .identifier_data_table import IdentifierDataTable
 from .login_screen import LoginScreen
 from .participant_app import AddParticipantScreen
+from .settings_screen import SettingsScreen
 
 
 class NoteKeeperTui(App[None]):
@@ -112,6 +113,7 @@ class NoteKeeperTui(App[None]):
         auth_enabled = auth is not None and auth.enabled
         yield Header()
         with Horizontal(id="topbar"):
+            yield Select((), prompt="Workspace", id="workspace-select")
             yield Select((), prompt="Campaign", id="campaign-select")
             yield Button("Manage Campaign", id="manage-campaign")
             yield Button("Settings", id="settings")
@@ -199,6 +201,7 @@ class NoteKeeperTui(App[None]):
         auth_enabled = auth is not None and auth.enabled
         if auth is not None and auth_enabled and auth.current_user is not None:
             self.query_one("#auth-user", Static).update(auth.current_user.login)
+        self._refresh_workspace_select()
         self.runtime.start_job_manager(recover_queued=True)
         if not self._dashboard_initialized:
             self._dashboard_unsubscribe = self.runtime.dashboard_events.subscribe(
@@ -221,6 +224,21 @@ class NoteKeeperTui(App[None]):
         self._open_diagnostics()
 
     def on_select_changed(self, event: Select.Changed) -> None:
+        if event.select.id == "workspace-select":
+            if event.value in (Select.BLANK, Select.NULL):
+                return
+            try:
+                current = self._current_workspace_id()
+                selected = str(event.value)
+                if current != selected:
+                    self.runtime.switch_workspace(selected)
+                    self._selected_campaign_id = None
+                    self._selected_object = None
+                    self._refresh_workspace_select()
+                    self.refresh_dashboard()
+            except (ApplicationError, DomainError, ValueError) as exc:
+                self._set_status(str(exc))
+            return
         if event.select.id != "campaign-select":
             return
         previous_campaign_id = self._selected_campaign_id
@@ -466,6 +484,25 @@ class NoteKeeperTui(App[None]):
         )
 
     def _open_settings(self) -> None:
+        if self._has_settings_service():
+            campaign_id = self._selected_campaign_id
+            campaign_name = None
+            if campaign_id is not None:
+                try:
+                    campaign_name = self.runtime.use_cases.campaigns.get.execute(
+                        GetCampaignCommand(campaign_id=campaign_id),
+                    ).campaign.name
+                except (ApplicationError, DomainError, ValueError) as exc:
+                    self._set_status(str(exc))
+                    return
+            self.push_screen(
+                SettingsScreen(
+                    self.runtime,
+                    campaign_id,
+                    campaign_name,
+                )
+            )
+            return
         campaign_id = self._selected_campaign_id
         if campaign_id is None:
             self._set_status("Select a campaign")
@@ -484,6 +521,35 @@ class NoteKeeperTui(App[None]):
                 campaign.name,
             ),
         )
+
+    def _has_settings_service(self) -> bool:
+        try:
+            return self.runtime.use_cases.settings is not None
+        except (AttributeError, ApplicationError):
+            return False
+
+    def _current_workspace_id(self) -> str | None:
+        if not self._has_settings_service():
+            return None
+        service = self.runtime.use_cases.settings
+        return str(service.get_workspace().workspace_id) if service is not None else None
+
+    def _refresh_workspace_select(self) -> None:
+        selector = self.query_one("#workspace-select", Select)
+        if not self._has_settings_service():
+            selector.display = False
+            return
+        try:
+            workspaces = self.runtime.list_workspaces()
+            selector.set_options(
+                (workspace.name, str(workspace.id)) for workspace in workspaces
+            )
+            current = self._current_workspace_id()
+            if current is not None:
+                selector.value = current
+            selector.display = True
+        except (AttributeError, ApplicationError, DomainError, ValueError):
+            selector.display = False
 
     def _finish_manage_campaigns(self, campaign_id: str | None) -> None:
         if campaign_id != self._selected_campaign_id:

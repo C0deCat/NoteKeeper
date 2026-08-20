@@ -23,6 +23,7 @@ from . import (
     recording_app,
     review_app,
     sample_app,
+    settings_app,
     transcript_app,
 )
 from .common import RuntimeFactory
@@ -40,11 +41,21 @@ def build_app(
         help="NoteKeeper application.",
     )
     cli = typer.Typer(help="Scriptable NoteKeeper commands.")
+    selected_workspace_id: str | None = None
+
+    @cli.callback()
+    def cli_options(
+        workspace: str | None = typer.Option(None, "--workspace"),
+    ) -> None:
+        nonlocal selected_workspace_id
+        selected_workspace_id = workspace
 
     def authenticated_runtime_factory() -> InterfaceRuntime:
         runtime = runtime_factory()
         auth = getattr(runtime, "auth", None)
         if auth is None or not auth.enabled:
+            if selected_workspace_id is not None:
+                runtime.switch_workspace(selected_workspace_id)
             return runtime
         try:
             credentials = LocalCliSessionStore(runtime.cli_auth_session_path).load()
@@ -53,6 +64,8 @@ def build_app(
                     "authentication required; run notekeeper auth login"
                 )
             auth.login(*credentials)
+            if selected_workspace_id is not None:
+                runtime.switch_workspace(selected_workspace_id)
         except (ApplicationError, ValueError) as exc:
             typer.echo(f"error: {exc}", err=True)
             raise typer.Exit(code=1) from exc
@@ -64,8 +77,13 @@ def build_app(
             tui_runner(runtime_factory())
 
     @app.command("tui")
-    def run_tui() -> None:
-        tui_runner(runtime_factory())
+    def run_tui(
+        workspace: str | None = typer.Option(None, "--workspace"),
+    ) -> None:
+        runtime = runtime_factory()
+        if workspace is not None:
+            runtime.request_workspace(workspace)
+        tui_runner(runtime)
 
     cli.add_typer(
         campaign_app.create_app(authenticated_runtime_factory), name="campaign"
@@ -86,6 +104,10 @@ def build_app(
     cli.add_typer(
         recap_prompts_app.create_app(authenticated_runtime_factory),
         name="recap-prompts",
+    )
+    cli.add_typer(
+        settings_app.create_app(authenticated_runtime_factory),
+        name="settings",
     )
     diagnostics_app.register_command(cli, authenticated_runtime_factory)
     app.add_typer(cli, name="cli")

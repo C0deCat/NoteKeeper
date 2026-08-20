@@ -40,7 +40,7 @@ def test_existing_campaigns_are_migrated_to_root_workspace(tmp_path: Path) -> No
 
     assert row["workspace_id"] == str(personal_workspace_id(BUILTIN_ROOT_USER_ID))
     assert membership["role"] == "owner"
-    assert [version["version"] for version in versions] == [1, 2]
+    assert [version["version"] for version in versions] == [1, 2, 3]
 
 
 def test_migration_groups_legacy_campaigns_by_owner_without_duplicates(

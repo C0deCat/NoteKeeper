@@ -8,6 +8,7 @@ from .access_context import (
     WorkspaceScope,
 )
 from .authenticator import Authenticator
+from .settings_service import SettingsService
 
 from .commands import (
     AddParticipantToCampaignCommand,
@@ -298,6 +299,7 @@ __all__ = [
     "SyncCampaignFolder",
     "SyncCampaignFolderCommand",
     "SyncCampaignFolderResult",
+    "SettingsService",
     "SystemScope",
     "TranscriptChunk",
     "UpdateAudioTrack",

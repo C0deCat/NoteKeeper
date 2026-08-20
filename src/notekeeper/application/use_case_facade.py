@@ -61,6 +61,7 @@ from .use_cases import (
     ReviewSpeakerMappings,
 )
 from .use_cases.utils import CampaignMutationUseCase
+from .settings_service import SettingsService
 
 
 @dataclass(frozen=True, slots=True)
@@ -153,6 +154,7 @@ class ApplicationUseCases:
     transcripts: TranscriptUseCases
     recaps: RecapUseCases
     media: MediaUseCases
+    settings: SettingsService | None = None
 
 
 __all__ = [
@@ -164,5 +166,6 @@ __all__ = [
     "RecapUseCases",
     "RecordingUseCases",
     "SampleUseCases",
+    "SettingsService",
     "TranscriptUseCases",
 ]

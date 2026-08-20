@@ -1,10 +1,19 @@
 """Mutable session controller owned by the local CLI/TUI adapters."""
 
 from notekeeper.application import AccessContext, GetJobStatusCommand
-from notekeeper.application.errors import AuthenticationRequiredError
+from notekeeper.application.errors import AuthenticationRequiredError, AuthorizationError
 from notekeeper.application.ports import DashboardEventStream, ProgressEventStream
 from notekeeper.application.use_case_facade import ApplicationUseCases
-from notekeeper.domain import ArtifactRef, AuthenticatedUser, ProcessingJob, ProcessingJobId
+from notekeeper.domain import (
+    ArtifactRef,
+    AuthenticatedUser,
+    ProcessingJob,
+    ProcessingJobId,
+    UserPreferences,
+    Workspace,
+    WorkspaceId,
+)
+from notekeeper.infrastructure.auth import LocalCliSessionStore
 from notekeeper.interfaces import RuntimeDiagnostics
 
 from .runtime import ApplicationSession, LocalApplicationHost
@@ -16,6 +25,7 @@ class LocalInterfaceRuntime:
     def __init__(self, host: LocalApplicationHost) -> None:
         self._host = host
         self._session = None if host.authenticator.enabled else host.root_session()
+        self._requested_workspace_id: str | None = None
 
     @property
     def auth(self) -> "LocalInterfaceRuntime":
@@ -31,7 +41,14 @@ class LocalInterfaceRuntime:
 
     @property
     def use_cases(self) -> ApplicationUseCases:
-        return self._require_session().use_cases
+        session = self._require_session()
+        membership = self._host.services.workspace_repository.membership(
+            session.access.workspace_id,
+            session.user.id,
+        )
+        if membership is None:
+            raise AuthorizationError("workspace access has been revoked")
+        return session.use_cases
 
     @property
     def access(self) -> AccessContext:
@@ -51,10 +68,12 @@ class LocalInterfaceRuntime:
 
     def login(self, login: str, password: str) -> AuthenticatedUser:
         self._session = self._host.authenticate(login, password)
+        self._apply_requested_workspace()
         return self._session.user
 
     def register(self, login: str, password: str) -> AuthenticatedUser:
         self._session = self._host.register(login, password)
+        self._apply_requested_workspace()
         return self._session.user
 
     def logout(self) -> None:
@@ -63,6 +82,68 @@ class LocalInterfaceRuntime:
 
     def require_user(self) -> AuthenticatedUser:
         return self._require_session().user
+
+    def list_workspaces(self) -> tuple[Workspace, ...]:
+        user = self.require_user()
+        return self._host.services.workspace_repository.list_for_user(user.id)
+
+    def switch_workspace(self, workspace_id: str) -> Workspace:
+        user = self.require_user()
+        target = WorkspaceId(workspace_id)
+        workspace = self._host.services.workspace_repository.get(target)
+        if (
+            workspace is None
+            or self._host.services.workspace_repository.membership(target, user.id)
+            is None
+        ):
+            raise AuthorizationError(f"workspace {target} is not accessible")
+        self._session = self._host.session_for(user, target)
+        self._host.services.user_preferences_repository.save(
+            UserPreferences(user.id, target)
+        )
+        return workspace
+
+    def request_workspace(self, workspace_id: str) -> None:
+        self._requested_workspace_id = workspace_id
+        if self._session is not None:
+            self.switch_workspace(workspace_id)
+
+    def _apply_requested_workspace(self) -> None:
+        if self._requested_workspace_id is not None:
+            self.switch_workspace(self._requested_workspace_id)
+
+    def update_login(
+        self,
+        current_password: str,
+        new_login: str,
+    ) -> AuthenticatedUser:
+        session = self._require_session()
+        session_store = LocalCliSessionStore(self.cli_auth_session_path)
+        cli_credentials = session_store.load()
+        settings = session.use_cases.settings
+        if settings is None:
+            raise RuntimeError("settings service is unavailable")
+        user = settings.update_login(current_password, new_login)
+        if cli_credentials == (session.user.login, current_password):
+            session_store.save(user.login, current_password)
+        self._session = self._host.session_for(user, session.access.workspace_id)
+        return user
+
+    def update_password(
+        self,
+        current_password: str,
+        new_password: str,
+    ) -> AuthenticatedUser:
+        session = self._require_session()
+        session_store = LocalCliSessionStore(self.cli_auth_session_path)
+        cli_credentials = session_store.load()
+        settings = session.use_cases.settings
+        if settings is None:
+            raise RuntimeError("settings service is unavailable")
+        user = settings.update_password(current_password, new_password)
+        if cli_credentials == (session.user.login, current_password):
+            session_store.save(user.login, new_password)
+        return user
 
     def start_job_manager(self, *, recover_queued: bool = True) -> None:
         self._host.start_job_manager(recover_queued=recover_queued)

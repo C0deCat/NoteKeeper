@@ -73,6 +73,7 @@ class ExecuteQueuedProcessingJob:
         progress_tracker_factory: ProgressTrackerFactory | None = None,
         progress_stages: tuple[ProcessingStage, ...] = (),
         transient_audio_cleaner: TransientAudioCleaner | None = None,
+        target_token_count: int = 30_000,
     ) -> None:
         self._campaign_repository = campaign_repository
         self._audio_track_repository = audio_track_repository
@@ -94,6 +95,7 @@ class ExecuteQueuedProcessingJob:
         self._progress_tracker_factory = progress_tracker_factory
         self._progress_stages = progress_stages
         self._transient_audio_cleaner = transient_audio_cleaner
+        self._target_token_count = target_token_count
 
     def execute(self, command: RunProcessingJobCommand) -> RunProcessingJobResult:
         running_job = self.start(command)
@@ -220,6 +222,7 @@ class ExecuteQueuedProcessingJob:
                 progress_callback=(
                     progress.update_fraction if progress is not None else None
                 ),
+                target_token_count=self._target_token_count,
             )
             if progress is not None:
                 progress.complete_stage()
@@ -381,6 +384,7 @@ class ExecuteQueuedProcessingJob:
                 progress_callback=(
                     progress.update_fraction if progress is not None else None
                 ),
+                target_token_count=self._target_token_count,
             )
             if progress is not None:
                 progress.complete_stage()

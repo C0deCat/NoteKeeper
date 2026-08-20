@@ -24,9 +24,11 @@ Business entities and immutable aggregate data.
 - `src/notekeeper/domain/models/audio_track.py` — Audio track entity.
 - `src/notekeeper/domain/models/campaign.py` — Campaign entity.
 - `src/notekeeper/domain/models/participant.py` — Participant entity.
-- `src/notekeeper/domain/models/processing_job.py` — Processing job entity.
+- `src/notekeeper/domain/models/processing_job.py` — Processing job entity with an immutable effective-settings snapshot.
 - `src/notekeeper/domain/models/recap.py` — Recap entities.
+- `src/notekeeper/domain/models/settings.py` — Immutable workspace, campaign, user-preference, settings-catalog, and processing-snapshot DTOs.
 - `src/notekeeper/domain/models/transcript.py` — Transcript entities.
+- `src/notekeeper/domain/models/user.py` — Authenticated user entity and built-in root identity.
 - `src/notekeeper/domain/models/voice_sample.py` — Voice sample entity.
 - `src/notekeeper/domain/models/workspace.py` — Workspace and membership entities.
 
@@ -78,6 +80,7 @@ Use-case orchestration and abstract ports. It depends on the domain, but not on 
 - `src/notekeeper/application/access_context.py` — Immutable actor context and explicit repository scopes.
 - `src/notekeeper/application/authenticator.py` — Stateless authentication service.
 - `src/notekeeper/application/errors.py` — Application-layer errors.
+- `src/notekeeper/application/settings_service.py` — Role-aware workspace, campaign, membership, and user settings orchestration.
 - `src/notekeeper/application/use_case_facade.py` — Grouped application use-case facade.
 
 ### `application/commands`
@@ -89,11 +92,13 @@ Use-case orchestration and abstract ports. It depends on the domain, but not on 
 Abstract boundaries implemented by infrastructure.
 
 - `src/notekeeper/application/ports/__init__.py` — Explicit public facade for `application/ports`.
+- `src/notekeeper/application/ports/auth.py` — Authentication, user lookup, and credential-mutation port.
 - `src/notekeeper/application/ports/events.py` — Application event and progress ports.
 - `src/notekeeper/application/ports/processing.py` — Ports used by audio and processing workflows.
 - `src/notekeeper/application/ports/recaps.py` — Ports used to tokenize transcripts and generate recaps.
 - `src/notekeeper/application/ports/repositories.py` — Persistence ports for domain entities and processing records.
 - `src/notekeeper/application/ports/runtime.py` — Clock and identifier generation ports.
+- `src/notekeeper/application/ports/settings.py` — Workspace override and user-preference persistence ports.
 - `src/notekeeper/application/ports/storage.py` — Artifact and campaign-folder storage ports.
 
 ### `application/results`
@@ -191,6 +196,14 @@ Concrete adapters for ports: SQLite, filesystem, FFmpeg, WhisperX, DeepSeek, tok
 - `src/notekeeper/infrastructure/__init__.py` — Explicit public facade for `infrastructure`.
 - `src/notekeeper/infrastructure/errors.py` — Infrastructure-layer errors.
 
+### `infrastructure/auth`
+
+Local JSON authentication and CLI credential-session persistence.
+
+- `src/notekeeper/infrastructure/auth/__init__.py` — Explicit public facade for `infrastructure/auth`.
+- `src/notekeeper/infrastructure/auth/local_auth_provider.py` — Locked, atomic local-user authentication and credential mutation adapter.
+- `src/notekeeper/infrastructure/auth/local_cli_session_store.py` — Locked, atomic persisted CLI credential session.
+
 ### `infrastructure/cleanup`
 
 Removal of job-owned and transient files.
@@ -243,6 +256,7 @@ Filesystem repositories, artifact storage, scanning, and manifests.
 - `src/notekeeper/infrastructure/filesystem/prepared_audio_manifest_store.py` — Prepared-audio manifest storage.
 - `src/notekeeper/infrastructure/filesystem/recap_guidances.py` — Campaign-specific recap guidance storage backed by JSON files.
 - `src/notekeeper/infrastructure/filesystem/scanner.py` — Local campaign folder scanner.
+- `src/notekeeper/infrastructure/filesystem/snapshot_recap_guidances.py` — Read-only recap guidance adapter backed by a processing-job settings snapshot.
 - `src/notekeeper/infrastructure/filesystem/source_metadata.py` — Metadata reader for local source audio files.
 - `src/notekeeper/infrastructure/filesystem/storage.py` — Local filesystem artifact storage.
 
@@ -275,6 +289,7 @@ In-process and persisted event/runtime adapters.
 
 Local process execution, capacity, IPC, and process-tree infrastructure.
 
+- `src/notekeeper/infrastructure/runtime/jobs/__init__.py` — Explicit public facade for `infrastructure/runtime/jobs`.
 - `src/notekeeper/infrastructure/runtime/jobs/job_capacity.py` — Cross-process processing capacity allocation.
 - `src/notekeeper/infrastructure/runtime/jobs/process_execution_registry.py` — Persisted worker process identities.
 - `src/notekeeper/infrastructure/runtime/jobs/process_job_executor.py` — Local queued-job manager.
@@ -305,9 +320,11 @@ SQLite database and repository implementations.
 - `src/notekeeper/infrastructure/sqlite/speaker_mapping_repository.py` — SQLite speaker mapping repository.
 - `src/notekeeper/infrastructure/sqlite/speaker_review_submission_repository.py` — SQLite persistence for queued speaker-review decisions.
 - `src/notekeeper/infrastructure/sqlite/transcript_repository.py` — SQLite transcript repository.
+- `src/notekeeper/infrastructure/sqlite/user_preferences_repository.py` — SQLite persistence for each user's default workspace.
 - `src/notekeeper/infrastructure/sqlite/voice_sample_repository.py` — SQLite voice sample repository.
 - `src/notekeeper/infrastructure/sqlite/workspace_ids.py` — Deterministic personal workspace identifiers.
 - `src/notekeeper/infrastructure/sqlite/workspace_repository.py` — SQLite workspace and membership repository.
+- `src/notekeeper/infrastructure/sqlite/workspace_settings_repository.py` — SQLite persistence for workspace processing-setting overrides.
 
 ### `infrastructure/sqlite/utils`
 
@@ -319,6 +336,7 @@ SQLite database and repository implementations.
 - `src/notekeeper/infrastructure/sqlite/utils/recap_serialization.py` — Recap payload serialization.
 - `src/notekeeper/infrastructure/sqlite/utils/row_mappers.py` — SQLite row-to-domain mappers.
 - `src/notekeeper/infrastructure/sqlite/utils/serialization.py` — Serialization helper facade for SQLite repositories.
+- `src/notekeeper/infrastructure/sqlite/utils/settings_serialization.py` — Processing-settings snapshot JSON serialization.
 - `src/notekeeper/infrastructure/sqlite/utils/transcript_serialization.py` — Transcript payload serialization.
 - `src/notekeeper/infrastructure/sqlite/utils/warnings_serialization.py` — Pipeline warning payload serialization.
 - `src/notekeeper/infrastructure/sqlite/utils/write_helpers.py` — SQLite domain write helpers.
@@ -361,8 +379,9 @@ User-facing CLI and Textual TUI adapters plus the interface-facing runtime contr
 Scriptable Typer commands and terminal progress output.
 
 - `src/notekeeper/interfaces/cli/__init__.py` — Explicit public facade for `interfaces/cli`.
+- `src/notekeeper/interfaces/cli/auth_app.py` — Local registration, login, logout, and auth-status commands.
 - `src/notekeeper/interfaces/cli/campaign_app.py` — Campaign CLI commands.
-- `src/notekeeper/interfaces/cli/cli.py` — Typer application composition.
+- `src/notekeeper/interfaces/cli/cli.py` — Typer application composition and common workspace selection.
 - `src/notekeeper/interfaces/cli/common.py` — Shared CLI command helpers.
 - `src/notekeeper/interfaces/cli/diagnostics_app.py` — Diagnostics CLI command registration.
 - `src/notekeeper/interfaces/cli/job_app.py` — Processing job CLI commands.
@@ -373,6 +392,7 @@ Scriptable Typer commands and terminal progress output.
 - `src/notekeeper/interfaces/cli/recording_app.py` — Recording CLI commands.
 - `src/notekeeper/interfaces/cli/review_app.py` — Speaker mapping review CLI commands.
 - `src/notekeeper/interfaces/cli/sample_app.py` — Voice sample CLI commands.
+- `src/notekeeper/interfaces/cli/settings_app.py` — JSON workspace, campaign, membership, and user settings commands.
 - `src/notekeeper/interfaces/cli/transcript_app.py` — Transcript CLI commands.
 
 ### `interfaces/tui`
@@ -384,7 +404,7 @@ Interactive Textual dashboard, screens, and actions.
 - `src/notekeeper/interfaces/tui/campaign_app.py` — Campaign synchronization action for the Textual interface.
 - `src/notekeeper/interfaces/tui/campaign_deletion_screen.py` — Confirmation screen for destructive campaign deletion.
 - `src/notekeeper/interfaces/tui/campaign_management_screen.py` — Campaign management modal for the Textual interface.
-- `src/notekeeper/interfaces/tui/campaign_settings_screen.py` — Campaign-specific settings menu for the Textual interface.
+- `src/notekeeper/interfaces/tui/campaign_settings_screen.py` — Campaign selector and recap-prompt settings form for the Textual interface.
 - `src/notekeeper/interfaces/tui/clear_failed_jobs_screen.py` — Confirmation screen for clearing failed processing jobs.
 - `src/notekeeper/interfaces/tui/common.py` — Shared Textual formatting and validation helpers.
 - `src/notekeeper/interfaces/tui/dashboard_messages.py` — Dashboard selection models and internal Textual messages.
@@ -395,19 +415,26 @@ Interactive Textual dashboard, screens, and actions.
 - `src/notekeeper/interfaces/tui/identifier_data_table.py` — Data table support for compact identifier cells and their tooltips.
 - `src/notekeeper/interfaces/tui/job_action_confirmation_screen.py` — Confirmation screen for destructive processing-job actions.
 - `src/notekeeper/interfaces/tui/job_app.py` — Processing job actions for the Textual interface.
+- `src/notekeeper/interfaces/tui/login_screen.py` — Masked local-auth login modal.
 - `src/notekeeper/interfaces/tui/object_action_confirmation_screen.py` — Confirmation screen for destructive recording and player actions.
 - `src/notekeeper/interfaces/tui/participant_app.py` — Participant actions and modal screen for the Textual interface.
 - `src/notekeeper/interfaces/tui/preview_app.py` — Markdown preview modal screen.
 - `src/notekeeper/interfaces/tui/recap_app.py` — Recap generation, preview, and export actions.
 - `src/notekeeper/interfaces/tui/recap_prompt_editor_screen.py` — Multiline campaign recap prompt editor.
 - `src/notekeeper/interfaces/tui/recording_app.py` — Recording actions and modal screen for the Textual interface.
+- `src/notekeeper/interfaces/tui/registration_screen.py` — Masked local-user registration modal.
 - `src/notekeeper/interfaces/tui/remove_voice_sample_screen.py` — Voice-sample selection and removal confirmation screen.
 - `src/notekeeper/interfaces/tui/rename_screen.py` — Modal screen for renaming dashboard objects.
 - `src/notekeeper/interfaces/tui/review_app.py` — Speaker-mapping review actions and modal screen.
 - `src/notekeeper/interfaces/tui/sample_app.py` — Voice sample actions and modal screen for the Textual interface.
+- `src/notekeeper/interfaces/tui/settings_confirmation_screen.py` — Shared settings reset/removal confirmation modal.
+- `src/notekeeper/interfaces/tui/settings_screen.py` — First-level Workspace, Campaign, and User settings menu.
 - `src/notekeeper/interfaces/tui/styles.tcss` — Textual layout, sizing, color, and responsive presentation rules.
 - `src/notekeeper/interfaces/tui/transcript_app.py` — Transcript preview and export actions.
-- `src/notekeeper/interfaces/tui/tui.py` — Textual dashboard application composition.
+- `src/notekeeper/interfaces/tui/tui.py` — Textual dashboard composition with workspace and campaign scoping selectors.
+- `src/notekeeper/interfaces/tui/user_settings_screen.py` — Login, password, and default-workspace settings form.
+- `src/notekeeper/interfaces/tui/workspace_members_screen.py` — Workspace membership and role management form.
+- `src/notekeeper/interfaces/tui/workspace_settings_screen.py` — Typed workspace model, language, temperature, and name settings form.
 
 
 ## `composition`
@@ -417,15 +444,28 @@ The composition root: settings, concrete dependency construction, host/session/w
 - `src/notekeeper/composition/__init__.py` — Explicit public facade for `composition`.
 - `src/notekeeper/composition/factory.py` — Local technical-service composition factory.
 - `src/notekeeper/composition/job_pipeline.py` — Construction of the in-process processing pipeline.
-- `src/notekeeper/composition/local_interface_runtime.py` — CLI/TUI-owned mutable session controller.
+- `src/notekeeper/composition/local_interface_runtime.py` — CLI/TUI-owned mutable user/workspace session controller.
 - `src/notekeeper/composition/main.py` — Application entrypoint.
 - `src/notekeeper/composition/repositories.py` — Typed system and workspace repository sets.
 - `src/notekeeper/composition/runtime.py` — Local host and immutable application-session roots.
-- `src/notekeeper/composition/settings.py` — Application settings.
+- `src/notekeeper/composition/settings.py` — Environment-loaded platform configuration, defaults, and settings allowlists.
 - `src/notekeeper/composition/use_cases.py` — Aggregation of grouped use-case builders.
-- `src/notekeeper/composition/worker.py` — Isolated system-scope worker composition root.
+- `src/notekeeper/composition/worker.py` — Isolated worker composition root rebuilt from each processing job's settings snapshot.
+- `src/notekeeper/composition/workspace_recap_generator_factory.py` — Builds explicit recap generators from current workspace LLM settings.
 
 ### `composition/use_case_builders`
 
 One focused builder per public use-case group: campaigns, participants, samples,
 recordings, jobs, transcripts, recaps, and media.
+
+- `src/notekeeper/composition/use_case_builders/__init__.py` — Explicit public facade for grouped use-case builders.
+- `src/notekeeper/composition/use_case_builders/campaigns.py` — Campaign use-case wiring.
+- `src/notekeeper/composition/use_case_builders/guards.py` — Live workspace-role guard construction.
+- `src/notekeeper/composition/use_case_builders/jobs.py` — Processing-job use-case wiring, including settings snapshots.
+- `src/notekeeper/composition/use_case_builders/media.py` — Media inspection use-case wiring.
+- `src/notekeeper/composition/use_case_builders/participants.py` — Participant use-case wiring.
+- `src/notekeeper/composition/use_case_builders/recaps.py` — Recap use-case wiring with current-workspace generator selection.
+- `src/notekeeper/composition/use_case_builders/recordings.py` — Recording use-case wiring.
+- `src/notekeeper/composition/use_case_builders/samples.py` — Voice-sample use-case wiring.
+- `src/notekeeper/composition/use_case_builders/transcripts.py` — Transcript use-case wiring.
+- `src/notekeeper/composition/use_case_builders/wiring_context.py` — Shared immutable dependencies for use-case builders.

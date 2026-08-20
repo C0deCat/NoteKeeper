@@ -63,6 +63,15 @@ class SQLiteDatabase:
         if 2 not in applied:
             SQLiteDatabase._migrate_workspaces(connection)
             connection.execute("INSERT INTO schema_migrations (version) VALUES (2)")
+        if 3 not in applied:
+            columns = {
+                row["name"] for row in connection.execute("PRAGMA table_info(jobs)")
+            }
+            if columns and "settings_snapshot_json" not in columns:
+                connection.execute(
+                    "ALTER TABLE jobs ADD COLUMN settings_snapshot_json TEXT"
+                )
+            connection.execute("INSERT INTO schema_migrations (version) VALUES (3)")
 
     @staticmethod
     def _migrate_workspaces(connection: sqlite3.Connection) -> None:

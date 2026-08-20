@@ -6,11 +6,13 @@ from .recap_guidances import JsonCampaignRecapGuidances
 from .scanner import LocalCampaignFolderScanner
 from .source_metadata import LocalSourceAudioMetadataReader
 from .storage import LocalCampaignArtifactStorage
+from .snapshot_recap_guidances import SnapshotRecapGuidances
 
 __all__ = [
     "JsonCampaignRecapGuidances",
     "LocalAudioMetadataReader",
     "LocalCampaignArtifactStorage",
+    "SnapshotRecapGuidances",
     "LocalCampaignFolderScanner",
     "LocalPreparedAudioManifestStore",
     "LocalSourceAudioMetadataReader",

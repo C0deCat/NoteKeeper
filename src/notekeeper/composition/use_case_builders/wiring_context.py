@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass
 
-from notekeeper.application import AccessContext
+from notekeeper.application import AccessContext, SettingsService
 from notekeeper.application.ports import JobManager, ProgressTrackerFactory
 from notekeeper.application.use_cases.utils import CampaignMutationPolicy
 
@@ -18,6 +18,7 @@ class UseCaseWiringContext:
     job_manager: JobManager
     mutation_policy: CampaignMutationPolicy
     access: AccessContext
+    settings_service: SettingsService
 
 
 __all__ = ["UseCaseWiringContext"]

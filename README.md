@@ -128,8 +128,9 @@ NOTEKEEPER_CLI_AUTH_SESSION_PATH=data/auth-session.json
 ```
 
 On the first login or registration, NoteKeeper creates `data/users.json` with
-the built-in `root` / `root` account. Change that password manually before
-using authentication. The file deliberately uses a simple editable format:
+the built-in `root` / `root` account. Change that password through Settings or
+`notekeeper cli settings user password` before using authentication. The file
+deliberately uses a simple editable format:
 
 ```json
 [
@@ -162,6 +163,30 @@ This local provider is intended for a trusted local machine. Passwords and CLI
 sessions are not encrypted or hashed, and application-level campaign isolation
 does not prevent someone with operating-system access from opening the SQLite,
 JSON, or artifact files directly.
+
+## Mutable settings
+
+Platform configuration, secrets, storage paths, processing capacity, and model
+allowlists remain controlled by `.env`. Workspace owners can select a model
+from those allowlists, choose the transcription language and recap temperature,
+rename the workspace, and manage editor/viewer access. Campaign prompts are
+editable by owners and editors. Every user can change their own credentials and
+default workspace.
+
+The TUI exposes these areas under **Settings → Workspace / Campaign / User**.
+The equivalent scriptable commands are:
+
+```console
+uv run notekeeper cli settings workspace show
+uv run notekeeper cli settings workspace set --whisperx-model small --language ru
+uv run notekeeper cli settings workspace members list
+uv run notekeeper cli settings campaign show <campaign-id>
+uv run notekeeper cli settings user show
+```
+
+Use `notekeeper cli --workspace <workspace-id> ...` to target an accessible
+workspace explicitly. Run `notekeeper cli settings --help` for all update and
+reset commands. Existing `recap-prompts show/set` commands remain supported.
 
 ## Usage
 

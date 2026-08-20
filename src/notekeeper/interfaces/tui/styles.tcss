@@ -16,6 +16,11 @@ ModalScreen {
     width: 1fr;
 }
 
+#workspace-select {
+    width: 1fr;
+    margin-right: 1;
+}
+
 #manage-campaign {
     width: 20;
     margin-left: 1;
@@ -151,6 +156,24 @@ ModalScreen {
 .settings-menu Button {
     width: 100%;
     margin-top: 1;
+}
+
+.workspace-settings-form, .user-settings-form {
+    width: 82;
+}
+
+.workspace-settings-form Input, .workspace-settings-form Select,
+.user-settings-form Input, .user-settings-form Select {
+    margin-bottom: 1;
+}
+
+.workspace-members {
+    width: 90;
+}
+
+#workspace-members-table {
+    height: 14;
+    margin: 1 0;
 }
 
 .recap-prompt-editor {

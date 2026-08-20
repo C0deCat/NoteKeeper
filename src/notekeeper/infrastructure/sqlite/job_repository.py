@@ -21,6 +21,7 @@ from .scope import (
 )
 from .utils import job_from_row
 from .utils.serialization import datetime_to_text, warning_to_dict
+from .utils.settings_serialization import processing_settings_to_dict
 
 
 class SQLiteJobRepository(JobRepository):
@@ -145,9 +146,10 @@ class SQLiteJobRepository(JobRepository):
                     transcript_id,
                     recap_id,
                     warnings_json,
-                    error_message
+                    error_message,
+                    settings_snapshot_json
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(id) DO UPDATE SET
                     campaign_id = excluded.campaign_id,
                     audio_track_id = excluded.audio_track_id,
@@ -157,7 +159,8 @@ class SQLiteJobRepository(JobRepository):
                     transcript_id = excluded.transcript_id,
                     recap_id = excluded.recap_id,
                     warnings_json = excluded.warnings_json,
-                    error_message = excluded.error_message
+                    error_message = excluded.error_message,
+                    settings_snapshot_json = excluded.settings_snapshot_json
                 """,
                 (
                     str(job.id),
@@ -170,6 +173,11 @@ class SQLiteJobRepository(JobRepository):
                     str(job.recap_id) if job.recap_id is not None else None,
                     json.dumps([warning_to_dict(warning) for warning in job.warnings]),
                     job.error_message,
+                    (
+                        json.dumps(processing_settings_to_dict(job.settings_snapshot))
+                        if job.settings_snapshot is not None
+                        else None
+                    ),
                 ),
             )
 
@@ -196,7 +204,7 @@ class SQLiteJobRepository(JobRepository):
                 UPDATE jobs
                 SET campaign_id = ?, audio_track_id = ?, status = ?,
                     created_at = ?, updated_at = ?, transcript_id = ?, recap_id = ?,
-                    warnings_json = ?, error_message = ?
+                    warnings_json = ?, error_message = ?, settings_snapshot_json = ?
                 WHERE id = ? AND status = ?{scope_condition}
                 """,
                 (
@@ -209,6 +217,11 @@ class SQLiteJobRepository(JobRepository):
                     str(job.recap_id) if job.recap_id is not None else None,
                     json.dumps([warning_to_dict(warning) for warning in job.warnings]),
                     job.error_message,
+                    (
+                        json.dumps(processing_settings_to_dict(job.settings_snapshot))
+                        if job.settings_snapshot is not None
+                        else None
+                    ),
                     str(job.id),
                     expected_status.value,
                     *(parameters if scope_condition else ()),

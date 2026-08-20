@@ -58,6 +58,11 @@ class JsonCampaignRecapGuidances(RecapGuidances):
         }
         self._write_payload(path, payload)
 
+    def reset_recap_guidances(self, campaign_id: CampaignId) -> None:
+        template = self._read_payload(self._template_path, source="template")
+        self._storage.ensure_campaign_layout(campaign_id)
+        self._write_payload(self._campaign_file(campaign_id), template)
+
     def _load_campaign_payload(self, campaign_id: CampaignId) -> dict[str, str]:
         path = self._campaign_file(campaign_id)
         if path.is_symlink():

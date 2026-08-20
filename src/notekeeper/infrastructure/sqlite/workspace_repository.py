@@ -83,6 +83,96 @@ class SQLiteWorkspaceRepository(WorkspaceRepository):
             )
         return WorkspaceMembership(workspace_id, user_id, WorkspaceRole.OWNER)
 
+    def save(self, workspace: Workspace) -> None:
+        with self._database.connect() as connection:
+            current = connection.execute(
+                "SELECT owner_user_id FROM workspaces WHERE id = ?",
+                (str(workspace.id),),
+            ).fetchone()
+            if current is None:
+                raise ValueError(f"workspace {workspace.id} was not found")
+            if current["owner_user_id"] != str(workspace.owner_user_id):
+                raise ValueError("workspace owner cannot be changed")
+            connection.execute(
+                "UPDATE workspaces SET name = ? WHERE id = ?",
+                (workspace.name, str(workspace.id)),
+            )
+
+    def list_members(
+        self,
+        workspace_id: WorkspaceId,
+    ) -> tuple[WorkspaceMembership, ...]:
+        with self._database.connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT workspace_id, user_id, role
+                FROM workspace_memberships
+                WHERE workspace_id = ?
+                ORDER BY CASE role
+                    WHEN 'owner' THEN 0 WHEN 'editor' THEN 1 ELSE 2 END,
+                    rowid
+                """,
+                (str(workspace_id),),
+            ).fetchall()
+        return tuple(
+            WorkspaceMembership(
+                workspace_id=WorkspaceId(row["workspace_id"]),
+                user_id=UserId(row["user_id"]),
+                role=WorkspaceRole(row["role"]),
+            )
+            for row in rows
+        )
+
+    def save_member(self, membership: WorkspaceMembership) -> None:
+        with self._database.connect() as connection:
+            workspace = connection.execute(
+                "SELECT owner_user_id FROM workspaces WHERE id = ?",
+                (str(membership.workspace_id),),
+            ).fetchone()
+            if workspace is None:
+                raise ValueError(f"workspace {membership.workspace_id} was not found")
+            owner_id = workspace["owner_user_id"]
+            if (
+                str(membership.user_id) == owner_id
+                and membership.role is not WorkspaceRole.OWNER
+            ):
+                raise ValueError("workspace owner role cannot be changed")
+            if (
+                membership.role is WorkspaceRole.OWNER
+                and str(membership.user_id) != owner_id
+            ):
+                raise ValueError("workspace ownership cannot be transferred")
+            connection.execute(
+                """
+                INSERT INTO workspace_memberships (workspace_id, user_id, role)
+                VALUES (?, ?, ?)
+                ON CONFLICT(workspace_id, user_id) DO UPDATE SET role = excluded.role
+                """,
+                (
+                    str(membership.workspace_id),
+                    str(membership.user_id),
+                    membership.role.value,
+                ),
+            )
+
+    def delete_member(self, workspace_id: WorkspaceId, user_id: UserId) -> None:
+        with self._database.connect() as connection:
+            workspace = connection.execute(
+                "SELECT owner_user_id FROM workspaces WHERE id = ?",
+                (str(workspace_id),),
+            ).fetchone()
+            if workspace is None:
+                return
+            if workspace["owner_user_id"] == str(user_id):
+                raise ValueError("workspace owner cannot be removed")
+            connection.execute(
+                """
+                DELETE FROM workspace_memberships
+                WHERE workspace_id = ? AND user_id = ?
+                """,
+                (str(workspace_id), str(user_id)),
+            )
+
 
 def _workspace_from_row(row) -> Workspace:
     return Workspace(

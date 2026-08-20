@@ -71,6 +71,77 @@ class LocalAuthProvider(AuthProvider):
             self._write_users(users)
         return user
 
+    def find_by_login(self, login: str) -> AuthenticatedUser | None:
+        self._ensure_store()
+        normalized_login = self._validated_login(login)
+        with self._lock:
+            users = self._read_users()
+        login_key = normalized_login.casefold()
+        for record in users:
+            if record["login"].casefold() == login_key:
+                return User(UserId(record["user_id"]), record["login"])
+        return None
+
+    def get(self, user_id: UserId) -> AuthenticatedUser | None:
+        self._ensure_store()
+        with self._lock:
+            users = self._read_users()
+        for record in users:
+            if record["user_id"] == str(user_id):
+                return User(user_id, record["login"])
+        return None
+
+    def update_login(
+        self,
+        user_id: UserId,
+        current_password: str,
+        new_login: str,
+    ) -> AuthenticatedUser:
+        normalized_login = self._validated_login(new_login)
+        with self._lock:
+            users = self._read_users()
+            record = self._authenticated_record(users, user_id, current_password)
+            login_key = normalized_login.casefold()
+            if any(
+                item["user_id"] != str(user_id)
+                and item["login"].casefold() == login_key
+                for item in users
+            ):
+                raise UserAlreadyExistsError(
+                    f"user login {normalized_login!r} is already registered"
+                )
+            record["login"] = normalized_login
+            self._write_users(users)
+        return User(user_id, normalized_login)
+
+    def update_password(
+        self,
+        user_id: UserId,
+        current_password: str,
+        new_password: str,
+    ) -> AuthenticatedUser:
+        if not new_password:
+            raise PortExecutionError("password must not be empty")
+        with self._lock:
+            users = self._read_users()
+            record = self._authenticated_record(users, user_id, current_password)
+            record["password"] = new_password
+            self._write_users(users)
+        return User(user_id, record["login"])
+
+    @staticmethod
+    def _authenticated_record(
+        users: list[dict[str, str]],
+        user_id: UserId,
+        password: str,
+    ) -> dict[str, str]:
+        if not password:
+            raise InvalidCredentialsError("invalid login or password")
+        for record in users:
+            if record["user_id"] == str(user_id) and record["password"] == password:
+                return record
+        raise InvalidCredentialsError("invalid login or password")
+
     def _ensure_store(self) -> None:
         with self._lock:
             if self._users_path.exists():

@@ -36,6 +36,7 @@ def build_processing_pipeline(
             diarization_enabled=(services.settings.whisperx_diarization_enabled),
         ),
         transient_audio_cleaner=services.transient_audio_cleaner,
+        target_token_count=services.settings.recap_chunk_token_target,
     )
 
 

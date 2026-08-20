@@ -9,6 +9,7 @@ from notekeeper.application import (
 
 from .guards import authorize_mutation
 from .wiring_context import UseCaseWiringContext
+from ..workspace_recap_generator_factory import WorkspaceRecapGeneratorFactory
 
 
 def build_recap_use_cases(context: UseCaseWiringContext) -> RecapUseCases:
@@ -27,6 +28,8 @@ def build_recap_use_cases(context: UseCaseWiringContext) -> RecapUseCases:
                 services.clock,
                 services.id_generator,
                 progress_tracker_factory=context.progress_tracker_factory,
+                target_token_count=services.settings.recap_chunk_token_target,
+                recap_generator_factory=WorkspaceRecapGeneratorFactory(services),
             ),
         ),
         preview_markdown=PreviewRecapMarkdown(repositories.recap_repository),
