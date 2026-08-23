@@ -73,9 +73,7 @@ class IdentifierDataTable(DataTable[object]):
         """Add a row, compacting and remembering the supplied ID cells."""
         displayed_cells = list(cells)
         identifiers = {
-            index: str(cells[index])
-            for index in identifier_indices
-            if cells[index]
+            index: str(cells[index]) for index in identifier_indices if cells[index]
         }
         for index, identifier in identifiers.items():
             displayed_cells[index] = compact_identifier(identifier)
@@ -83,9 +81,7 @@ class IdentifierDataTable(DataTable[object]):
         row_key = super().add_row(*displayed_cells, key=key)
         columns = self.ordered_columns
         for index, identifier in identifiers.items():
-            self._full_identifiers[
-                CellKey(row_key, columns[index].key)
-            ] = identifier
+            self._full_identifiers[CellKey(row_key, columns[index].key)] = identifier
         return row_key
 
     def watch_hover_coordinate(self, old: Coordinate, value: Coordinate) -> None:

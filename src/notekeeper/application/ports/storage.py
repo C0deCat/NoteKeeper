@@ -74,4 +74,3 @@ class PreparedAudioManifestStore(Protocol):
 
 class CampaignFolderScanner(Protocol):
     def scan(self, campaign_id: CampaignId) -> CampaignFolderSnapshot: ...
-

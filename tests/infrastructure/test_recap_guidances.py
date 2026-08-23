@@ -46,10 +46,7 @@ def test_existing_campaign_guidances_do_not_follow_template_changes(
     _write_prompts(template, "changed chunk", "changed combined")
 
     assert guidances.get_chunk_recap_guidances(campaign_id) == "initial chunk"
-    assert (
-        guidances.get_combined_recap_guidances(campaign_id)
-        == "initial combined"
-    )
+    assert guidances.get_combined_recap_guidances(campaign_id) == "initial combined"
 
 
 def test_campaign_recap_guidances_are_saved_atomically(tmp_path: Path) -> None:
@@ -67,10 +64,7 @@ def test_campaign_recap_guidances_are_saved_atomically(tmp_path: Path) -> None:
 
     campaign_path = tmp_path / "artifacts" / "campaign-1"
     assert guidances.get_chunk_recap_guidances(campaign_id) == "updated chunk"
-    assert (
-        guidances.get_combined_recap_guidances(campaign_id)
-        == "updated combined"
-    )
+    assert guidances.get_combined_recap_guidances(campaign_id) == "updated combined"
     assert list(campaign_path.glob("*.tmp")) == []
     assert list(campaign_path.glob(".recap_prompts.json.*.tmp")) == []
 
@@ -148,9 +142,7 @@ def test_invalid_template_fails_only_when_guidances_are_requested(
     with pytest.raises(InfrastructureError, match=expected_error):
         guidances.get_chunk_recap_guidances(CampaignId("campaign-1"))
 
-    assert not (
-        tmp_path / "artifacts" / "campaign-1" / "recap_prompts.json"
-    ).exists()
+    assert not (tmp_path / "artifacts" / "campaign-1" / "recap_prompts.json").exists()
 
 
 def _write_prompts(path: Path, chunk: str, combined: str) -> None:

@@ -1,26 +1,22 @@
 from pathlib import Path
 
-from notekeeper.application import (
-    CancelProcessingJob,
-    ClearFailedJobsForCampaign,
-    CreateCampaign,
-    CreateProcessingJobForAudioTrack,
-    DeleteCampaign,
-    DeleteProcessingJob,
-    GenerateRecap,
-    RestartFailedProcessingJob,
-)
 from notekeeper.application.use_cases.utils import GuardedCampaignMutation
-from notekeeper.composition import NoteKeeperSettings, build_runtime
+from notekeeper.composition import NoteKeeperSettings, build_local_host
 from notekeeper.infrastructure.runtime import PersistedProgressEventHub
 
 
-def test_build_runtime_assembles_stage1_use_cases_and_diagnostics(
+def _interactive_runtime(settings: NoteKeeperSettings):
+    return build_local_host(settings).interactive_runtime()
+
+
+def test_local_host_assembles_grouped_use_cases_and_diagnostics(
     tmp_path: Path,
 ) -> None:
-    runtime = build_runtime(
+    runtime = _interactive_runtime(
         NoteKeeperSettings(
             storage_root=tmp_path / "artifacts",
+            _env_file=None,
+            auth_enabled=False,
             sqlite_path=tmp_path / "notekeeper.sqlite3",
             processing_work_root=tmp_path / "work",
             deepseek_api_key="deepseek-secret",
@@ -31,24 +27,15 @@ def test_build_runtime_assembles_stage1_use_cases_and_diagnostics(
 
     diagnostics = runtime.diagnostics()
 
-    assert isinstance(runtime.use_cases.create_campaign, CreateCampaign)
-    assert isinstance(runtime.use_cases.update_campaign, GuardedCampaignMutation)
-    assert isinstance(runtime.use_cases.delete_campaign, DeleteCampaign)
-    assert isinstance(
-        runtime.use_cases.create_processing_job_for_audio_track,
-        CreateProcessingJobForAudioTrack,
-    )
-    assert isinstance(
-        runtime.use_cases.restart_failed_processing_job,
-        RestartFailedProcessingJob,
-    )
-    assert isinstance(
-        runtime.use_cases.clear_failed_jobs_for_campaign,
-        ClearFailedJobsForCampaign,
-    )
-    assert isinstance(runtime.use_cases.delete_processing_job, DeleteProcessingJob)
-    assert isinstance(runtime.use_cases.cancel_processing_job, CancelProcessingJob)
-    assert isinstance(runtime.use_cases.generate_recap, GenerateRecap)
+    assert hasattr(runtime.use_cases.campaigns.create, "execute")
+    assert isinstance(runtime.use_cases.campaigns.update, GuardedCampaignMutation)
+    assert hasattr(runtime.use_cases.campaigns.delete, "execute")
+    assert hasattr(runtime.use_cases.jobs.create, "execute")
+    assert hasattr(runtime.use_cases.jobs.restart_failed, "execute")
+    assert hasattr(runtime.use_cases.jobs.clear_failed, "execute")
+    assert hasattr(runtime.use_cases.jobs.delete, "execute")
+    assert hasattr(runtime.use_cases.jobs.cancel, "execute")
+    assert hasattr(runtime.use_cases.recaps.generate, "execute")
     assert isinstance(runtime.progress_events, PersistedProgressEventHub)
     assert diagnostics.deepseek_configured is True
     assert diagnostics.huggingface_configured is True

@@ -22,7 +22,7 @@ def create_app(runtime_factory: RuntimeFactory) -> typer.Typer:
         runtime = runtime_factory()
         run(
             lambda: echo_campaign(
-                runtime.use_cases.create_campaign.execute(
+                runtime.use_cases.campaigns.create.execute(
                     CreateCampaignCommand(name=name),
                 ).campaign,
             ),
@@ -33,7 +33,7 @@ def create_app(runtime_factory: RuntimeFactory) -> typer.Typer:
         runtime = runtime_factory()
 
         def action() -> None:
-            result = runtime.use_cases.list_campaigns.execute(ListCampaignsCommand())
+            result = runtime.use_cases.campaigns.list.execute(ListCampaignsCommand())
             for campaign in result.campaigns:
                 echo_campaign(campaign)
 
@@ -44,7 +44,7 @@ def create_app(runtime_factory: RuntimeFactory) -> typer.Typer:
         runtime = runtime_factory()
 
         def action() -> None:
-            campaign = runtime.use_cases.get_campaign.execute(
+            campaign = runtime.use_cases.campaigns.get.execute(
                 GetCampaignCommand(campaign_id=campaign_id),
             ).campaign
             echo_campaign(campaign)
@@ -59,7 +59,7 @@ def create_app(runtime_factory: RuntimeFactory) -> typer.Typer:
         runtime = runtime_factory()
 
         def action() -> None:
-            result = runtime.use_cases.sync_campaign_folder.execute(
+            result = runtime.use_cases.campaigns.sync_folder.execute(
                 SyncCampaignFolderCommand(campaign_id=campaign_id),
             )
             echo_sync_result(result)

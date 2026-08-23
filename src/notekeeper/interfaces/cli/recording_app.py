@@ -38,7 +38,7 @@ def create_app(runtime_factory: RuntimeFactory) -> typer.Typer:
 
         def action() -> None:
             echo_metadata(inspect_audio(runtime, artifact_uri, artifact_kind))
-            result = runtime.use_cases.submit_recording_for_processing.execute(
+            result = runtime.use_cases.recordings.submit_for_processing.execute(
                 SubmitRecordingForProcessingCommand(
                     campaign_id=campaign_id,
                     artifact_uri=artifact_uri,
@@ -60,7 +60,7 @@ def create_app(runtime_factory: RuntimeFactory) -> typer.Typer:
         runtime = runtime_factory()
 
         def action() -> None:
-            result = runtime.use_cases.list_audio_tracks.execute(
+            result = runtime.use_cases.recordings.list.execute(
                 ListAudioTracksCommand(campaign_id=campaign_id),
             )
             for audio_track in result.audio_tracks:

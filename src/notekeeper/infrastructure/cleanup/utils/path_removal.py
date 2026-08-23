@@ -23,4 +23,3 @@ def remove_owned_path(path: Path, root: Path, *, label: str) -> None:
 
 
 __all__ = ["remove_owned_path"]
-

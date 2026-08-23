@@ -48,7 +48,9 @@ class AudioMetadata:
             optional_non_negative_int(self.file_size_bytes, "file_size_bytes"),
         )
         object.__setattr__(self, "codec", optional_non_empty_str(self.codec, "codec"))
-        object.__setattr__(self, "format", optional_non_empty_str(self.format, "format"))
+        object.__setattr__(
+            self, "format", optional_non_empty_str(self.format, "format")
+        )
         object.__setattr__(
             self,
             "checksum",

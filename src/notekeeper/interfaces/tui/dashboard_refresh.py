@@ -61,7 +61,7 @@ def _setup_tables(app: NoteKeeperTui) -> None:
 
 
 def _refresh_campaign_select(app: NoteKeeperTui) -> None:
-    campaigns = app.runtime.use_cases.list_campaigns.execute(
+    campaigns = app.runtime.use_cases.campaigns.list.execute(
         ListCampaignsCommand(),
     ).campaigns
     options = tuple((campaign.name, str(campaign.id)) for campaign in campaigns)
@@ -103,13 +103,13 @@ def _refresh_campaign_panels(app: NoteKeeperTui, *, announce: bool = True) -> No
         return
 
     campaign_id = app._selected_campaign_id
-    campaign = app.runtime.use_cases.get_campaign.execute(
+    campaign = app.runtime.use_cases.campaigns.get.execute(
         GetCampaignCommand(campaign_id=campaign_id),
     ).campaign
     participants = campaign.participants
     voice_samples = campaign.voice_samples
     audio_tracks = campaign.audio_tracks
-    jobs = app.runtime.use_cases.list_jobs_for_campaign.execute(
+    jobs = app.runtime.use_cases.jobs.list_for_campaign.execute(
         ListJobsForCampaignCommand(campaign_id=campaign_id),
     ).jobs
 

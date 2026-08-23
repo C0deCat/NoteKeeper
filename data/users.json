@@ -1,0 +1,12 @@
+[
+  {
+    "user_id": "00000000-0000-0000-0000-000000000001",
+    "login": "root",
+    "password": "root"
+  },
+  {
+    "user_id": "7e914aba-656e-4ef9-ae01-0a1f49736fa4",
+    "login": "test",
+    "password": "test"
+  }
+]

@@ -99,4 +99,3 @@ def _time_range_payload(time_range: TimeRange) -> dict[str, float]:
 
 
 __all__ = ["artifact_payload", "build_prepared_manifest_payload", "build_sample_ranges"]
-

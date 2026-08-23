@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from notekeeper.application import SYSTEM_SCOPE
 from notekeeper.application import SyncCampaignFolder, SyncCampaignFolderCommand
 from notekeeper.domain import (
     Campaign,
@@ -44,10 +45,10 @@ def test_sync_campaign_folder_with_sqlite_and_filesystem_preserves_outputs(
     storage = LocalCampaignArtifactStorage(tmp_path / "artifacts")
     database = SQLiteDatabase(tmp_path / "notekeeper.sqlite3")
     database.initialize()
-    campaigns = SQLiteCampaignRepository(database)
-    jobs = SQLiteJobRepository(database)
-    transcripts = SQLiteTranscriptRepository(database, storage)
-    recaps = SQLiteRecapRepository(database, storage)
+    campaigns = SQLiteCampaignRepository(database, SYSTEM_SCOPE)
+    jobs = SQLiteJobRepository(database, SYSTEM_SCOPE)
+    transcripts = SQLiteTranscriptRepository(database, storage, SYSTEM_SCOPE)
+    recaps = SQLiteRecapRepository(database, storage, SYSTEM_SCOPE)
     storage.ensure_campaign_layout(CampaignId("campaign-1"))
     campaigns.save(Campaign(id=CampaignId("campaign-1"), name="Synced"))
     alice_path = tmp_path / "artifacts" / "campaign-1" / "players" / "Alice"
@@ -89,7 +90,9 @@ def test_sync_campaign_folder_with_sqlite_and_filesystem_preserves_outputs(
     assert loaded.audio_tracks[0].artifact.uri == (
         "campaign-1/records/normalized/audio-track-1.wav"
     )
-    assert loaded.audio_tracks[0].metadata.file_size_bytes == canonical_path.stat().st_size
+    assert (
+        loaded.audio_tracks[0].metadata.file_size_bytes == canonical_path.stat().st_size
+    )
     assert not record_path.exists()
 
     audio_track_id = loaded.audio_tracks[0].id

@@ -20,6 +20,7 @@ from notekeeper.domain import (
 )
 
 from .serialization import datetime_from_text, metadata_from_dict, warning_from_dict
+from .settings_serialization import processing_settings_from_dict
 
 
 def participant_from_row(row: sqlite3.Row) -> Participant:
@@ -78,8 +79,12 @@ def job_from_row(row: sqlite3.Row) -> ProcessingJob:
         ),
         recap_id=RecapId(row["recap_id"]) if row["recap_id"] is not None else None,
         warnings=tuple(
-            warning_from_dict(warning)
-            for warning in json.loads(row["warnings_json"])
+            warning_from_dict(warning) for warning in json.loads(row["warnings_json"])
         ),
         error_message=row["error_message"],
+        settings_snapshot=(
+            processing_settings_from_dict(json.loads(row["settings_snapshot_json"]))
+            if row["settings_snapshot_json"] is not None
+            else None
+        ),
     )

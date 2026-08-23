@@ -32,4 +32,6 @@ class DiagnosticsScreen(ModalScreen[None]):
 
 
 def open_diagnostics(app: NoteKeeperTui) -> None:
-    app.push_screen(DiagnosticsScreen(app.runtime.diagnostics(app._selected_campaign_id)))
+    app.push_screen(
+        DiagnosticsScreen(app.runtime.diagnostics(app._selected_campaign_id))
+    )

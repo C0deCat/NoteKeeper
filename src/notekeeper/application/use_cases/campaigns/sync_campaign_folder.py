@@ -97,7 +97,9 @@ class SyncCampaignFolder:
             participants_created += 1
 
         sample_uris = {sample.artifact.uri for sample in snapshot.voice_samples}
-        samples_by_uri = {sample.artifact.uri: sample for sample in campaign.voice_samples}
+        samples_by_uri = {
+            sample.artifact.uri: sample for sample in campaign.voice_samples
+        }
         for scanned_sample in snapshot.voice_samples:
             participant = participants_by_name[scanned_sample.player_name.casefold()]
             metadata = self._metadata_reader.read(scanned_sample.artifact)

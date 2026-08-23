@@ -14,7 +14,7 @@ from notekeeper.application import (
     DashboardRefreshScope,
     RunProcessingJobResult,
 )
-from notekeeper.composition.process_job_executor import (
+from notekeeper.infrastructure.runtime.jobs.process_job_executor import (
     LocalJobManager,
     _ExecutionCapacity,
     _ManagedExecution,
@@ -23,11 +23,20 @@ from notekeeper.composition.process_job_executor import (
 from notekeeper.domain import (
     AudioTrackId,
     CampaignId,
+    Campaign,
     JobStatus,
     ProcessingJob,
     ProcessingJobId,
 )
 from notekeeper.infrastructure.runtime import InMemoryDashboardEventHub
+
+
+def _worker_target(*_args):
+    return None
+
+
+def _campaigns():
+    return SimpleNamespace(get=lambda campaign_id: Campaign(campaign_id, "Campaign"))
 
 
 def test_job_manager_marks_job_failed_and_cleans_after_child_crash(
@@ -46,8 +55,10 @@ def test_job_manager_marks_job_failed_and_cleans_after_child_crash(
     manager = LocalJobManager(
         _settings(),
         _Pipeline(repository),
+        _campaigns(),
         repository,
         _Clock(),
+        worker_target=_worker_target,
         lock_root=tmp_path,
         transient_audio_cleaner=cleaner,
     )
@@ -90,8 +101,10 @@ def test_job_manager_forwards_dashboard_events_from_child(tmp_path: Path) -> Non
     manager = LocalJobManager(
         _settings(),
         _Pipeline(repository),
+        _campaigns(),
         repository,
         _Clock(),
+        worker_target=_worker_target,
         lock_root=tmp_path,
         dashboard_events=dashboard_events,
     )
@@ -128,8 +141,10 @@ def test_job_manager_releases_gpu_on_worker_message(tmp_path: Path) -> None:
     manager = LocalJobManager(
         _settings(device="cuda"),
         _Pipeline(repository),
+        _campaigns(),
         repository,
         _Clock(),
+        worker_target=_worker_target,
         lock_root=tmp_path,
     )
     manager._context = _MessageProcessContext(

@@ -25,4 +25,3 @@ def save_terminal_job(
 
 
 __all__ = ["claim_queued_job", "save_terminal_job"]
-

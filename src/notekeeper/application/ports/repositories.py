@@ -19,7 +19,33 @@ from notekeeper.domain import (
     TranscriptId,
     VoiceSample,
     VoiceSampleId,
+    UserId,
+    Workspace,
+    WorkspaceId,
+    WorkspaceMembership,
 )
+
+
+class WorkspaceRepository(Protocol):
+    def get(self, workspace_id: WorkspaceId) -> Workspace | None: ...
+
+    def list_for_user(self, user_id: UserId) -> tuple[Workspace, ...]: ...
+
+    def membership(
+        self,
+        workspace_id: WorkspaceId,
+        user_id: UserId,
+    ) -> WorkspaceMembership | None: ...
+
+    def ensure_personal(self, user_id: UserId, name: str) -> WorkspaceMembership: ...
+
+    def save(self, workspace: Workspace) -> None: ...
+
+    def list_members(self, workspace_id: WorkspaceId) -> tuple[WorkspaceMembership, ...]: ...
+
+    def save_member(self, membership: WorkspaceMembership) -> None: ...
+
+    def delete_member(self, workspace_id: WorkspaceId, user_id: UserId) -> None: ...
 
 
 class CampaignRepository(Protocol):
@@ -82,7 +108,9 @@ class AudioTrackRepository(Protocol):
 class TranscriptRepository(Protocol):
     def get(self, transcript_id: TranscriptId) -> Transcript | None: ...
 
-    def list_for_audio_track(self, audio_track_id: AudioTrackId) -> tuple[Transcript, ...]: ...
+    def list_for_audio_track(
+        self, audio_track_id: AudioTrackId
+    ) -> tuple[Transcript, ...]: ...
 
     def save(self, transcript: Transcript) -> None: ...
 
@@ -102,7 +130,9 @@ class RecapRepository(Protocol):
 class JobRepository(Protocol):
     def get(self, job_id: ProcessingJobId) -> ProcessingJob | None: ...
 
-    def list_for_campaign(self, campaign_id: CampaignId) -> tuple[ProcessingJob, ...]: ...
+    def list_for_campaign(
+        self, campaign_id: CampaignId
+    ) -> tuple[ProcessingJob, ...]: ...
 
     def list_for_audio_track(
         self,
@@ -154,4 +184,3 @@ class SpeakerReviewSubmissionRepository(Protocol):
     def save(self, submission: SpeakerReviewSubmission) -> None: ...
 
     def delete(self, job_id: ProcessingJobId) -> None: ...
-

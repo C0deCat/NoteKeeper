@@ -20,7 +20,7 @@ def create_app(runtime_factory: RuntimeFactory) -> typer.Typer:
         runtime = runtime_factory()
         run(
             lambda: typer.echo(
-                runtime.use_cases.preview_transcript_markdown.execute(
+                runtime.use_cases.transcripts.preview_markdown.execute(
                     PreviewTranscriptMarkdownCommand(transcript_id=transcript_id),
                 ).markdown,
                 nl=False,
@@ -32,7 +32,7 @@ def create_app(runtime_factory: RuntimeFactory) -> typer.Typer:
         runtime = runtime_factory()
 
         def action() -> None:
-            result = runtime.use_cases.export_transcript_markdown.execute(
+            result = runtime.use_cases.transcripts.export_markdown.execute(
                 ExportTranscriptMarkdownCommand(transcript_id=transcript_id),
             )
             typer.echo(runtime.format_artifact_location(result.artifact))

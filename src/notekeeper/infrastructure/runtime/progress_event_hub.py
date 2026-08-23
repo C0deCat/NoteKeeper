@@ -23,18 +23,14 @@ class InMemoryProgressEventHub:
 
     def publish(self, event: ProgressEvent) -> None:
         with self._lock:
-            if not event.kind.is_terminal:
+            if event.kind.is_terminal:
+                self._latest.pop(event.operation_id, None)
+            else:
                 self._latest[event.operation_id] = event
-            listeners = tuple(
-                self._listeners.get(event.operation_id, {}).values()
-            )
+            listeners = tuple(self._listeners.get(event.operation_id, {}).values())
 
         for listener in listeners:
             self._notify(listener, event)
-
-        if event.kind.is_terminal:
-            with self._lock:
-                self._latest.pop(event.operation_id, None)
 
     def subscribe(
         self,

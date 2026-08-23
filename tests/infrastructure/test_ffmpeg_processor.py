@@ -122,7 +122,9 @@ def test_ffmpeg_audio_processor_rejects_missing_session_artifact(
         metadata=AudioMetadata(duration_seconds=3.0),
     )
 
-    with pytest.raises(InfrastructureError, match="session audio artifact does not exist"):
+    with pytest.raises(
+        InfrastructureError, match="session audio artifact does not exist"
+    ):
         processor.prepare_session_audio(
             audio_track,
             (),
@@ -164,9 +166,7 @@ def test_ffmpeg_progress_output_is_parsed_as_work_fraction(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     class ProgressProcess:
-        stdout = StringIO(
-            "out_time_us=250000\nout_time_ms=500000\nprogress=end\n"
-        )
+        stdout = StringIO("out_time_us=250000\nout_time_ms=500000\nprogress=end\n")
         stderr = StringIO("")
 
         def wait(self) -> int:

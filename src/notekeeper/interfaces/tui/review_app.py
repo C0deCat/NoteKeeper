@@ -157,7 +157,7 @@ def open_review(app: NoteKeeperTui, campaign_id: str) -> None:
         app._set_status("Job is not waiting for review")
         return
 
-    participants = app.runtime.use_cases.list_participants.execute(
+    participants = app.runtime.use_cases.participants.list.execute(
         ListParticipantsCommand(campaign_id=campaign_id),
     ).participants
     app.push_screen(
@@ -177,7 +177,7 @@ def review_selected_job(
     app._update_action_buttons()
     app._watch_progress(str(job.id))
     app.run_worker(
-        lambda: app.runtime.use_cases.review_speaker_mappings.execute(
+        lambda: app.runtime.use_cases.jobs.review_speaker_mappings.execute(
             ReviewSpeakerMappingsCommand(
                 job_id=str(job.id),
                 mappings=mappings,

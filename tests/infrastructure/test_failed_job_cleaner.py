@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from notekeeper.application import SYSTEM_SCOPE
 from notekeeper.application import SpeakerMappingRecord
 from notekeeper.domain import (
     ArtifactRef,
@@ -188,18 +189,27 @@ def test_failed_job_cleaner_rolls_back_database_transaction(
 
     assert context.jobs.get(failed.id) == failed
     with context.database.connect() as connection:
-        assert connection.execute(
-            "SELECT COUNT(*) FROM transcripts WHERE id = ?",
-            (str(transcript.id),),
-        ).fetchone()[0] == 1
-        assert connection.execute(
-            "SELECT COUNT(*) FROM recaps WHERE id = ?",
-            (str(recap.id),),
-        ).fetchone()[0] == 1
-        assert connection.execute(
-            "SELECT COUNT(*) FROM speaker_mappings WHERE job_id = ?",
-            (str(failed.id),),
-        ).fetchone()[0] == 1
+        assert (
+            connection.execute(
+                "SELECT COUNT(*) FROM transcripts WHERE id = ?",
+                (str(transcript.id),),
+            ).fetchone()[0]
+            == 1
+        )
+        assert (
+            connection.execute(
+                "SELECT COUNT(*) FROM recaps WHERE id = ?",
+                (str(recap.id),),
+            ).fetchone()[0]
+            == 1
+        )
+        assert (
+            connection.execute(
+                "SELECT COUNT(*) FROM speaker_mappings WHERE job_id = ?",
+                (str(failed.id),),
+            ).fetchone()[0]
+            == 1
+        )
 
 
 class _CleanupContext:
@@ -208,11 +218,13 @@ class _CleanupContext:
         self.database.initialize()
         self.storage = LocalCampaignArtifactStorage(tmp_path / "artifacts")
         self.work_root = tmp_path / "work"
-        self.campaigns = SQLiteCampaignRepository(self.database)
-        self.jobs = SQLiteJobRepository(self.database)
-        self.transcripts = SQLiteTranscriptRepository(self.database, self.storage)
-        self.recaps = SQLiteRecapRepository(self.database, self.storage)
-        self.mappings = SQLiteSpeakerMappingRepository(self.database)
+        self.campaigns = SQLiteCampaignRepository(self.database, SYSTEM_SCOPE)
+        self.jobs = SQLiteJobRepository(self.database, SYSTEM_SCOPE)
+        self.transcripts = SQLiteTranscriptRepository(
+            self.database, self.storage, SYSTEM_SCOPE
+        )
+        self.recaps = SQLiteRecapRepository(self.database, self.storage, SYSTEM_SCOPE)
+        self.mappings = SQLiteSpeakerMappingRepository(self.database, SYSTEM_SCOPE)
         self.campaign = _campaign("campaign-1")
         self.other_campaign = _campaign("campaign-2")
         self.campaigns.save(self.campaign)
@@ -349,10 +361,7 @@ class _CleanupContext:
         source_recording.parent.mkdir(parents=True, exist_ok=True)
         source_recording.write_bytes(b"source")
         other_campaign_file = self.storage.path_for_uri(
-            (
-                f"{self.other_campaign.id}/records/transient/"
-                "job-other/prepared.wav"
-            ),
+            (f"{self.other_campaign.id}/records/transient/job-other/prepared.wav"),
         )
         other_campaign_file.parent.mkdir(parents=True, exist_ok=True)
         other_campaign_file.write_bytes(b"other")

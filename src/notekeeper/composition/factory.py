@@ -10,30 +10,25 @@ from notekeeper.application.ports import (
     AudioMetadataReader,
     AudioProcessor,
     AudioRecordingNormalizer,
-    AudioTrackRepository,
     CampaignArtifactStorage,
     CampaignFolderScanner,
-    CampaignRepository,
     Clock,
     IdGenerator,
     JobCleaner,
-    JobRepository,
-    ParticipantRepository,
     PreparedAudioManifestStore,
     ProgressEventSnapshotStore,
     RecapGenerator,
     RecapGuidances,
-    RecapRepository,
     SourceAudioMetadataReader,
     SpeakerIdentifier,
-    SpeakerMappingRepository,
-    SpeakerReviewSubmissionRepository,
     Tokenizer,
     Transcriber,
-    TranscriptRepository,
     TransientAudioCleaner,
-    VoiceSampleRepository,
+    UserPreferencesRepository,
+    WorkspaceRepository,
+    WorkspaceSettingsRepository,
 )
+from notekeeper.application import SYSTEM_SCOPE
 from notekeeper.infrastructure.cleanup import (
     LocalJobCleaner,
     LocalTransientAudioCleaner,
@@ -69,6 +64,9 @@ from notekeeper.infrastructure.sqlite import (
     SQLiteSpeakerReviewSubmissionRepository,
     SQLiteTranscriptRepository,
     SQLiteVoiceSampleRepository,
+    SQLiteWorkspaceRepository,
+    SQLiteWorkspaceSettingsRepository,
+    SQLiteUserPreferencesRepository,
 )
 from notekeeper.infrastructure.tokenization import TiktokenTranscriptTokenizer
 from notekeeper.infrastructure.whisperx import (
@@ -77,14 +75,17 @@ from notekeeper.infrastructure.whisperx import (
 )
 
 from .settings import NoteKeeperSettings
+from .repositories import SystemRepositories
 
 _FFMPEG_DLL_DIRECTORY_HANDLES: list[object] = []
 _CONFIGURED_FFMPEG_DLL_DIRECTORIES: set[str] = set()
 
 
 @dataclass(frozen=True, slots=True)
-class InfrastructureBundle:
+class LocalServices:
     settings: NoteKeeperSettings
+    database: SQLiteDatabase
+    repositories: SystemRepositories
     artifact_storage: CampaignArtifactStorage
     folder_scanner: CampaignFolderScanner
     metadata_reader: AudioMetadataReader
@@ -98,26 +99,20 @@ class InfrastructureBundle:
     tokenizer: Tokenizer
     recap_guidances: RecapGuidances
     recap_generator: RecapGenerator
-    campaign_repository: CampaignRepository
-    participant_repository: ParticipantRepository
-    voice_sample_repository: VoiceSampleRepository
-    audio_track_repository: AudioTrackRepository
-    transcript_repository: TranscriptRepository
-    recap_repository: RecapRepository
-    job_repository: JobRepository
-    speaker_mapping_repository: SpeakerMappingRepository
-    speaker_review_submission_repository: SpeakerReviewSubmissionRepository
     job_cleaner: JobCleaner
     transient_audio_cleaner: TransientAudioCleaner
     clock: Clock
     id_generator: IdGenerator
+    workspace_repository: WorkspaceRepository
+    workspace_settings_repository: WorkspaceSettingsRepository
+    user_preferences_repository: UserPreferencesRepository
 
 
-def build_infrastructure(
+def build_local_services(
     settings: NoteKeeperSettings | None = None,
     *,
     on_gpu_phase_completed: Callable[[], None] | None = None,
-) -> InfrastructureBundle:
+) -> LocalServices:
     resolved_settings = settings or NoteKeeperSettings()
     _configure_ffmpeg_dll_directory(resolved_settings)
     database = SQLiteDatabase(resolved_settings.sqlite_path)
@@ -194,7 +189,10 @@ def build_infrastructure(
         encoding_name=resolved_settings.tokenizer_encoding_name,
         max_token_count=resolved_settings.tokenizer_max_token_count,
     )
-    recap_guidances = JsonCampaignRecapGuidances(artifact_storage)
+    recap_guidances = JsonCampaignRecapGuidances(
+        artifact_storage,
+        resolved_settings.recap_prompts_template_path,
+    )
     deepseek_request_logger = (
         LocalDeepSeekRequestLogger(
             artifact_storage,
@@ -215,8 +213,29 @@ def build_infrastructure(
         request_logger=deepseek_request_logger,
     )
 
-    return InfrastructureBundle(
+    repositories = SystemRepositories(
+        campaign_repository=SQLiteCampaignRepository(database, SYSTEM_SCOPE),
+        participant_repository=SQLiteParticipantRepository(database, SYSTEM_SCOPE),
+        voice_sample_repository=SQLiteVoiceSampleRepository(database, SYSTEM_SCOPE),
+        audio_track_repository=SQLiteAudioTrackRepository(database, SYSTEM_SCOPE),
+        transcript_repository=SQLiteTranscriptRepository(
+            database, artifact_storage, SYSTEM_SCOPE
+        ),
+        recap_repository=SQLiteRecapRepository(
+            database, artifact_storage, SYSTEM_SCOPE
+        ),
+        job_repository=SQLiteJobRepository(database, SYSTEM_SCOPE),
+        speaker_mapping_repository=SQLiteSpeakerMappingRepository(
+            database, SYSTEM_SCOPE
+        ),
+        speaker_review_submission_repository=(
+            SQLiteSpeakerReviewSubmissionRepository(database, SYSTEM_SCOPE)
+        ),
+    )
+    return LocalServices(
         settings=resolved_settings,
+        database=database,
+        repositories=repositories,
         artifact_storage=artifact_storage,
         folder_scanner=folder_scanner,
         metadata_reader=metadata_reader,
@@ -230,17 +249,6 @@ def build_infrastructure(
         tokenizer=tokenizer,
         recap_guidances=recap_guidances,
         recap_generator=recap_generator,
-        campaign_repository=SQLiteCampaignRepository(database),
-        participant_repository=SQLiteParticipantRepository(database),
-        voice_sample_repository=SQLiteVoiceSampleRepository(database),
-        audio_track_repository=SQLiteAudioTrackRepository(database),
-        transcript_repository=SQLiteTranscriptRepository(database, artifact_storage),
-        recap_repository=SQLiteRecapRepository(database, artifact_storage),
-        job_repository=SQLiteJobRepository(database),
-        speaker_mapping_repository=SQLiteSpeakerMappingRepository(database),
-        speaker_review_submission_repository=(
-            SQLiteSpeakerReviewSubmissionRepository(database)
-        ),
         job_cleaner=LocalJobCleaner(
             database,
             artifact_storage,
@@ -249,7 +257,13 @@ def build_infrastructure(
         transient_audio_cleaner=transient_audio_cleaner,
         clock=clock,
         id_generator=id_generator,
+        workspace_repository=SQLiteWorkspaceRepository(database),
+        workspace_settings_repository=SQLiteWorkspaceSettingsRepository(database),
+        user_preferences_repository=SQLiteUserPreferencesRepository(database),
     )
+
+
+__all__ = ["LocalServices", "build_local_services"]
 
 
 def _configure_ffmpeg_dll_directory(settings: NoteKeeperSettings) -> None:

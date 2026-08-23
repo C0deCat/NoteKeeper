@@ -130,4 +130,3 @@ class Tokenizer(Protocol):
         *,
         target_token_count: int,
     ) -> tuple[TranscriptChunk, ...]: ...
-

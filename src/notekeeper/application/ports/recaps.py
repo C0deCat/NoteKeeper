@@ -19,6 +19,8 @@ class RecapGuidances(Protocol):
         combined_recap_guidances: str,
     ) -> None: ...
 
+    def reset_recap_guidances(self, campaign_id: CampaignId) -> None: ...
+
 
 class RecapGenerator(Protocol):
     def generate_chunk(
@@ -36,3 +38,10 @@ class RecapGenerator(Protocol):
         guidance: str,
         context: RecapGenerationContext,
     ) -> str: ...
+
+
+class RecapGeneratorFactory(Protocol):
+    def create(self, campaign_id: CampaignId) -> RecapGenerator: ...
+
+
+__all__ = ["RecapGenerator", "RecapGeneratorFactory", "RecapGuidances"]

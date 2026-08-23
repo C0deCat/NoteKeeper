@@ -87,8 +87,7 @@ class StreamingProgressTracker:
             now = time.monotonic()
             if (
                 normalized < 1.0
-                and now - self._last_update_published_at
-                < self._heartbeat_interval
+                and now - self._last_update_published_at < self._heartbeat_interval
             ):
                 return
             self._last_update_published_at = now
@@ -138,11 +137,7 @@ class StreamingProgressTracker:
     def _heartbeat(self) -> None:
         while not self._stop.wait(self._heartbeat_interval):
             with self._lock:
-                if (
-                    self._stage_index < 0
-                    or self._stage_completed
-                    or self._terminal
-                ):
+                if self._stage_index < 0 or self._stage_completed or self._terminal:
                     continue
                 if not self._timing_available or self._fraction <= 0.0:
                     continue
@@ -153,23 +148,18 @@ class StreamingProgressTracker:
 
     def _refresh_bar(self) -> None:
         if not self._timing_available:
-            self._bar = (
-                self._bar.update_expected_duration(1000)
-                .update_current_duration(round(1000 * self._fraction))
-            )
+            self._bar = self._bar.update_expected_duration(
+                1000
+            ).update_current_duration(round(1000 * self._fraction))
             return
         if self._fraction <= 0.0:
-            self._bar = (
-                self._bar.update_expected_duration(0)
-                .update_current_duration(0)
-            )
+            self._bar = self._bar.update_expected_duration(0).update_current_duration(0)
             return
         elapsed = max(round((time.monotonic() - self._stage_started_at) * 1000), 1)
         expected = max(elapsed, round(elapsed / self._fraction))
-        self._bar = (
-            self._bar.update_expected_duration(expected)
-            .update_current_duration(elapsed)
-        )
+        self._bar = self._bar.update_expected_duration(
+            expected
+        ).update_current_duration(elapsed)
 
     def _event(self, kind: ProgressEventKind) -> ProgressEvent:
         return ProgressEvent(

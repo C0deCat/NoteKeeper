@@ -33,7 +33,9 @@ class LocalCampaignFolderScanner(CampaignFolderScanner):
         audio_extensions: tuple[str, ...] = DEFAULT_AUDIO_EXTENSIONS,
     ) -> None:
         self._storage = storage
-        self._audio_extensions = tuple(extension.casefold() for extension in audio_extensions)
+        self._audio_extensions = tuple(
+            extension.casefold() for extension in audio_extensions
+        )
 
     def scan(self, campaign_id: CampaignId) -> CampaignFolderSnapshot:
         self._storage.ensure_campaign_layout(campaign_id)
@@ -50,10 +52,14 @@ class LocalCampaignFolderScanner(CampaignFolderScanner):
     ) -> tuple[ScannedVoiceSampleArtifact, ...]:
         players_path = campaign_path / "players"
         scanned: list[ScannedVoiceSampleArtifact] = []
-        for player_path in sorted(players_path.iterdir(), key=lambda path: path.name.casefold()):
+        for player_path in sorted(
+            players_path.iterdir(), key=lambda path: path.name.casefold()
+        ):
             if not player_path.is_dir():
                 continue
-            for sample_path in sorted(player_path.iterdir(), key=lambda path: path.name.casefold()):
+            for sample_path in sorted(
+                player_path.iterdir(), key=lambda path: path.name.casefold()
+            ):
                 if not self._is_audio_file(sample_path):
                     continue
                 scanned.append(
@@ -73,7 +79,9 @@ class LocalCampaignFolderScanner(CampaignFolderScanner):
     ) -> tuple[ScannedAudioTrackArtifact, ...]:
         records_path = campaign_path / "records"
         scanned: list[ScannedAudioTrackArtifact] = []
-        for record_path in sorted(records_path.iterdir(), key=lambda path: path.name.casefold()):
+        for record_path in sorted(
+            records_path.iterdir(), key=lambda path: path.name.casefold()
+        ):
             if not self._is_audio_file(record_path):
                 continue
             scanned.append(

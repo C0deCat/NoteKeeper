@@ -6,12 +6,12 @@ from types import SimpleNamespace
 
 from filelock import FileLock
 
-from notekeeper.composition.process_job_executor import (
+from notekeeper.infrastructure.runtime.jobs.process_job_executor import (
     LocalJobManager,
     _ExecutionCapacity,
     _ManagedExecution,
 )
-from notekeeper.domain import JobStatus, ProcessingJob
+from notekeeper.domain import Campaign, JobStatus, ProcessingJob
 
 
 class _Repository:
@@ -47,6 +47,10 @@ def _settings(*, total=4, gpu=1, device="cpu"):
     )
 
 
+def _worker_target(*_args):
+    return None
+
+
 def _job(index: int, *, transcript=False, status=JobStatus.QUEUED):
     return ProcessingJob(
         id=f"job-{index}",
@@ -63,8 +67,10 @@ def _manager(root: Path, settings, repository):
     return LocalJobManager(
         settings,
         SimpleNamespace(),
+        SimpleNamespace(get=lambda campaign_id: Campaign(campaign_id, "Campaign")),
         repository,
         _Clock(),
+        worker_target=_worker_target,
         lock_root=root,
     )
 
@@ -83,10 +89,7 @@ def test_persisted_queue_recovery_is_fifo_and_deduplicated(tmp_path: Path) -> No
 def test_capacity_slots_are_shared_by_multiple_managers(tmp_path: Path) -> None:
     jobs = tuple(_job(index) for index in range(1, 6))
     repository = _Repository(jobs)
-    managers = [
-        _manager(tmp_path, _settings(total=4), repository)
-        for _ in jobs
-    ]
+    managers = [_manager(tmp_path, _settings(total=4), repository) for _ in jobs]
     acquired = [
         manager._try_acquire_capacity(job)
         for manager, job in zip(managers[:4], jobs[:4], strict=True)

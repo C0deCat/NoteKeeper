@@ -25,7 +25,7 @@ def create_app(runtime_factory: RuntimeFactory) -> typer.Typer:
         runtime = runtime_factory()
 
         def action() -> None:
-            result = runtime.use_cases.list_jobs_for_campaign.execute(
+            result = runtime.use_cases.jobs.list_for_campaign.execute(
                 ListJobsForCampaignCommand(campaign_id=campaign_id),
             )
             for job in result.jobs:
@@ -38,7 +38,7 @@ def create_app(runtime_factory: RuntimeFactory) -> typer.Typer:
         runtime = runtime_factory()
 
         def action() -> None:
-            result = runtime.use_cases.create_processing_job_for_audio_track.execute(
+            result = runtime.use_cases.jobs.create.execute(
                 CreateProcessingJobForAudioTrackCommand(
                     audio_track_id=audio_track_id,
                 ),
@@ -53,7 +53,7 @@ def create_app(runtime_factory: RuntimeFactory) -> typer.Typer:
         runtime = runtime_factory()
         run(
             lambda: echo_job(
-                runtime.use_cases.get_job_status.execute(
+                runtime.use_cases.jobs.get_status.execute(
                     GetJobStatusCommand(job_id=job_id),
                 ).job,
             ),
@@ -65,10 +65,12 @@ def create_app(runtime_factory: RuntimeFactory) -> typer.Typer:
 
         def action() -> None:
             try:
+                runtime.use_cases.jobs.get_status.execute(
+                    GetJobStatusCommand(job_id=job_id)
+                )
                 with CliProgressDisplay(runtime, job_id):
                     (
-                        runtime.use_cases.queue_processing_job
-                        or runtime.use_cases.run_processing_job
+                        runtime.use_cases.jobs.queue or runtime.use_cases.jobs.queue
                     ).execute(
                         QueueProcessingJobCommand(job_id=job_id),
                     )
@@ -86,7 +88,7 @@ def create_app(runtime_factory: RuntimeFactory) -> typer.Typer:
         runtime = runtime_factory()
 
         def action() -> None:
-            result = runtime.use_cases.restart_failed_processing_job.execute(
+            result = runtime.use_cases.jobs.restart_failed.execute(
                 RestartFailedProcessingJobCommand(job_id=job_id),
             )
             typer.echo(f"restarted_from={result.source_job.id}")
@@ -101,7 +103,7 @@ def create_app(runtime_factory: RuntimeFactory) -> typer.Typer:
 
         def action() -> None:
             with CliProgressDisplay(runtime, job_id):
-                result = runtime.use_cases.generate_recap.execute(
+                result = runtime.use_cases.recaps.generate.execute(
                     GenerateRecapCommand(job_id=job_id),
                 )
             echo_job(result.job)

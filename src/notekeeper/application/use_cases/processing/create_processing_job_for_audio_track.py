@@ -10,6 +10,7 @@ from notekeeper.application.ports import (
     JobRepository,
 )
 from notekeeper.application.results import CreateProcessingJobForAudioTrackResult
+from notekeeper.application.settings_service import SettingsService
 from notekeeper.application.use_cases.utils import (
     require_audio_track,
     require_campaign,
@@ -31,12 +32,14 @@ class CreateProcessingJobForAudioTrack:
         job_repository: JobRepository,
         clock: Clock,
         id_generator: IdGenerator,
+        settings_service: SettingsService | None = None,
     ) -> None:
         self._campaign_repository = campaign_repository
         self._audio_track_repository = audio_track_repository
         self._job_repository = job_repository
         self._clock = clock
         self._id_generator = id_generator
+        self._settings_service = settings_service
 
     def execute(
         self,
@@ -65,6 +68,11 @@ class CreateProcessingJobForAudioTrack:
             status=JobStatus.PENDING,
             created_at=now,
             updated_at=now,
+            settings_snapshot=(
+                self._settings_service.snapshot_for_campaign(str(campaign.id))
+                if self._settings_service is not None
+                else None
+            ),
         )
         self._job_repository.save(job)
         return CreateProcessingJobForAudioTrackResult(

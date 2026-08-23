@@ -11,7 +11,6 @@ from notekeeper.application import PortExecutionError
 from notekeeper.application.ports import (
     AudioMetadataReader,
     AudioProcessor,
-    AudioRecordingNormalizer,
     AudioTrackRepository,
     CampaignArtifactStorage,
     CampaignFolderScanner,
@@ -26,20 +25,19 @@ from notekeeper.application.ports import (
     RecapGenerator,
     RecapGuidances,
     RecapRepository,
-    SourceAudioMetadataReader,
     SpeakerIdentifier,
     SpeakerMappingRepository,
     SpeakerReviewSubmissionRepository,
     Tokenizer,
     Transcriber,
     TranscriptRepository,
-    TransientAudioCleaner,
     VoiceSampleRepository,
 )
 from notekeeper.composition import (
-    InfrastructureBundle,
+    LocalServices,
     NoteKeeperSettings,
-    build_infrastructure,
+    SystemRepositories,
+    build_local_services,
 )
 from notekeeper.infrastructure import InfrastructureError
 from notekeeper.infrastructure.cleanup import LocalJobCleaner
@@ -61,6 +59,7 @@ from notekeeper.infrastructure.speaker_mapping import SampleBasedSpeakerIdentifi
 from notekeeper.infrastructure.sqlite import (
     SQLiteAudioTrackRepository,
     SQLiteCampaignRepository,
+    SQLiteDatabase,
     SQLiteJobRepository,
     SQLiteParticipantRepository,
     SQLiteProgressEventSnapshotStore,
@@ -74,39 +73,17 @@ from notekeeper.infrastructure.tokenization import TiktokenTranscriptTokenizer
 from notekeeper.infrastructure.whisperx import WhisperXTranscriber
 
 
-def test_infrastructure_bundle_uses_port_types_only() -> None:
-    hints = get_type_hints(InfrastructureBundle)
+def test_local_services_groups_repositories_and_exposes_database_explicitly() -> None:
+    hints = get_type_hints(LocalServices)
 
-    assert "database" not in {field.name for field in fields(InfrastructureBundle)}
-    assert hints == {
-        "settings": NoteKeeperSettings,
-        "artifact_storage": CampaignArtifactStorage,
-        "folder_scanner": CampaignFolderScanner,
-        "metadata_reader": AudioMetadataReader,
-        "source_metadata_reader": SourceAudioMetadataReader,
-        "audio_normalizer": AudioRecordingNormalizer,
-        "prepared_audio_manifest_store": PreparedAudioManifestStore,
-        "progress_event_snapshot_store": ProgressEventSnapshotStore,
-        "audio_processor": AudioProcessor,
-        "transcriber": Transcriber,
-        "speaker_identifier": SpeakerIdentifier,
-        "tokenizer": Tokenizer,
-        "recap_guidances": RecapGuidances,
-        "recap_generator": RecapGenerator,
-        "campaign_repository": CampaignRepository,
-        "participant_repository": ParticipantRepository,
-        "voice_sample_repository": VoiceSampleRepository,
-        "audio_track_repository": AudioTrackRepository,
-        "transcript_repository": TranscriptRepository,
-        "recap_repository": RecapRepository,
-        "job_repository": JobRepository,
-        "speaker_mapping_repository": SpeakerMappingRepository,
-        "speaker_review_submission_repository": SpeakerReviewSubmissionRepository,
-        "job_cleaner": JobCleaner,
-        "transient_audio_cleaner": TransientAudioCleaner,
-        "clock": Clock,
-        "id_generator": IdGenerator,
+    assert {field.name for field in fields(LocalServices)} >= {
+        "database",
+        "repositories",
+        "workspace_repository",
     }
+    assert hints["settings"] is NoteKeeperSettings
+    assert hints["database"] is SQLiteDatabase
+    assert hints["repositories"] is SystemRepositories
 
     concrete_types = {
         FfmpegAudioProcessor,
@@ -133,7 +110,12 @@ def test_infrastructure_bundle_uses_port_types_only() -> None:
         SystemClock,
         UuidGenerator,
     }
-    assert concrete_types.isdisjoint(hints.values())
+    non_boundary_hints = {
+        value
+        for name, value in hints.items()
+        if name not in {"database", "repositories"}
+    }
+    assert concrete_types.isdisjoint(non_boundary_hints)
 
 
 def test_infrastructure_implementations_inherit_ports() -> None:
@@ -171,7 +153,7 @@ def test_infrastructure_error_is_port_execution_error() -> None:
     assert issubclass(InfrastructureError, PortExecutionError)
 
 
-def test_build_infrastructure_wires_campaign_recap_guidances_without_loading_prompts(
+def test_build_local_services_wires_campaign_recap_guidances_without_loading_prompts(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -193,7 +175,7 @@ def test_build_infrastructure_wires_campaign_recap_guidances_without_loading_pro
         CapturingRecapGenerator,
     )
 
-    bundle = build_infrastructure(
+    bundle = build_local_services(
         NoteKeeperSettings(
             storage_root=tmp_path / "artifacts",
             sqlite_path=tmp_path / "notekeeper.sqlite3",
@@ -210,7 +192,7 @@ def test_build_infrastructure_wires_campaign_recap_guidances_without_loading_pro
     assert isinstance(captured["request_logger"], NoOpDeepSeekRequestLogger)
 
 
-def test_build_infrastructure_can_enable_deepseek_request_logging(
+def test_build_local_services_can_enable_deepseek_request_logging(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -232,7 +214,7 @@ def test_build_infrastructure_can_enable_deepseek_request_logging(
         CapturingRecapGenerator,
     )
 
-    build_infrastructure(
+    build_local_services(
         NoteKeeperSettings(
             storage_root=tmp_path / "artifacts",
             sqlite_path=tmp_path / "notekeeper.sqlite3",
@@ -244,7 +226,7 @@ def test_build_infrastructure_can_enable_deepseek_request_logging(
     assert isinstance(captured["request_logger"], LocalDeepSeekRequestLogger)
 
 
-def test_build_infrastructure_configures_ffmpeg_dll_directory_on_windows(
+def test_build_local_services_configures_ffmpeg_dll_directory_on_windows(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -278,7 +260,7 @@ def test_build_infrastructure_configures_ffmpeg_dll_directory_on_windows(
     monkeypatch.setattr(factory_module, "_CONFIGURED_FFMPEG_DLL_DIRECTORIES", set())
     monkeypatch.setattr(factory_module, "_FFMPEG_DLL_DIRECTORY_HANDLES", [])
 
-    build_infrastructure(
+    build_local_services(
         NoteKeeperSettings(
             storage_root=tmp_path / "artifacts",
             sqlite_path=tmp_path / "notekeeper.sqlite3",
@@ -290,7 +272,7 @@ def test_build_infrastructure_configures_ffmpeg_dll_directory_on_windows(
     assert len(factory_module._FFMPEG_DLL_DIRECTORY_HANDLES) == 1
 
 
-def test_build_infrastructure_skips_ffmpeg_dll_directory_without_setting(
+def test_build_local_services_skips_ffmpeg_dll_directory_without_setting(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -318,7 +300,7 @@ def test_build_infrastructure_skips_ffmpeg_dll_directory_without_setting(
         CapturingRecapGenerator,
     )
 
-    build_infrastructure(
+    build_local_services(
         NoteKeeperSettings(
             storage_root=tmp_path / "artifacts",
             sqlite_path=tmp_path / "notekeeper.sqlite3",

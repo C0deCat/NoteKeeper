@@ -167,12 +167,8 @@ class FfmpegAudioProcessor(AudioProcessor):
             session_duration=audio_track.metadata.duration_seconds,
             voice_samples=voice_samples,
         )
-        prepared_total_duration = (
-            session_time_range.duration_seconds
-            + sum(
-                sample_range.time_range.duration_seconds
-                for sample_range in sample_ranges
-            )
+        prepared_total_duration = session_time_range.duration_seconds + sum(
+            sample_range.time_range.duration_seconds for sample_range in sample_ranges
         )
 
         manifest_payload = build_prepared_manifest_payload(
@@ -237,13 +233,12 @@ class FfmpegAudioProcessor(AudioProcessor):
             duration_seconds=duration_seconds,
             progress_callback=(
                 lambda fraction: progress.update_fraction(
-                    (
-                        completed_duration_seconds
-                        + duration_seconds * fraction
-                    )
+                    (completed_duration_seconds + duration_seconds * fraction)
                     / total_duration_seconds
                 )
-            ) if progress is not None and total_duration_seconds > 0 else None,
+            )
+            if progress is not None and total_duration_seconds > 0
+            else None,
         )
         self._require_output_file(output_path, f"normalized {source_role} audio")
         return {
@@ -378,8 +373,7 @@ class FfmpegAudioProcessor(AudioProcessor):
 
     def _prepared_uri(self, campaign_name: str, job_name: str) -> str:
         return (
-            f"{campaign_name}/records/transient/"
-            f"{job_name}/prepared.{self._container}"
+            f"{campaign_name}/records/transient/{job_name}/prepared.{self._container}"
         )
 
     def _concat_file_path(self, path: Path) -> str:

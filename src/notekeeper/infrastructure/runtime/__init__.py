@@ -2,14 +2,11 @@
 
 from .campaign_mutation_guard import LocalCampaignMutationGuard
 from .dashboard_event_hub import InMemoryDashboardEventHub
-from .event_publishing_campaign_repository import (
-    EventPublishingCampaignRepository,
+from .local_dashboard_campaign_repository import (
+    LocalDashboardCampaignRepositoryDecorator,
 )
-from .event_publishing_job_cleaner import EventPublishingJobCleaner
-from .event_publishing_job_repository import EventPublishingJobRepository
-from .mutation_guarding_campaign_repository import (
-    MutationGuardingCampaignRepository,
-)
+from .local_dashboard_job_cleaner import LocalDashboardJobCleanerDecorator
+from .local_dashboard_job_repository import LocalDashboardJobRepositoryDecorator
 from .persisted_progress_event_hub import PersistedProgressEventHub
 from .progress_event_hub import InMemoryProgressEventHub
 from .progress_tracker import StreamingProgressTracker
@@ -20,10 +17,9 @@ from .uuid_generator import UuidGenerator
 __all__ = [
     "InMemoryDashboardEventHub",
     "LocalCampaignMutationGuard",
-    "MutationGuardingCampaignRepository",
-    "EventPublishingCampaignRepository",
-    "EventPublishingJobCleaner",
-    "EventPublishingJobRepository",
+    "LocalDashboardCampaignRepositoryDecorator",
+    "LocalDashboardJobCleanerDecorator",
+    "LocalDashboardJobRepositoryDecorator",
     "InMemoryProgressEventHub",
     "PersistedProgressEventHub",
     "StreamingProgressTracker",

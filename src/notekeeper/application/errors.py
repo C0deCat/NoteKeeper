@@ -15,3 +15,19 @@ class NotFoundError(ApplicationError):
 
 class InvalidOperationError(ApplicationError):
     """Raised when a use case cannot be executed in the current state."""
+
+
+class AuthenticationRequiredError(ApplicationError):
+    """Raised when an operation requires an authenticated user."""
+
+
+class AuthorizationError(ApplicationError):
+    """Raised when an authenticated actor lacks a required workspace role."""
+
+
+class InvalidCredentialsError(ApplicationError):
+    """Raised when supplied authentication credentials are invalid."""
+
+
+class UserAlreadyExistsError(ApplicationError):
+    """Raised when a login is already registered."""

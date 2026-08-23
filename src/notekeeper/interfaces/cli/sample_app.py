@@ -28,7 +28,7 @@ def create_app(runtime_factory: RuntimeFactory) -> typer.Typer:
 
         def action() -> None:
             echo_metadata(inspect_audio(runtime, artifact_uri, artifact_kind))
-            result = runtime.use_cases.add_voice_sample.execute(
+            result = runtime.use_cases.samples.add.execute(
                 AddVoiceSampleCommand(
                     campaign_id=campaign_id,
                     participant_id=participant_id,
@@ -45,7 +45,7 @@ def create_app(runtime_factory: RuntimeFactory) -> typer.Typer:
         runtime = runtime_factory()
 
         def action() -> None:
-            result = runtime.use_cases.list_voice_samples.execute(
+            result = runtime.use_cases.samples.list.execute(
                 ListVoiceSamplesCommand(
                     campaign_id=campaign_id,
                     participant_id=participant_id,

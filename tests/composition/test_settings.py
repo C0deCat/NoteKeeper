@@ -74,3 +74,45 @@ def test_settings_reject_gpu_limit_above_total_limit() -> None:
             max_concurrent_jobs=1,
             max_concurrent_gpu_jobs=2,
         )
+
+
+def test_settings_load_local_auth_configuration(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".env").write_text(
+        "\n".join(
+            (
+                "NOTEKEEPER_AUTH_ENABLED=true",
+                "NOTEKEEPER_AUTH_PROVIDER=local",
+                "NOTEKEEPER_LOCAL_AUTH_USERS_PATH=private/users.json",
+                "NOTEKEEPER_CLI_AUTH_SESSION_PATH=private/session.json",
+            )
+        ),
+        encoding="utf-8",
+    )
+
+    settings = NoteKeeperSettings()
+
+    assert settings.auth_enabled is True
+    assert settings.auth_provider == "local"
+    assert settings.local_auth_users_path == Path("private/users.json")
+    assert settings.cli_auth_session_path == Path("private/session.json")
+
+
+def test_settings_default_language_catalog_matches_faster_whisper() -> None:
+    from faster_whisper.tokenizer import _LANGUAGE_CODES
+
+    settings = NoteKeeperSettings(_env_file=None)
+
+    assert settings.whisperx_available_languages == ("auto", *_LANGUAGE_CODES)
+
+
+@pytest.mark.parametrize("temperature", (-0.1, 2.1, 0.15))
+def test_settings_reject_invalid_deepseek_temperature(temperature: float) -> None:
+    with pytest.raises(ValidationError):
+        NoteKeeperSettings(
+            _env_file=None,
+            deepseek_temperature=temperature,
+        )

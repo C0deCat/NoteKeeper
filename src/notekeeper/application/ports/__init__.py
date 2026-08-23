@@ -1,5 +1,7 @@
 """Ports used by the application layer."""
 
+from .auth import AuthProvider
+
 from .events import (
     DashboardEventHub,
     DashboardEventListener,
@@ -28,7 +30,7 @@ from .processing import (
     Transcriber,
     TransientAudioCleaner,
 )
-from .recaps import RecapGenerator, RecapGuidances
+from .recaps import RecapGenerator, RecapGeneratorFactory, RecapGuidances
 from .repositories import (
     AudioTrackRepository,
     CampaignRepository,
@@ -39,8 +41,10 @@ from .repositories import (
     SpeakerReviewSubmissionRepository,
     TranscriptRepository,
     VoiceSampleRepository,
+    WorkspaceRepository,
 )
 from .runtime import Clock, IdGenerator
+from .settings import UserPreferencesRepository, WorkspaceSettingsRepository
 from .storage import (
     ArtifactStorage,
     CampaignArtifactStorage,
@@ -50,6 +54,7 @@ from .storage import (
 
 __all__ = [
     "ArtifactStorage",
+    "AuthProvider",
     "AudioMetadataReader",
     "AudioProcessor",
     "AudioRecordingNormalizer",
@@ -78,6 +83,7 @@ __all__ = [
     "ProgressTracker",
     "ProgressTrackerFactory",
     "RecapGenerator",
+    "RecapGeneratorFactory",
     "RecapGuidances",
     "RecapRepository",
     "SourceAudioMetadataReader",
@@ -89,5 +95,8 @@ __all__ = [
     "TransientAudioCleaner",
     "TranscriptRepository",
     "Unsubscribe",
+    "UserPreferencesRepository",
     "VoiceSampleRepository",
+    "WorkspaceRepository",
+    "WorkspaceSettingsRepository",
 ]

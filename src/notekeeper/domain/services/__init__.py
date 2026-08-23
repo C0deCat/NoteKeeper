@@ -1,4 +1,4 @@
-"""Domain services for Stage 1 campaign processing."""
+"""Domain services for campaign processing."""
 
 from .add_audio_track import add_audio_track
 from .add_participant import add_participant

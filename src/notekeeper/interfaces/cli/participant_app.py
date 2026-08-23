@@ -20,7 +20,7 @@ def create_app(runtime_factory: RuntimeFactory) -> typer.Typer:
         runtime = runtime_factory()
         run(
             lambda: echo_participant(
-                runtime.use_cases.add_participant.execute(
+                runtime.use_cases.participants.add.execute(
                     AddParticipantToCampaignCommand(
                         campaign_id=campaign_id,
                         display_name=display_name,
@@ -34,7 +34,7 @@ def create_app(runtime_factory: RuntimeFactory) -> typer.Typer:
         runtime = runtime_factory()
 
         def action() -> None:
-            result = runtime.use_cases.list_participants.execute(
+            result = runtime.use_cases.participants.list.execute(
                 ListParticipantsCommand(campaign_id=campaign_id),
             )
             for participant in result.participants:

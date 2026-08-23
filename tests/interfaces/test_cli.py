@@ -45,8 +45,9 @@ from notekeeper.domain import (
     Recap,
 )
 from notekeeper.infrastructure.runtime import InMemoryProgressEventHub
-from notekeeper.interfaces import RuntimeDiagnostics, Stage1UseCases
+from notekeeper.interfaces import RuntimeDiagnostics
 from notekeeper.interfaces.cli import build_app
+from use_case_fixture import application_use_cases_from_flat
 
 
 class FakeUseCase:
@@ -95,7 +96,7 @@ class FakeRuntime:
             metadata=metadata,
             title="Session 1",
         )
-        self.use_cases = Stage1UseCases(
+        self.use_cases = application_use_cases_from_flat(
             create_campaign=FakeUseCase(None),
             get_campaign=FakeUseCase(None),
             list_campaigns=FakeUseCase(ListCampaignsResult(campaigns=(campaign,))),
@@ -203,7 +204,7 @@ class FakeRuntime:
         return f"local:{artifact.uri}"
 
     def wait_for_job(self, job_id: str) -> ProcessingJob:
-        return self.use_cases.get_job_status.result.job
+        return self.use_cases.jobs.get_status.result.job
 
     def shutdown_job_manager(self) -> None:
         pass
@@ -229,7 +230,7 @@ def test_cli_campaign_list_uses_runtime_use_case() -> None:
     assert result.exit_code == 0
     assert "id=campaign-1 name=Demo" in result.output
     assert isinstance(
-        runtime.use_cases.list_campaigns.commands[0],
+        runtime.use_cases.campaigns.list.commands[0],
         ListCampaignsCommand,
     )
 
@@ -250,7 +251,7 @@ def test_cli_campaign_sync_uses_runtime_use_case() -> None:
     assert "audio_tracks_updated=6" in result.output
     assert "audio_tracks_deleted=7" in result.output
     assert "pending_jobs_deleted=8" in result.output
-    command = runtime.use_cases.sync_campaign_folder.commands[0]
+    command = runtime.use_cases.campaigns.sync_folder.commands[0]
     assert isinstance(command, SyncCampaignFolderCommand)
     assert command.campaign_id == "campaign-1"
 
@@ -269,7 +270,7 @@ def test_cli_recap_prompts_show_outputs_campaign_json() -> None:
         "chunk_recap_prompt": "chunk prompt",
         "combine_chunks_prompt": "combined prompt",
     }
-    command = runtime.use_cases.get_recap_guidances.commands[0]
+    command = runtime.use_cases.campaigns.get_recap_guidances.commands[0]
     assert isinstance(command, GetRecapGuidancesCommand)
     assert command.campaign_id == "campaign-1"
 
@@ -297,7 +298,7 @@ def test_cli_recap_prompts_set_reads_both_utf8_files(tmp_path: Path) -> None:
     )
 
     assert result.exit_code == 0
-    command = runtime.use_cases.update_recap_guidances.commands[0]
+    command = runtime.use_cases.campaigns.update_recap_guidances.commands[0]
     assert isinstance(command, UpdateRecapGuidancesCommand)
     assert command.chunk_recap_guidances == "Новый chunk"
     assert command.combined_recap_guidances == "Новый combined"
@@ -325,7 +326,7 @@ def test_cli_recap_prompts_set_reports_unreadable_file(tmp_path: Path) -> None:
 
     assert result.exit_code == 1
     assert "could not read prompt file" in result.output
-    assert runtime.use_cases.update_recap_guidances.commands == []
+    assert runtime.use_cases.campaigns.update_recap_guidances.commands == []
 
 
 def test_cli_job_create_uses_existing_audio_track_use_case() -> None:
@@ -337,7 +338,7 @@ def test_cli_job_create_uses_existing_audio_track_use_case() -> None:
     assert result.exit_code == 0
     assert "audio_track id=audio-track-1" in result.output
     assert "job id=job-1" in result.output
-    command = runtime.use_cases.create_processing_job_for_audio_track.commands[0]
+    command = runtime.use_cases.jobs.create.commands[0]
     assert isinstance(command, CreateProcessingJobForAudioTrackCommand)
     assert command.audio_track_id == "audio-track-1"
 
@@ -352,7 +353,7 @@ def test_cli_job_restart_uses_failed_restart_use_case() -> None:
     assert "restarted_from=job-failed" in result.output
     assert "audio_track id=audio-track-1" in result.output
     assert "job id=job-1" in result.output
-    command = runtime.use_cases.restart_failed_processing_job.commands[0]
+    command = runtime.use_cases.jobs.restart_failed.commands[0]
     assert isinstance(command, RestartFailedProcessingJobCommand)
     assert command.job_id == "job-failed"
 
@@ -360,7 +361,7 @@ def test_cli_job_restart_uses_failed_restart_use_case() -> None:
 def test_cli_job_recreate_recap_uses_existing_generate_recap_use_case() -> None:
     runtime = FakeRuntime()
     job = replace(
-        runtime.use_cases.get_job_status.result.job,
+        runtime.use_cases.jobs.get_status.result.job,
         transcript_id="transcript-1",
         recap_id="recap-new",
     )
@@ -369,7 +370,7 @@ def test_cli_job_recreate_recap_uses_existing_generate_recap_use_case() -> None:
         transcript_id="transcript-1",
         markdown="# Recap",
     )
-    runtime.use_cases.generate_recap.result = GenerateRecapResult(
+    runtime.use_cases.recaps.generate.result = GenerateRecapResult(
         job=job,
         recap=recap,
     )
@@ -384,15 +385,15 @@ def test_cli_job_recreate_recap_uses_existing_generate_recap_use_case() -> None:
     assert "job id=job-1" in result.output
     assert "transcript=transcript-1" in result.output
     assert "recap=recap-new" in result.output
-    command = runtime.use_cases.generate_recap.commands[0]
+    command = runtime.use_cases.recaps.generate.commands[0]
     assert isinstance(command, GenerateRecapCommand)
     assert command.job_id == "job-1"
 
 
 def test_cli_review_submit_supports_player_custom_and_keep_decisions() -> None:
     runtime = FakeRuntime()
-    runtime.use_cases.review_speaker_mappings.result = SimpleNamespace(
-        job=runtime.use_cases.get_job_status.result.job,
+    runtime.use_cases.jobs.review_speaker_mappings.result = SimpleNamespace(
+        job=runtime.use_cases.jobs.get_status.result.job,
         warnings=(),
     )
     app = build_app(lambda: runtime, lambda value: None)
@@ -414,7 +415,7 @@ def test_cli_review_submit_supports_player_custom_and_keep_decisions() -> None:
     )
 
     assert result.exit_code == 0
-    command = runtime.use_cases.review_speaker_mappings.commands[0]
+    command = runtime.use_cases.jobs.review_speaker_mappings.commands[0]
     assert isinstance(command, ReviewSpeakerMappingsCommand)
     assert command.mappings == (
         ManualSpeakerMappingCommand(
@@ -443,7 +444,7 @@ def test_cli_review_submit_requires_at_least_one_decision() -> None:
 
     assert result.exit_code == 1
     assert "at least one --mapping, --label, or --keep is required" in result.output
-    assert runtime.use_cases.review_speaker_mappings.commands == []
+    assert runtime.use_cases.jobs.review_speaker_mappings.commands == []
 
 
 def test_cli_diagnostics_does_not_print_secret_values() -> None:

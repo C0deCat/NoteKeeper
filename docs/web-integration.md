@@ -1,1028 +1,626 @@
-# Web Integration
+# Готовность NoteKeeper к веб-интеграции и API
 
-## Назначение документа
+## Назначение и границы оценки
 
-Этот документ описывает готовность NoteKeeper и целевую архитектуру публичного
-сервиса, которым одновременно пользуется большое количество пользователей через:
+Документ повторно оценивает текущее состояние NoteKeeper и описывает путь от
+локального приложения к веб-клиенту и публичному API. Он отвечает на два разных
+вопроса:
 
-- Web-приложение;
-- мобильное приложение;
-- единый внешний API.
+1. Можно ли сейчас добавить HTTP-интерфейс, не переписывая ядро?
+2. Можно ли сейчас безопасно публиковать NoteKeeper как multi-user SaaS?
 
-Целевой продукт является multi-tenant SaaS, доступным через интернет. Локальный
-однопользовательский режим может сохраняться для разработки и диагностики, но не
-определяет продуктовую архитектуру.
+Ответы различаются: **HTTP-адаптер уже можно строить поверх существующего
+application layer**, но **публичный production-сервис пока не готов**.
 
-Документ основан на состоянии ветки `master` на коммите `c75ba28`. На момент
-первичного аудита полный набор тестов проходил успешно:
+Оценка выполнена для ветки `feats/auth`, коммита `e5ac0d5`. Источниками служили
+production-код, тесты и [карта файлов](file_map.md). Контрольный прогон:
 
 ```text
-217 passed in 20.73s
+317 passed in 55.85s
 ```
 
-## Зафиксированные продуктовые решения
+Проценты ниже — инженерная оценка полноты основы, а не формальная метрика
+покрытия или сроков.
 
-### Клиенты
+## Краткий вывод
 
-- Web и mobile используют один versioned API с префиксом `/api/v1`.
-- Клиенты не обращаются напрямую к базе данных, файловому хранилищу, очереди или
-  AI-провайдерам.
-- API не содержит клиент-специфичной бизнес-логики. Отличия web, iOS и Android
-  ограничиваются аутентификацией, покупками и пользовательским интерфейсом.
-- Все пользовательские данные изолированы по workspace.
+| Целевой результат | Готовность | Вывод |
+| --- | ---: | --- |
+| Добавить новый API-адаптер | ~75% | Границы слоёв, use cases, DTO и composition уже подходят |
+| Локальный web-MVP на одном доверенном хосте | ~60% | Нужны FastAPI app, schemas, routes, upload и SSE |
+| Ограниченная публичная beta | ~35% | Нужны production identity, PostgreSQL, object storage и durable queue |
+| Горизонтально масштабируемый production SaaS | ~20% | Дополнительно нужны billing, distributed events, observability и эксплуатационный контур |
 
-### Монетизация
+Главное изменение относительно предыдущей оценки: пользователи, workspaces,
+memberships, роли и tenant-scoped repositories **уже реализованы**. Их больше не
+следует планировать с нуля. Они образуют качественную основу, но пока рассчитаны
+на локальную инфраструктуру и не заменяют production authentication,
+распределённую persistence и HTTP authorization boundary.
 
-На первом этапе существует только один тариф:
+## Что изменилось после предыдущей оценки
 
-| Параметр | Значение |
+Предыдущая версия документа фиксировала отсутствие tenancy и синхронный
+lifecycle jobs. Текущее состояние заметно сильнее:
+
+- добавлены `User`, `Workspace`, `WorkspaceMembership` и роли
+  `owner`/`editor`/`viewer`;
+- появился неизменяемый `AccessContext` для actor/workspace/role;
+- SQLite repositories создаются с явным `WorkspaceScope` и скрывают чужие
+  campaigns, jobs, transcripts, recaps, speaker mappings и остальные ресурсы;
+- scoped writes защищены от подмены существующего ID чужого tenant;
+- mutation use cases проверяют актуальное membership и запрещают запись
+  `viewer`;
+- composition разделена на локальный host и неизменяемую
+  `ApplicationSession` конкретного пользователя и workspace;
+- реализованы локальная регистрация, login и управление membership;
+- processing job можно перевести в `queued` и выполнять асинхронно в отдельном
+  OS process;
+- есть локальные cross-process capacity locks, cancel и recovery потерянных
+  worker-процессов;
+- progress snapshot сохраняется в SQLite и виден из другого локального runtime;
+- число проходящих тестов выросло с 217 до 317, включая tenancy, authorization,
+  queue, recovery и composition.
+
+Эти изменения поднимают готовность именно **ядра и локального web-MVP**. Они не
+добавили HTTP API, безопасный интернет-login, облачное хранилище, распределённую
+очередь или billing.
+
+## Матрица текущей готовности
+
+| Направление | Состояние | Что уже есть | Чего не хватает |
+| --- | --- | --- | --- |
+| Архитектурные границы | Высокая | `domain`, `application`, ports, infrastructure, composition, интерфейсные адаптеры | Зафиксировать те же границы для API package |
+| Application API | Высокая | Команды, результаты и сгруппированный `ApplicationUseCases` | Несколько web-oriented queries и транзакционные операции |
+| Multi-tenancy | Средне-высокая | Workspace, membership, роли, scoped repositories и проверки revoked membership | Invitations, lifecycle workspace, tenant-aware constraints в production DB |
+| Authorization | Средне-высокая | Ролевые guards на mutation boundary, скрытие чужих ресурсов | HTTP identity dependency, policy matrix, audit и security tests |
+| HTTP API | Не реализован | FastAPI, Uvicorn, Pydantic и multipart уже в dependencies | ASGI app, routers, schemas, mappers, error handlers, OpenAPI tests |
+| Authentication | Только local/dev | `AuthProvider`, `Authenticator`, local login и sessions для CLI | OIDC/JWT или безопасные server sessions, revocation, recovery, MFA |
+| Persistence | Только локальный режим | SQLite schema, migrations и scoped repositories | PostgreSQL, FK/constraints, connection pool, production migrations, unit of work |
+| Audio upload | Не реализован для web | Metadata probe и normalization use cases | Multipart/presigned flow, limits, quarantine, checksum, retention |
+| Artifact storage | Только один хост | Безопасные managed filesystem paths и `ArtifactRef` | Object storage adapter, signed download, lifecycle policy |
+| Job execution | Сильная local-реализация | Async queueing, OS isolation, capacity, cancel, local recovery | Durable broker, leases, retries, dead-letter flow, distributed cancellation |
+| Progress | Средняя local-готовность | Persisted latest snapshot и подписки | Авторизованный SSE endpoint, event sequence/replay, общий broker |
+| Billing | Не реализован | Длительность аудио доступна в metadata | Subscription, balance, reservation/capture, ledger, webhooks |
+| Security/operations | Низкая | Secrets вынесены в settings, ошибки типизированы | Rate limits, CORS/CSRF policy, audit, logs, metrics, traces, alerts, backups |
+| Тестирование | Высокая для ядра | 317 проходящих unit/integration tests | API contract, upload, auth attack, billing и distributed recovery tests |
+
+## Сохранённые продуктовые решения
+
+Повторная техническая оценка не меняет продуктовую модель, зафиксированную в
+предыдущей версии документа:
+
+- web, iOS и Android используют один versioned API;
+- клиенты не обращаются напрямую к DB, queue, object storage или AI providers;
+- все пользовательские ресурсы принадлежат workspace;
+- подпиской и покупками управляет `owner`;
+- участники не тарифицируются как отдельные seats и расходуют общий баланс
+  workspace.
+
+Начальная монетизация:
+
+| Продукт | Цена | Объём | Дополнительные правила |
+| --- | ---: | ---: | --- |
+| `Standard Monthly` | `$14.99` в месяц | 1000 аудиоминут | Все функции, без feature tiers |
+| Top-up | `$5.99` | 300 аудиоминут | Не сгорает, повторная покупка разрешена |
+
+Неиспользованные subscription minutes переносятся, но их суммарный остаток
+ограничен 2000 минутами. Top-up не входит в этот cap. Новые processing jobs можно
+запускать только при активной подписке; готовые данные остаются доступными после
+её отмены.
+
+Пользовательский интерфейс показывает минуты и часы, а ledger хранит целые
+секунды. Платное использование определяется server-side длительностью исходной
+записи. Voice samples, preview/export, manual review и инфраструктурный retry не
+списывают минуты повторно. Новый явно подтверждённый полный reprocess считается
+новым использованием.
+
+Web-платежи могут идти через Stripe, мобильные — через App Store и Google Play,
+но entitlement и balance должны оставаться едиными. Источником истины является
+server-side ledger, а не ответ клиента об успешной покупке.
+
+## Основа, которую следует переиспользовать
+
+### Слои и use cases
+
+API должен стать ещё одним входным адаптером рядом с CLI и TUI:
+
+```text
+HTTP request
+  -> authentication/validation
+  -> ApplicationSession для actor + workspace
+  -> ApplicationUseCases
+  -> scoped ports/repositories
+  -> HTTP response
+```
+
+Domain не зависит от FastAPI, SQLite, файловой системы или UI. Application
+сценарии используют ports, а concrete adapters собираются в composition. Это
+позволяет добавить web-интерфейс без переноса бизнес-правил в routes.
+
+Уже пригодны для API:
+
+- CRUD campaigns, participants, voice samples и recordings;
+- создание, постановка в очередь, restart, cancel и чтение статуса jobs;
+- speaker mapping review;
+- recap generation;
+- preview/export transcript и recap;
+- workspace, membership, campaign и user settings;
+- единая фасадная структура `ApplicationUseCases`.
+
+HTTP schemas при этом должны быть отдельными DTO. Нельзя публиковать внутренние
+dataclasses напрямую: это случайно связывает внешний контракт с domain model и
+затрудняет versioning.
+
+### Request-scoped tenancy
+
+`ApplicationSession` уже содержит пользователя, `AccessContext` и scoped use
+cases. Для HTTP запроса composition должна:
+
+1. Проверить access token или server session.
+2. Получить `UserId` из доверенной identity, а не из тела запроса.
+3. Прочитать целевой `workspace_id` из URL.
+4. Проверить актуальное membership.
+5. Построить или получить request-scoped `ApplicationSession`.
+6. Вызвать use case только через scoped repositories.
+
+Это защищает даже endpoints с прямыми `job_id`, `transcript_id` или `recap_id`:
+чужой ID возвращается scoped repository как отсутствующий. Для таких случаев
+внешний ответ должен быть `404`, чтобы не раскрывать существование ресурса.
+
+Текущий `SystemScope` следует оставить только workers, migration/repair tools и
+явно auditируемым административным сценариям. Его нельзя инъектировать в обычный
+HTTP request.
+
+### Роли и живое membership
+
+Роли уже соответствуют минимальной SaaS-модели:
+
+| Роль | Доступ |
 | --- | --- |
-| Название | Standard |
-| Период | Один месяц |
-| Цена | `$14.99` до локализации, налогов и правил магазина |
-| Включено | `1000` аудиоминут на billing period |
-| Функции | Все продуктовые функции |
-| Feature tiers | Отсутствуют |
-| Оплата за приглашенных участников | Отсутствует |
+| `owner` | Workspace settings, members, billing и все campaign operations |
+| `editor` | Campaign content, upload, processing, review и artifacts |
+| `viewer` | Только чтение доступных workspace resources |
 
-Дополнительно существует один top-up:
+Mutation guards повторно читают membership перед действием, поэтому удалённый
+или пониженный участник не продолжает писать только из-за старой роли в session.
+Эту проверку необходимо сохранить при кэшировании HTTP sessions.
 
-| Параметр | Значение |
-| --- | --- |
-| Цена | `$5.99` до локализации, налогов и правил магазина |
-| Объем | `300` аудиоминут |
-| Срок действия | Не сгорает |
-| Количество покупок | Не ограничено, с учетом antifraud и spending limits |
+### Jobs и progress
 
-Пользовательский интерфейс оперирует минутами и часами аудио, а не токенами.
-Внутри системы баланс хранится в целых секундах, чтобы не терять точность и
-избежать ошибок округления.
+Текущий local job runtime существенно лучше простого background task:
 
-Подписка оформляется владельцем workspace. Приглашенные участники могут работать
-с доступными им campaigns, но не получают отдельную квоту и не оплачиваются как
-seats. Минуты списываются с общего баланса workspace.
+- HTTP-подходу уже соответствует переход `pending -> queued`;
+- тяжёлый pipeline работает в дочернем процессе;
+- есть условные status transitions;
+- поддерживаются cancel, capacity limits и обнаружение потерянного worker;
+- worker получает `workspace_id` вместе с `job_id`;
+- progress сохраняет latest snapshot вне памяти UI process.
 
-## Итоговая оценка готовности
+Поэтому локальный API может возвращать `202 Accepted` сразу после queueing и
+использовать существующий manager. Но этот режим допустим только при общем
+SQLite-файле и filesystem на одном хосте. File locks, PID registry и in-memory
+pending deque не являются distributed queue.
 
-NoteKeeper **архитектурно готов к добавлению API-слоя**, но **не готов к
-эксплуатации как публичный multi-user SaaS** без замены части инфраструктуры.
+## Блокеры публичного API
 
-Сильная сторона проекта — разделение domain, application, infrastructure,
-interfaces и composition. FastAPI можно добавить как новый входной адаптер без
-переноса бизнес-логики из CLI/TUI.
+### 1. HTTP boundary отсутствует полностью
 
-Основные пробелы находятся на границе публичного сервиса:
+В `src/notekeeper/interfaces` нет API package, ASGI application, routers,
+Pydantic request/response schemas, middleware и exception mapping. Наличие
+FastAPI/Uvicorn в `pyproject.toml` означает только готовность dependencies.
 
-- нет пользователей, workspaces, memberships и resource authorization;
-- нет API package, ASGI app, Pydantic schemas и HTTP-контрактов;
-- нет subscription, entitlement, balance и immutable billing ledger;
-- загрузка строится вокруг локального `source_path`, а не object storage;
-- длительная job блокирует вызывающий поток;
-- прогресс существует только в памяти одного процесса;
-- SQLite и локальная файловая система не подходят для нескольких API и workers;
-- нет устойчивой очереди, lease, retry и recovery;
-- нет production authentication, rate limiting, audit log и webhook processing;
-- нет observability, capacity control и production deployment.
+Нужно определить:
 
-### Матрица готовности
+- versioned prefix `/api/v1`;
+- единый error envelope;
+- pagination/filtering;
+- idempotency для повторяемых mutations;
+- правила `ETag`/optimistic concurrency для редактирования;
+- OpenAPI compatibility policy;
+- ограничения размеров request и upload.
 
-| Направление | Состояние | Готовая основа | Требуемое изменение | Приоритет |
-| --- | --- | --- | --- | --- |
-| Domain | Высокая готовность | Чистые модели и правила | Добавить tenancy/billing только там, где есть бизнес-инварианты | P0 |
-| Application | Высокая готовность | Use cases и ports | Добавить identity, billing, upload и query use cases | P0 |
-| HTTP API | Не реализовано | FastAPI уже в зависимостях | ASGI app, routers, schemas, mappers, errors | P0 |
-| Multi-tenancy | Не реализовано | Campaign ID уже явно передается | User/workspace ownership и authorization во всех сценариях | P0 |
-| Billing | Не реализовано | Jobs имеют измеримую длительность аудио | Subscription, entitlements, reservation и ledger | P0 |
-| Upload | Не реализовано для SaaS | Есть probing и нормализация | Direct multipart upload в object storage | P0 |
-| Jobs | Частичная готовность | Pipeline изолирован в OS process | Устойчивая очередь и отдельные workers | P0 |
-| Progress | Частичная готовность | Есть `ProgressEventStream` | Общий event broker и persisted snapshot | P0 |
-| База данных | Только локальный режим | SQLite repositories | PostgreSQL и migrations | P0 |
-| Файлы | Только один хост | Безопасные managed URI | Object storage и retention policy | P0 |
-| Security | Не реализовано | Секреты вынесены в settings | OIDC, JWT, authorization, rate limits, audit | P0 |
-| Observability | Низкая готовность | Ошибки и progress типизированы | Logs, metrics, traces, alerts, cost telemetry | P1 |
-| Тестирование | Хорошая база ядра | 217 тестов | API, tenancy, billing, queue и security tests | P0 |
+### 2. Local auth нельзя публиковать в интернет
 
-## Что уже можно переиспользовать
+`LocalAuthProvider` хранит login и пароль в JSON открытым текстом, автоматически
+создаёт `root/root` и не выдаёт access/refresh tokens. Это сознательный local
+adapter, а не заготовка production credential store.
 
-### Архитектурные границы
+Для публичного API нужен новый adapter за существующим identity boundary:
 
-- Domain не зависит от FastAPI, SQLite, CLI, TUI или AI-провайдеров.
-- Application-сценарии работают через ports.
-- `Stage1UseCases` уже используется как общая фасадная структура CLI и TUI.
-- `composition/runtime.py` централизованно собирает инфраструктуру.
-- Ошибки разделены на domain, application и infrastructure.
+- предпочтительно внешний OIDC provider;
+- проверка issuer, audience, signature, expiry и subject;
+- связь provider subject с внутренним `UserId`;
+- rotation/revocation refresh sessions;
+- email verification, account recovery и blocking;
+- MFA минимум для owners и операторов;
+- отдельный auditируемый support/admin access.
 
-API routes должны остаться тонкими адаптерами: аутентифицировать запрос,
-валидировать HTTP DTO, вызвать application use case и построить ответ. Routes не
-должны содержать правила списания минут, переходов job или владения campaign.
+`LocalAuthProvider` должен быть запрещён production-конфигурацией, а не просто
+выключен по соглашению.
 
-### Пользовательские сценарии
+### 3. Tenancy реализована, но SaaS lifecycle неполон
 
-Application layer уже покрывает большую часть продуктового flow:
+Сейчас есть personal workspace и добавление уже зарегистрированного пользователя
+по login. Нет:
 
-- управление campaigns;
-- управление участниками и voice samples;
-- добавление записей;
-- создание и выполнение processing jobs;
-- получение статусов и предупреждений;
-- ручной review speaker mappings;
-- генерация рекапа;
-- preview и export transcript/recap Markdown.
+- создания/архивации/удаления произвольного workspace через application use
+  cases;
+- invitation с одноразовым token, сроком действия и статусами;
+- ownership transfer;
+- suspended/deleted states пользователя, workspace и membership;
+- tenant deletion/export workflow;
+- audit history membership changes.
 
-Нужно добавить отдельные query use cases для:
+Эти пробелы не мешают первому локальному API, но блокируют нормальный публичный
+onboarding и offboarding.
 
-- speaker mappings вместе с confidence и diagnostics;
-- структурированного transcript при необходимости редактирования;
-- billing balance, transaction history и usage;
-- workspace members и invitations.
+### 4. SQLite и JSON users не образуют production persistence
 
-### Длительные задачи
+Metadata находится в SQLite, пользователи — в отдельном JSON-файле, artifacts —
+в filesystem. Между ними нет общей транзакции. Текущая SQLite schema также не
+задаёт foreign keys между workspace, campaigns и дочерними ресурсами.
 
-`LocalProcessJobExecutor` уже изолирует тяжелый pipeline в дочернем процессе и
-поддерживает cancel. Условный `save_if_status` защищает отдельные переходы
-статусов.
+Перед публичным запуском нужны:
 
-Для SaaS этого недостаточно:
+- PostgreSQL schema с FK, uniqueness, check constraints и индексами с учётом
+  `workspace_id`;
+- production migration tool и rollback/forward-fix procedure;
+- connection pooling и transaction boundaries;
+- unit-of-work для составных application operations;
+- outbox для атомарного `job/ledger change + queue event`;
+- tenant-scoped repository contract tests для PostgreSQL;
+- backup, point-in-time recovery и restore rehearsal.
 
-- `run_processing_job.execute(...)` синхронно ждет завершения;
-- ссылки на процессы принадлежат одному runtime;
-- при падении API job может остаться `running`;
-- нет общей очереди и распределенной отмены;
-- два workers могут конкурировать за одну GPU или одну job.
+По возможности `workspace_id` следует хранить непосредственно на крупных
+таблицах, а не всегда выводить через цепочку joins. Это упрощает индексы,
+partitioning, RLS и защиту запросов.
 
-Существующий executor можно временно использовать внутри одного worker, но
-внешний lifecycle job должен контролироваться устойчивой очередью.
+### 5. Web upload и object storage отсутствуют
+
+Основной import flow принимает локальный `source_path` либо уже известный
+managed `artifact_uri`. Browser не может безопасно передать серверу свой путь к
+файлу.
+
+Рекомендуемый production flow:
+
+1. `POST /api/v1/workspaces/{workspace_id}/uploads` создаёт upload intent.
+2. Клиент загружает файл multipart-частями напрямую в object storage.
+3. `POST .../uploads/{upload_id}/complete` фиксирует checksum и размер.
+4. Worker проверяет container/codec/duration через server-side probe.
+5. Application use case создаёт managed audio track и job.
+6. Lifecycle policy удаляет незавершённые и временные objects.
+
+Для локального web-MVP допустим streaming multipart во временный server-owned
+файл с жёстким size limit. Нельзя читать большое аудио целиком в память или
+передавать пользовательский filesystem path в публичный use case.
+
+Download transcript, recap и audio также должен идти через авторизованный
+endpoint или короткоживущий signed URL. Внешний API не должен возвращать
+внутренний filesystem path.
+
+### 6. Local queue не является durable distributed queue
+
+Текущий manager восстанавливает сохранённые `queued` jobs и потерянные локальные
+workers, но доставка всё ещё зависит от процесса, SQLite и file locks. Между
+сохранением job и `enqueue()` нет общей durable transaction/outbox guarantee.
+
+Для нескольких API/worker hosts нужны:
+
+- broker-backed queue;
+- атомарный claim/lease и heartbeat;
+- bounded retries и dead-letter state;
+- idempotent pipeline stages;
+- distributed cancellation;
+- отдельные CPU/GPU queues и capacity policies;
+- recovery после падения worker без повторного billing capture;
+- graceful deployment, при котором новые jobs не теряются.
+
+Текущий isolated executor можно сначала переиспользовать внутри одного worker,
+не сохраняя за ним ответственность за глобальную доставку.
+
+### 7. Progress пока хранит только latest snapshot
+
+`PersistedProgressEventHub` подходит для локального dashboard и polling, но не
+является журналом событий. Нет sequence ID, replay range и общей доставки между
+разными hosts.
+
+Первый web-интерфейс может использовать авторизованный SSE endpoint:
+
+```text
+GET /api/v1/workspaces/{workspace_id}/jobs/{job_id}/events
+```
+
+Endpoint перед подпиской обязан проверить видимость job. Нужны heartbeat,
+disconnect cleanup и fallback `GET .../jobs/{job_id}`. Для distributed deployment
+progress публикуется через broker, а текущий status и latest snapshot остаются в
+PostgreSQL.
+
+### 8. Billing отсутствует
+
+Если сохраняются продуктовые решения предыдущего документа, API должен
+поддержать один workspace plan `Standard Monthly` (`$14.99`, 1000 минут) и top-up
+(`$5.99`, 300 минут). Эти числа являются продуктовой конфигурацией, а не
+реализованным поведением.
+
+Минимальная модель:
+
+```text
+Subscription
+Entitlement
+BalanceGrant
+UsageReservation
+LedgerEntry (immutable)
+PaymentEvent (provider idempotency key)
+```
+
+Единица хранения — целые секунды. До queueing job в одной транзакции создаются
+reservation, job и outbox event. После вычисления происходит capture или
+release. Webhook handlers обязаны быть idempotent; клиентский ответ об успешной
+оплате не является источником истины.
+
+Billing следует добавлять после transaction/outbox foundation. Иначе quota и
+job lifecycle невозможно согласовать при retry и падениях.
+
+### 9. Нет production security и operations contour
+
+До публичной beta требуются как минимум:
+
+- allowlist CORS; при cookie auth — CSRF protection;
+- rate limits для login, upload, queue, recap и SSE;
+- request/body/file limits и timeouts;
+- malware/container validation для uploads;
+- structured logs с request/user/workspace/job correlation IDs;
+- metrics по API latency, queue age, stage duration, GPU capacity и provider
+  cost;
+- traces через API, queue и worker;
+- audit log для membership, billing, export и destructive actions;
+- health/readiness endpoints, graceful shutdown и deployment runbook;
+- secret manager, key rotation, backup/restore и incident response.
 
 ## Целевая архитектура
 
 ```mermaid
 flowchart LR
-    WEB["Web App"] --> EDGE["CDN / WAF / API Gateway"]
-    IOS["iOS App"] --> EDGE
-    ANDROID["Android App"] --> EDGE
-
-    EDGE --> API["Stateless FastAPI replicas"]
-    API --> AUTH["OIDC Identity Provider"]
-    API --> PG["PostgreSQL"]
-    API --> OBJECTS["Object Storage"]
-    API --> QUEUE["Durable Job Queue"]
-    API --> EVENTS["Event Broker"]
-
-    QUEUE --> WORKERS["GPU Workers"]
-    WORKERS --> ASR["WhisperX / ASR Provider"]
-    WORKERS --> LLM["DeepSeek API"]
-    WORKERS --> PG
+    WEB[Web] --> EDGE[CDN / WAF / API Gateway]
+    MOBILE[Mobile] --> EDGE
+    EDGE --> API[Stateless FastAPI replicas]
+    API --> IDP[OIDC provider]
+    API --> PG[(PostgreSQL)]
+    API --> OBJECTS[(Object storage)]
+    API --> OUTBOX[Transactional outbox]
+    OUTBOX --> QUEUE[Durable queue]
+    QUEUE --> WORKERS[CPU / GPU workers]
     WORKERS --> OBJECTS
-    WORKERS --> EVENTS
-
+    WORKERS --> PG
+    WORKERS --> EVENTS[Event broker]
     EVENTS --> API
-    API --> SSE["SSE progress stream"]
-
-    STRIPE["Stripe"] --> WEBHOOKS["Billing Webhooks"]
-    APPLE["App Store"] --> WEBHOOKS
-    GOOGLE["Google Play"] --> WEBHOOKS
-    WEBHOOKS --> API
-    API --> LEDGER["Entitlements and Billing Ledger"]
-    LEDGER --> PG
+    API --> SSE[SSE]
+    PAYMENTS[Stripe / App stores] --> WEBHOOKS[Idempotent webhooks]
+    WEBHOOKS --> PG
 ```
 
-### Основные свойства
-
-- API replicas не хранят пользовательское состояние в памяти.
-- PostgreSQL является источником истины для metadata, tenancy, billing и job
-  status.
-- Object storage является источником истины для аудио и артефактов.
-- Durable queue является источником истины для доставки jobs workers.
-- Event broker доставляет progress между workers и любым API replica.
-- Billing provider сообщает только о платеже; итоговый entitlement и balance
-  определяются серверным ledger.
-- Все операции, способные повториться из-за retry, имеют idempotency key.
-
-## Пользователи и multi-tenancy
-
-### Основные сущности
-
-```text
-User
-  id
-  identity_provider_subject
-  email
-  display_name
-  status
-  created_at
-
-Workspace
-  id
-  owner_user_id
-  name
-  status
-  created_at
-
-WorkspaceMembership
-  workspace_id
-  user_id
-  role
-  status
-
-Campaign
-  id
-  workspace_id
-  ...
-```
-
-Все остальные пользовательские сущности получают явную или однозначно
-выводимую принадлежность workspace:
-
-- participants;
-- voice samples;
-- audio tracks;
-- jobs;
-- transcripts;
-- recaps;
-- speaker mappings;
-- artifacts;
-- billing transactions.
-
-### Роли
-
-На первом этапе достаточно трех ролей:
-
-| Роль | Возможности |
-| --- | --- |
-| `owner` | Billing, members, campaigns, processing и удаление workspace |
-| `editor` | Campaigns, uploads, jobs, review и artifacts |
-| `viewer` | Просмотр campaigns, статусов, transcripts и recaps |
-
-Только `owner` управляет подпиской и top-up. `owner` и `editor` могут запускать
-job, расходующую общий баланс.
-
-### Правила authorization
-
-- Проверка membership выполняется для каждого resource request.
-- Наличие корректного UUID не означает наличие доступа.
-- Ответ на чужой resource должен быть `404`, если раскрытие существования
-  объекта создает information leak.
-- Репозитории и query use cases принимают workspace context и не возвращают
-  данные других tenants.
-- Background worker получает `workspace_id` вместе с `job_id` и повторно
-  проверяет согласованность данных.
-- Admin/support-доступ выполняется через отдельный auditируемый механизм.
-
-## Аутентификация
-
-Рекомендуемый механизм:
-
-- внешний OIDC-compatible identity provider;
-- email/password, Sign in with Apple и Google Sign-In;
-- короткоживущий access token;
-- rotating refresh token;
-- server-side revocation и блокировка аккаунта;
-- MFA как минимум для owner и административных аккаунтов.
-
-API валидирует issuer, audience, signature, expiry и subject. Клиент не передает
-`user_id` или `workspace_id` как доказательство доступа: они определяют только
-запрашиваемый ресурс, а полномочия выводятся из authenticated identity.
-
-## Подписка, top-up и баланс
-
-### Один тариф
-
-На первом этапе поддерживается только `Standard Monthly`:
-
-```text
-Цена:                    $14.99 / месяц
-Включенный объем:        1000 аудиоминут
-Feature restrictions:    отсутствуют
-Оплата за seat:           отсутствует
-```
-
-Цена локализуется в Stripe, App Store и Google Play. Налоги и магазинные
-комиссии учитываются при настройке storefront price, но entitlement остается
-одинаковым на всех платформах.
-
-### Top-up
-
-Поддерживается один consumable product:
-
-```text
-Цена:              $5.99
-Объем:             300 аудиоминут
-Срок действия:     не ограничен
-Повторная покупка: разрешена
-```
-
-Top-up баланс сохраняется при отмене подписки. Запуск новых processing jobs
-требует активной подписки. После повторной активации пользователь снова может
-расходовать сохраненный top-up.
-
-Это правило сохраняет подписочную модель и не превращает top-up в отдельный
-pay-as-you-go тариф.
-
-### Перенос подписочных минут
-
-Неиспользованные подписочные минуты переносятся, но суммарный
-subscription-derived balance ограничен `2000` минутами. Это позволяет
-нерегулярной группе пропустить игровой месяц, не создавая неограниченное
-долгосрочное обязательство по compute.
-
-Top-up минуты не входят в этот cap и не сгорают.
-
-### Порядок списания
-
-1. Сначала расходуются subscription grant с ближайшей датой истечения.
-2. Затем более новые subscription grants.
-3. После них расходуется top-up balance.
-
-Порядок должен быть детерминированным и видимым пользователю.
-
-### Что считается платным использованием
-
-- Единица измерения — продолжительность исходной session recording.
-- Фактическая длительность определяется сервером через ffprobe.
-- Для проверки доступного баланса длительность округляется вверх до целой
-  минуты.
-- В ledger списание хранится в секундах.
-- Одна оплаченная обработка включает normalization, transcription, alignment,
-  diarization, speaker mapping и recap.
-- Voice samples не расходуют минуты.
-- Preview, export и download готовых материалов не расходуют минуты.
-- Manual speaker review не списывает минуты повторно.
-- Повторная генерация recap для той же transcript не списывает аудиоминуты, но
-  защищается rate limit.
-- Retry после инфраструктурной ошибки не списывает минуты повторно.
-- Запуск нового pipeline над той же записью с явно выбранной повторной
-  обработкой считается новым платным использованием и требует подтверждения.
-
-### Reservation и capture
-
-До постановки job в очередь API выполняет атомарную операцию:
-
-1. Проверяет активную подписку.
-2. Определяет серверную продолжительность записи.
-3. Проверяет доступный balance.
-4. Создает `usage_reservation`.
-5. Уменьшает доступный, но не окончательный balance.
-6. Создает job и outbox event в той же транзакции.
-
-После результата:
-
-- `completed` или `waiting_for_review` фиксирует capture, потому что основной
-  дорогостоящий pipeline уже выполнен;
-- ошибка пользователя до запуска compute освобождает reservation;
-- инфраструктурная ошибка освобождает reservation либо связывает его с
-  бесплатным retry;
-- cancel до начала compute освобождает reservation;
-- cancel во время compute обрабатывается по публично зафиксированной refund
-  policy; для первого релиза рекомендуется полностью освобождать reservation,
-  чтобы не спорить с пользователем о частично потребленном compute.
-
-Capture и release должны быть идемпотентны.
-
-## Billing ledger
-
-Баланс нельзя хранить одним изменяемым числом без истории. Источник истины —
-append-only ledger.
-
-Минимальные сущности:
-
-```text
-Subscription
-  workspace_id
-  provider
-  provider_subscription_id
-  status
-  current_period_start
-  current_period_end
-
-Entitlement
-  workspace_id
-  product_code
-  status
-  valid_from
-  valid_until
-
-CreditGrant
-  workspace_id
-  source                 # subscription | top_up | refund | promotion
-  amount_seconds
-  remaining_seconds
-  expires_at
-  provider_transaction_id
-
-UsageReservation
-  workspace_id
-  job_id
-  amount_seconds
-  status                 # reserved | captured | released
-
-BillingLedgerEntry
-  workspace_id
-  operation_id
-  entry_type
-  amount_seconds
-  credit_grant_id
-  job_id
-  created_at
-```
-
-Ledger requirements:
-
-- monetary values are stored in minor currency units;
-- usage values are stored in integer seconds;
-- записи не редактируются и не удаляются;
-- corrections создаются компенсирующей записью;
-- provider webhook ID и business operation ID уникальны;
-- balance вычисляется из grants, reservations и ledger либо поддерживается
-  транзакционно как проверяемая проекция;
-- все изменения имеют audit actor и correlation ID.
-
-## Платежные каналы
-
-### Web
-
-- Stripe Checkout для первой покупки.
-- Stripe Customer Portal для карты, invoices и отмены.
-- Stripe webhooks являются источником событий оплаты, но не заменяют локальный
-  billing ledger.
-- Клиент не получает Stripe secret и не может сам изменять entitlement.
-
-### iOS
-
-- Auto-renewable subscription через StoreKit.
-- Top-up оформляется как consumable in-app purchase.
-- Покупки подтверждаются сервером по подписанным App Store transaction данным.
-- Поддерживается restore purchases.
-
-### Android
-
-- Subscription через Google Play Billing.
-- Top-up оформляется как consumable one-time product.
-- Purchase token подтверждается сервером.
-- Product acknowledgement/consumption выполняется только после успешной
-  серверной фиксации.
-
-### Общий entitlement
-
-Покупка на любой платформе дает одинаковый серверный entitlement. Для одного
-provider transaction создается не более одного `CreditGrant`.
-
-Нужна таблица соответствий:
-
-```text
-standard_monthly:
-  stripe_price_id
-  apple_product_id
-  google_product_id
-
-top_up_300:
-  stripe_price_id
-  apple_product_id
-  google_product_id
-```
-
-Webhook handlers:
-
-- проверяют подпись и environment;
-- сохраняют исходное событие;
-- дедуплицируют по provider event ID;
-- обрабатываются асинхронно;
-- допускают события не по порядку;
-- повторно сверяют состояние подписки с provider API при конфликте;
-- не доверяют полям, присланным мобильным клиентом.
-
-## HTTP API
-
-### Общие правила
-
-- Базовый префикс: `/api/v1`.
-- JSON использует `snake_case`.
-- Timestamps передаются в UTC ISO 8601.
-- ID передаются строковыми UUID.
-- Все list endpoints используют cursor pagination.
-- Все mutating endpoints поддерживают `Idempotency-Key`.
-- Каждый ответ содержит или принимает `X-Request-ID`.
-- API публикует OpenAPI contract.
-- Breaking changes требуют `/api/v2`.
-
-### Identity и workspace
-
-| Метод | Endpoint | Назначение |
-| --- | --- | --- |
-| `GET` | `/users/me` | Текущий пользователь |
-| `GET` | `/workspaces` | Доступные workspaces |
-| `POST` | `/workspaces` | Создать workspace |
-| `GET` | `/workspaces/{workspace_id}` | Workspace |
-| `PATCH` | `/workspaces/{workspace_id}` | Изменить workspace |
-| `GET` | `/workspaces/{workspace_id}/members` | Участники workspace |
-| `POST` | `/workspaces/{workspace_id}/invitations` | Пригласить пользователя |
-| `PATCH` | `/workspaces/{workspace_id}/members/{user_id}` | Изменить роль |
-| `DELETE` | `/workspaces/{workspace_id}/members/{user_id}` | Удалить участника |
-
-### Billing и usage
-
-| Метод | Endpoint | Назначение |
-| --- | --- | --- |
-| `GET` | `/workspaces/{workspace_id}/billing` | Subscription и provider status |
-| `GET` | `/workspaces/{workspace_id}/usage` | Grants, reserved и available minutes |
-| `GET` | `/workspaces/{workspace_id}/usage/ledger` | Paginated usage history |
-| `POST` | `/workspaces/{workspace_id}/billing/checkout` | Stripe subscription checkout |
-| `POST` | `/workspaces/{workspace_id}/billing/top-ups/checkout` | Stripe top-up checkout |
-| `POST` | `/workspaces/{workspace_id}/billing/portal` | Stripe Customer Portal |
-| `POST` | `/mobile-purchases/apple/verify` | Проверить iOS transaction |
-| `POST` | `/mobile-purchases/google/verify` | Проверить Google purchase |
-
-Provider webhooks находятся под отдельным internal/public ingress:
-
-```text
-POST /webhooks/stripe
-POST /webhooks/apple
-POST /webhooks/google
-```
-
-Они не используют пользовательский JWT, но обязательно проверяют provider
-signature.
-
-### Campaigns
-
-| Метод | Endpoint | Назначение |
-| --- | --- | --- |
-| `GET` | `/workspaces/{workspace_id}/campaigns` | Список campaigns |
-| `POST` | `/workspaces/{workspace_id}/campaigns` | Создать campaign, `201` |
-| `GET` | `/campaigns/{campaign_id}` | Campaign |
-| `PATCH` | `/campaigns/{campaign_id}` | Обновить campaign |
-| `DELETE` | `/campaigns/{campaign_id}` | Запросить удаление, `202` |
-
-Удаление больших campaigns выполняется background job с retention/grace period,
-а не синхронным рекурсивным удалением.
-
-### Participants и voice samples
-
-| Метод | Endpoint | Назначение |
-| --- | --- | --- |
-| `GET` | `/campaigns/{campaign_id}/participants` | Список участников |
-| `POST` | `/campaigns/{campaign_id}/participants` | Добавить участника |
-| `PATCH` | `/campaigns/{campaign_id}/participants/{participant_id}` | Изменить участника |
-| `DELETE` | `/campaigns/{campaign_id}/participants/{participant_id}` | Удалить участника |
-| `GET` | `/campaigns/{campaign_id}/voice-samples` | Список samples |
-| `POST` | `/campaigns/{campaign_id}/voice-samples/uploads` | Начать upload |
-| `POST` | `/voice-sample-uploads/{upload_id}/complete` | Завершить и проверить upload |
-| `DELETE` | `/campaigns/{campaign_id}/voice-samples/{sample_id}` | Удалить sample |
-
-### Recordings и jobs
-
-| Метод | Endpoint | Назначение |
-| --- | --- | --- |
-| `GET` | `/campaigns/{campaign_id}/recordings` | Список записей |
-| `POST` | `/campaigns/{campaign_id}/recordings/uploads` | Начать multipart upload |
-| `POST` | `/recording-uploads/{upload_id}/complete` | Завершить upload и probing |
-| `GET` | `/recordings/{recording_id}` | Метаданные записи |
-| `PATCH` | `/recordings/{recording_id}` | Изменить title/metadata |
-| `DELETE` | `/recordings/{recording_id}` | Запросить удаление |
-| `POST` | `/recordings/{recording_id}/jobs` | Зарезервировать минуты и создать job |
-| `GET` | `/campaigns/{campaign_id}/jobs` | Paginated jobs |
-| `GET` | `/jobs/{job_id}` | Persisted status |
-| `POST` | `/jobs/{job_id}/cancel` | Запросить отмену, `202` |
-| `POST` | `/jobs/{job_id}/retry` | Бесплатный infrastructure retry либо новая платная job |
-| `GET` | `/jobs/{job_id}/events` | SSE progress |
-| `GET` | `/jobs/{job_id}/speaker-mappings` | Mappings и diagnostics |
-| `POST` | `/jobs/{job_id}/speaker-mappings` | Manual review, `202` |
-| `POST` | `/jobs/{job_id}/recap` | Перегенерировать recap, `202` |
-
-Создание job возвращает `202 Accepted`, persisted job representation и
-`Location: /api/v1/jobs/{job_id}`.
-
-### Transcript и recap
-
-| Метод | Endpoint | Content type |
-| --- | --- | --- |
-| `GET` | `/transcripts/{transcript_id}` | JSON metadata или segments с pagination |
-| `GET` | `/transcripts/{transcript_id}/markdown` | `text/markdown` |
-| `GET` | `/recaps/{recap_id}` | JSON metadata |
-| `GET` | `/recaps/{recap_id}/markdown` | `text/markdown` |
-
-`download=true` добавляет безопасный `Content-Disposition`. API не возвращает
-внутренний object key, bucket, signed provider credentials или локальный путь.
-
-## API DTO и ошибки
-
-Domain dataclasses не являются публичными HTTP schemas. API использует отдельные
-Pydantic request/response models.
-
-Требования:
-
-- клиент передает только разрешенные поля;
-- workspace ownership никогда не принимается без проверки;
-- большие collections не вкладываются в campaign/job автоматически;
-- money и usage не представлены floating-point числами;
-- enum values стабильны;
-- внутренние provider IDs скрыты, кроме специальных billing/admin responses;
-- schema names и error codes являются частью публичного контракта.
-
-Единый error envelope:
+Свойства целевой системы:
+
+- API replicas stateless и не владеют job lifecycle;
+- authenticated identity определяет actor, membership — доступ;
+- PostgreSQL является источником истины для tenancy, job state и billing;
+- object storage является источником истины для пользовательских blobs;
+- durable queue отвечает за доставку, workers — за lease и выполнение;
+- повтор запроса или event не создаёт второй job и не списывает минуты дважды;
+- web и mobile используют один versioned contract.
+
+## Рекомендуемый HTTP-контракт
+
+### Базовые правила
+
+- Prefix: `/api/v1`.
+- JSON поля и enum values: `snake_case`.
+- Timestamp: UTC, RFC 3339.
+- IDs: opaque strings; UUID не является доказательством доступа.
+- Mutations, допускающие retry: `Idempotency-Key`.
+- Lists: cursor pagination с ограниченным `limit`.
+- Long operations: `202 Accepted` и resource/status URL.
+- Неизвестный или чужой tenant resource: `404`.
+- Недостаточная роль в доступном workspace: `403`.
+- Domain/application conflict: `409` или `422` по стабильному error code.
+- Неожиданная ошибка: `500` без traceback и внутренних path в response.
+
+Пример error envelope:
 
 ```json
 {
   "error": {
-    "code": "insufficient_minutes",
-    "message": "Not enough audio minutes to process this recording.",
-    "details": {
-      "required_minutes": 240,
-      "available_minutes": 170
-    },
-    "request_id": "..."
+    "code": "job_not_queueable",
+    "message": "Processing job cannot be queued from its current state",
+    "request_id": "req_...",
+    "details": {}
   }
 }
 ```
 
-Рекомендуемое отображение:
+### Минимальный vertical slice
 
-| Ситуация | HTTP |
-| --- | --- |
-| Authentication отсутствует или недействительна | `401` |
-| Недостаточно прав | `403` либо `404` для скрытого resource |
-| Resource отсутствует | `404` |
-| Pydantic/domain validation | `422` |
-| Conflict статуса или duplicate operation | `409` |
-| Недостаточно минут | `402 Payment Required` с `insufficient_minutes` |
-| Превышен размер upload | `413` |
-| Неверный media type | `415` |
-| Rate limit | `429` |
-| Временно недоступен provider/worker | `503` |
-| Неожиданная ошибка | `500` без внутренних деталей |
-
-## Загрузка аудио
-
-API replicas не должны проксировать многогигабайтный файл целиком через Python.
-Целевой flow:
-
-1. Клиент запрашивает upload session.
-2. API проверяет membership, quota, rate limits и допустимый тип загрузки.
-3. API создает `Upload` со сроком действия.
-4. Клиент получает short-lived presigned multipart URLs.
-5. Клиент отправляет части напрямую в object storage.
-6. Клиент вызывает `complete`.
-7. API проверяет состав parts и ставит validation/probing job.
-8. Worker проверяет реальный формат, длительность, checksum и malware policy.
-9. Только validated object становится `AudioTrack` или `VoiceSample`.
-
-Требования:
-
-- object key генерирует сервер;
-- client filename является только очищенными metadata;
-- upload имеет owner/workspace и expiration;
-- незавершенные uploads автоматически удаляются lifecycle policy;
-- проверяется максимальный размер, длительность и число частей;
-- checksum защищает от повреждения и accidental duplicate;
-- доступ к object storage закрыт, download выполняется через короткоживущий
-  signed URL после authorization;
-- исходный файл удаляется после успешной normalization согласно retention
-  policy;
-- клиент не передает `source_path`.
-
-## Queue и workers
-
-### Job lifecycle
+Первый API slice должен доказать request-scoped tenancy и async jobs:
 
 ```text
-pending
-  -> queued
-  -> running
-  -> waiting_for_review
-  -> completed
-  -> failed
-  -> canceled
+GET    /api/v1/me
+GET    /api/v1/workspaces
+GET    /api/v1/workspaces/{workspace_id}/campaigns
+POST   /api/v1/workspaces/{workspace_id}/campaigns
+GET    /api/v1/workspaces/{workspace_id}/campaigns/{campaign_id}
+POST   /api/v1/workspaces/{workspace_id}/campaigns/{campaign_id}/recordings
+POST   /api/v1/workspaces/{workspace_id}/jobs/{job_id}/queue
+GET    /api/v1/workspaces/{workspace_id}/jobs/{job_id}
+GET    /api/v1/workspaces/{workspace_id}/jobs/{job_id}/events
 ```
 
-Дополнительно queue delivery использует технические состояния lease/retry, не
-обязательно раскрываемые как отдельные domain statuses.
+После него добавляются participants, samples, review, transcripts, recaps,
+settings и members. Billing endpoints не должны блокировать локальный MVP, но
+обязательны до платного публичного запуска.
 
-### Гарантии
+## Размещение нового кода
 
-- Delivery допускается at-least-once.
-- Worker обязан быть идемпотентным.
-- Job имеет уникальный execution attempt.
-- Queue message содержит только идентификаторы, а не большие payload.
-- Worker получает актуальное состояние из PostgreSQL.
-- Lease имеет heartbeat и timeout.
-- Потерянный worker освобождает lease и создает retry.
-- Число retry ограничено.
-- Poison job отправляется в dead-letter queue.
-- Cancel является persisted командой, а не вызовом объекта в памяти API.
-- GPU concurrency контролируется scheduler по типу и памяти устройства.
-- Reservation минут не создается повторно при техническом retry.
+С учётом текущих правил проекта рекомендуемая структура:
 
-### ASR provider strategy
+```text
+src/notekeeper/interfaces/api/
+  __init__.py             # только явный facade
+  app.py                  # FastAPI app factory
+  dependencies.py         # identity и request-scoped session
+  error_handlers.py       # application/domain -> HTTP
+  routers/
+    auth.py
+    workspaces.py
+    campaigns.py
+    recordings.py
+    jobs.py
+    transcripts.py
+    recaps.py
+  schemas/
+    common.py
+    identity.py
+    workspace.py
+    campaign.py
+    recording.py
+    job.py
+  mappers/
+    campaign.py
+    job.py
+    transcript.py
 
-Workers используют port, допускающий несколько реализаций:
-
-- self-hosted WhisperX;
-- арендованный GPU pool;
-- внешний ASR provider как fallback.
-
-Provider выбирается серверной политикой с учетом:
-
-- языка;
-- длины записи;
-- требуемой diarization;
-- очереди;
-- стоимости;
-- health provider;
-- data residency.
-
-Выбор provider не меняет пользовательскую цену и не отражается как отдельный
-тариф.
-
-## Progress и SSE
-
-Worker публикует progress в event broker и периодически сохраняет последний
-snapshot в PostgreSQL или общем cache.
-
-SSE endpoint:
-
-- авторизует доступ к job;
-- читает события из общего broker;
-- отправляет heartbeat;
-- поддерживает `Last-Event-ID`;
-- закрывает subscription при disconnect;
-- не гарантирует вечное хранение полной истории.
-
-Пример:
-
-```json
-{
-  "event_id": "...",
-  "operation_id": "job-id",
-  "kind": "updated",
-  "stage": "transcribing",
-  "stage_index": 4,
-  "stage_count": 10,
-  "percent": 42.3,
-  "timing_available": true,
-  "current_duration_ms": 120000,
-  "expected_duration_ms": 280000,
-  "remaining_duration_ms": 160000
-}
+src/notekeeper/composition/
+  web.py                   # production/dev web composition and lifespan
 ```
 
-`GET /jobs/{job_id}` остается обязательным persisted fallback после reconnect,
-перезапуска клиента или пропущенного terminal event.
+Routes должны только валидировать transport DTO, получать dependency, вызывать
+use case и преобразовывать результат. Проверки ролей, job transitions, billing и
+tenant ownership не должны дублироваться в FastAPI handlers.
 
-## PostgreSQL
-
-SQLite сохраняется только для локальной разработки и unit/integration tests,
-где это удобно. Production использует PostgreSQL с первого публичного релиза.
-
-Требования:
-
-- versioned migrations;
-- foreign keys;
-- unique constraints для idempotency и provider events;
-- индексы по workspace, campaign, status и timestamps;
-- optimistic locking или compare-and-set для job transitions;
-- транзакционный outbox для queue и billing событий;
-- отдельные read/write timeouts;
-- connection pool с ограничением;
-- backup, point-in-time recovery и restore drills;
-- retention и partitioning для event/audit/ledger tables по мере роста.
-
-Все tenant-owned таблицы содержат `workspace_id` либо имеют неизменяемую
-foreign-key цепочку до workspace.
-
-## Object storage
-
-Production storage должно поддерживать:
-
-- private buckets;
-- server-side encryption;
-- presigned multipart upload;
-- short-lived signed download;
-- lifecycle rules для incomplete uploads;
-- versioning или другой механизм защиты критичных artifacts;
-- retention policy;
-- quota per workspace;
-- checksum;
-- audit access;
-- backup/replication согласно выбранному RPO.
-
-Аудио является чувствительными пользовательскими данными. Оно не должно
-использоваться для обучения моделей без отдельного явного consent.
-
-## Security
-
-Обязательный минимум:
-
-- TLS на всех внешних соединениях;
-- WAF и rate limiting на gateway;
-- CORS allowlist только для официального Web App;
-- OIDC/JWT validation;
-- resource authorization на каждый запрос;
-- secrets manager;
-- encryption at rest;
-- presigned URLs с коротким TTL;
-- upload size/duration limits;
-- защита webhook signatures;
-- idempotency и replay protection;
-- audit log действий owner/editor/support;
-- dependency и container scanning;
-- регулярная ротация ключей;
-- data export и account deletion flow;
-- privacy policy, terms и consent на обработку голосовых данных.
-
-Rate limits должны учитывать не только IP, но и user/workspace:
-
-- login/auth;
-- upload session creation;
-- concurrent uploads;
-- job creation;
-- recap regeneration;
-- billing checkout;
-- webhook ingress.
-
-## Observability и экономика
-
-Для каждой job собираются:
-
-- длина исходного аудио;
-- зарезервированные и списанные секунды;
-- queue wait;
-- время normalization;
-- время ASR, alignment и diarization;
-- GPU type и GPU wall time;
-- provider и provider cost;
-- DeepSeek input/cache/output tokens;
-- storage bytes;
-- retries;
-- результат и error category.
-
-Основные метрики:
-
-- active subscribers;
-- subscription churn;
-- top-up conversion;
-- использованные минуты на subscriber;
-- доля перенесенных минут;
-- gross revenue и net revenue по payment channel;
-- compute cost per audio hour;
-- contribution margin per workspace;
-- queue latency;
-- job success/retry/cancel rate;
-- p50/p95 completion time;
-- storage growth.
-
-Pricing `$14.99 / 1000 минут` должен регулярно проверяться против фактического
-net revenue после Stripe/App Store/Google Play, налогов, refunds и compute.
-
-## Health и эксплуатация
-
-| Endpoint | Назначение |
-| --- | --- |
-| `GET /health/live` | Процесс API отвечает |
-| `GET /health/ready` | PostgreSQL, queue и обязательная конфигурация доступны |
-
-Health response не раскрывает секреты, provider IDs или внутренние endpoints.
-
-Развертывание должно поддерживать:
-
-- stateless API horizontal scaling;
-- независимое scaling GPU workers;
-- rolling deploy API;
-- controlled worker drain;
-- migrations как отдельный deployment step;
-- alerts по queue backlog, error rate, payment webhook lag и GPU capacity;
-- feature flags и staged rollout;
-- отдельные dev, staging и production environments.
+Для web composition лучше отделить долгоживущие ресурсы host-level (pool,
+clients, broker) от request-scoped identity/session. Текущий
+`LocalApplicationHost` можно использовать как dev composition, но не как
+production service container без замены local adapters.
 
 ## План реализации
 
-### Этап 1. SaaS foundation
+### Этап 1. API foundation и локальный vertical slice
 
-1. Ввести User, Workspace, Membership и resource authorization.
-2. Перевести production repositories на PostgreSQL.
-3. Ввести migrations и transactional outbox.
-4. Подключить object storage и direct multipart uploads.
-5. Добавить durable queue, workers и persisted job control.
-6. Заменить in-memory progress на broker-backed stream.
-7. Создать FastAPI app, schemas, routers и error contract.
-8. Подключить OIDC provider.
+- Создать `interfaces/api` и `composition/web.py`.
+- Добавить app factory и lifespan для старта/остановки local job manager.
+- Реализовать identity/session dependency с обязательным `workspace_id`.
+- Добавить Pydantic schemas, mappers и единый error envelope.
+- Реализовать минимальный vertical slice выше.
+- Возвращать `202` после queueing, не ждать pipeline в request thread.
+- Добавить OpenAPI snapshot/contract tests и cross-tenant API tests.
+- Явно маркировать SQLite/filesystem/local auth как development profile.
 
-Результат: несколько пользователей безопасно работают с изолированными данными,
-но платный доступ еще может быть включен только для internal beta.
+Результат: браузерный прототип на одном хосте, не публичный SaaS.
 
-### Этап 2. Billing
+### Этап 2. Upload, artifacts и live progress
 
-1. Реализовать `Standard Monthly` `$14.99 / 1000 минут`.
-2. Реализовать top-up `$5.99 / 300 минут`.
-3. Добавить immutable ledger, grants, reservations и capture/release.
-4. Подключить Stripe Checkout, Customer Portal и webhooks.
-5. Подключить StoreKit и Google Play Billing.
-6. Реализовать единый cross-platform entitlement.
-7. Добавить billing/usage API и пользовательские уведомления о балансе.
-8. Добавить antifraud, refund и reconciliation jobs.
+- Реализовать streaming multipart import для dev.
+- Добавить upload intent port и object storage adapter для production.
+- Добавить авторизованные download endpoints/signed URLs.
+- Реализовать SSE с heartbeat, cleanup и polling fallback.
+- Ввести size, duration, codec и concurrency limits.
+- Покрыть interrupted upload, disconnect и access revocation tests.
 
-Результат: пользователь может купить подписку на любой поддерживаемой платформе,
-получить 1000 минут, докупить 300 минут и использовать один баланс в web/mobile.
+### Этап 3. Public data and worker foundation
 
-### Этап 3. Public launch hardening
+- Перенести metadata и identity mapping в PostgreSQL.
+- Добавить schema constraints, migration tooling и repository contract tests.
+- Ввести unit of work и transactional outbox.
+- Заменить local queue ownership на broker, lease и retry policy.
+- Подключить distributed event broker.
+- Реализовать OIDC/JWT adapter и запрет local auth в production.
+- Добавить invitation и workspace lifecycle.
 
-1. Провести security review и нагрузочное тестирование.
-2. Добавить WAF, rate limits, quotas и abuse detection.
-3. Настроить observability, cost telemetry и alerts.
-4. Реализовать data export, deletion и retention.
-5. Провести backup/restore и disaster recovery drills.
-6. Проверить мобильные покупки, restore и webhook reconciliation.
-7. Проверить capacity model для ожидаемого числа подписчиков.
+Результат: техническая основа ограниченной публичной beta.
 
-Результат: сервис готов к публичному запуску и горизонтальному росту.
+### Этап 4. Billing и публичная beta
 
-## План тестирования
+- Реализовать subscription/entitlement/ledger.
+- Добавить atomic reservation/capture/release вокруг queueing.
+- Подключить idempotent payment webhooks.
+- Добавить quota/cost/rate controls.
+- Провести tenancy, authorization и billing concurrency tests.
 
-### Tenancy
+### Этап 5. Production hardening
 
-- пользователь видит только свои workspaces;
-- viewer не может запускать jobs;
-- editor не может управлять billing;
-- ID чужой campaign не раскрывает ее существование;
-- background worker не может связать job и artifact из разных workspaces;
-- pagination и filters не создают cross-tenant leak.
+- Structured logs, metrics, traces, alerts и audit trail.
+- Backup/restore rehearsal, retention и tenant deletion.
+- Load, soak, worker-crash и broker/database failover tests.
+- WAF, secrets rotation, incident/deployment runbooks.
+- Mobile contract validation и backward-compatibility policy.
 
-### Billing
+## Обязательные тестовые ворота
 
-- успешная подписка создает один grant на 1000 минут;
-- повторный webhook не дублирует grant;
-- top-up создает один несгораемый grant на 300 минут;
-- cross-platform restore не создает повторный balance;
-- subscription rollover не превышает 2000 минут;
-- расходуются сначала истекающие subscription grants;
-- reservation атомарна при конкурентных job requests;
-- две jobs не могут потратить одни и те же минуты;
-- capture и release идемпотентны;
-- retry инфраструктурной ошибки не списывает минуты второй раз;
-- отмена и refund создают корректирующие ledger entries;
-- потеря подписки блокирует новые jobs, но не чтение готовых данных.
+### Для локального web-MVP
 
-### Upload
+- Все текущие 317 тестов продолжают проходить.
+- API tests проверяют каждую группу HTTP status/error codes.
+- Пользователь A не читает и не изменяет ресурсы workspace B даже по прямому ID.
+- `viewer` не выполняет mutations; изменение роли действует без новой login
+  session.
+- Queue endpoint быстро возвращает `202`, job завершается вне request lifecycle.
+- SSE не позволяет подписаться на чужой job и корректно закрывает listener.
 
-- presigned URL принадлежит правильному workspace;
-- filename не влияет на object key;
-- слишком большой или длинный файл отклоняется;
-- неверный формат не создает AudioTrack;
-- incomplete multipart upload удаляется;
-- checksum проверяется;
-- signed download недоступен после expiry;
-- чужой пользователь не может завершить upload.
+### Для публичной beta
 
-### Queue и jobs
+- Local auth невозможно включить production-конфигурацией.
+- OIDC negative tests покрывают issuer, audience, expiry, signature и revoked
+  session.
+- Upload tests покрывают размер, тип, повреждение, checksum, abort и cleanup.
+- PostgreSQL repository contract suite повторяет tenant isolation tests SQLite.
+- Job publish атомарен через outbox; потеря API/worker не теряет queued job.
+- Retry не создаёт второй artifact, job или billing capture.
+- Webhooks устойчивы к дублям и перестановке событий.
+- Rate limits и audit events проверяются автоматически.
 
-- создание job возвращает `202`;
-- at-least-once delivery не запускает pipeline дважды;
-- lease восстанавливается после потери worker;
-- cancel работает независимо от API replica;
-- GPU concurrency limit соблюдается;
-- poison job попадает в dead-letter queue;
-- reservation согласована с terminal status;
-- API остается отзывчивым при длинных jobs.
+### Для production
 
-### API и mobile
+- Load profile подтверждает API latency и queue-age SLO.
+- Worker crash, lease expiry и cancellation имеют детерминированный результат.
+- Restore из backup регулярно проверяется.
+- Нет неограниченных in-memory collections и polling loops на пользователя.
+- Security review не находит путей обхода workspace scope или signed download.
 
-- OpenAPI соответствует публичным DTO;
-- web, iOS и Android получают одинаковые resource representations;
-- access/refresh token lifecycle корректен;
-- StoreKit и Google purchases проверяются сервером;
-- restore purchases восстанавливает entitlement;
-- ответы не содержат локальные пути, object keys или secrets;
-- все mutating operations корректно обрабатывают idempotency key.
+## Критерии готовности
 
-### Security и operations
+### Web-MVP готов, когда
 
-- CORS разрешает только официальные origins;
-- webhook с неверной подписью отклоняется;
-- replay webhook не меняет ledger;
-- rate limits применяются по user/workspace;
-- health endpoints не раскрывают конфигурацию;
-- rolling deploy не теряет jobs;
-- backup восстанавливает согласованные metadata, ledger и artifacts;
-- alert срабатывает при queue backlog и webhook lag.
+- есть versioned FastAPI contract и web-клиент не обращается к filesystem/DB;
+- каждый request строится из authenticated actor и проверенного workspace;
+- upload создаёт managed artifact;
+- job запускается асинхронно и наблюдается через status/SSE;
+- cross-tenant и role API tests проходят.
 
-## Заключение
+### Публичная beta готова, когда
 
-NoteKeeper имеет подходящее доменное и application-ядро, но публичный продукт
-для большого количества пользователей требует multi-tenant инфраструктуры с
-самого начала. SQLite, local filesystem, process-local progress и синхронный
-запуск jobs не должны использоваться как production foundation.
+- local auth, SQLite, local filesystem и local queue заменены в production
+  profile;
+- OIDC, PostgreSQL, object storage, outbox и durable queue работают end-to-end;
+- invitations, lifecycle, rate limiting, audit и backups реализованы;
+- billing согласован с job lifecycle, если beta платная.
 
-Целевая модель продукта:
+### Production SaaS готов, когда
 
-```text
-Один тариф:       $14.99 / месяц
-Включено:         1000 аудиоминут
-Top-up:           $5.99 / 300 аудиоминут
-Feature tiers:    отсутствуют
-Billing owner:    владелец workspace
-Clients:          Web + iOS + Android через единый API
-```
+- API и workers масштабируются независимо;
+- все mutations и external events идемпотентны;
+- failure/recovery сценарии и restore подтверждены тестами;
+- SLO, alerts, cost controls и incident procedures проверены эксплуатацией.
 
-Архитектура должна строиться вокруг stateless FastAPI, PostgreSQL, object
-storage, durable queue, GPU workers, event broker и единого cross-platform
-billing ledger. Это позволяет сохранять существующую бизнес-логику pipeline,
-обеспечивая изоляцию пользователей, предсказуемое списание минут и возможность
-масштабировать API и compute независимо друг от друга.
+## Итог
+
+NoteKeeper больше не находится на стадии «сначала спроектировать tenancy и
+асинхронные jobs». Эти части уже имеют рабочую локальную реализацию и хорошее
+тестовое покрытие. Проект **готов к немедленному добавлению тонкого API-адаптера и
+локального web-MVP без переписывания domain/application**.
+
+Одновременно проект **не готов к прямому публичному размещению**. Критический
+путь проходит не через переписывание бизнес-логики, а через создание HTTP
+boundary и замену local adapters: plaintext local auth, SQLite/JSON persistence,
+filesystem storage и process-local queue. Наиболее безопасная последовательность
+— сначала вертикальный API slice на текущем ядре, затем transaction/outbox,
+production identity, PostgreSQL, object storage и durable workers, и только после
+этого billing и публичный запуск.

@@ -34,8 +34,7 @@ def run_selected_job(app: NoteKeeperTui) -> None:
     app._watch_progress(str(job.id))
     app.run_worker(
         lambda: (
-            app.runtime.use_cases.queue_processing_job
-            or app.runtime.use_cases.run_processing_job
+            app.runtime.use_cases.jobs.queue or app.runtime.use_cases.jobs.queue
         ).execute(
             QueueProcessingJobCommand(job_id=str(job.id)),
         ),
@@ -52,7 +51,7 @@ def create_job_for_selected_audio_track(app: NoteKeeperTui) -> None:
         return
 
     try:
-        result = app.runtime.use_cases.create_processing_job_for_audio_track.execute(
+        result = app.runtime.use_cases.jobs.create.execute(
             CreateProcessingJobForAudioTrackCommand(
                 audio_track_id=str(audio_track.id),
             ),
@@ -74,8 +73,8 @@ def restart_selected_failed_job(app: NoteKeeperTui) -> None:
 
     try:
         restart_use_case = (
-            app.runtime.use_cases.restart_processing_job
-            or app.runtime.use_cases.restart_failed_processing_job
+            app.runtime.use_cases.jobs.restart
+            or app.runtime.use_cases.jobs.restart_failed
         )
         result = restart_use_case.execute(
             RestartProcessingJobCommand(job_id=str(job.id)),
@@ -104,10 +103,7 @@ def _delete_job(
 ) -> None:
     if not confirmed:
         return
-    delete_use_case = app.runtime.use_cases.delete_processing_job
-    if delete_use_case is None:
-        app._set_status("Job deletion is unavailable")
-        return
+    delete_use_case = app.runtime.use_cases.jobs.delete
     app._job_delete_in_progress = True
     app._update_action_buttons()
     app.run_worker(
@@ -138,10 +134,7 @@ def _cancel_job(
 ) -> None:
     if not confirmed:
         return
-    cancel_use_case = app.runtime.use_cases.cancel_processing_job
-    if cancel_use_case is None:
-        app._set_status("Job cancellation is unavailable")
-        return
+    cancel_use_case = app.runtime.use_cases.jobs.cancel
     app._job_cancel_in_progress = True
     app._update_action_buttons()
     app.run_worker(

@@ -10,6 +10,7 @@ from notekeeper.application.ports import (
     JobRepository,
     ProgressTrackerFactory,
     RecapGenerator,
+    RecapGeneratorFactory,
     RecapGuidances,
     RecapRepository,
     Tokenizer,
@@ -34,6 +35,8 @@ class GenerateRecap:
         id_generator: IdGenerator,
         *,
         progress_tracker_factory: ProgressTrackerFactory | None = None,
+        target_token_count: int = 30_000,
+        recap_generator_factory: RecapGeneratorFactory | None = None,
     ) -> None:
         self._job_repository = job_repository
         self._transcript_repository = transcript_repository
@@ -44,6 +47,8 @@ class GenerateRecap:
         self._clock = clock
         self._id_generator = id_generator
         self._progress_tracker_factory = progress_tracker_factory
+        self._target_token_count = target_token_count
+        self._recap_generator_factory = recap_generator_factory
 
     def execute(self, command: GenerateRecapCommand) -> GenerateRecapResult:
         job = require_job(
@@ -70,17 +75,23 @@ class GenerateRecap:
                 self._transcript_repository,
                 job.transcript_id,
             )
+            recap_generator = (
+                self._recap_generator_factory.create(transcript.campaign_id)
+                if self._recap_generator_factory is not None
+                else self._recap_generator
+            )
             recap = generate_recap_for_transcript(
                 transcript,
                 id_generator=self._id_generator,
                 tokenizer=self._tokenizer,
                 recap_guidances=self._recap_guidances,
-                recap_generator=self._recap_generator,
+                recap_generator=recap_generator,
                 recap_repository=self._recap_repository,
                 job_id=job.id,
                 progress_callback=(
                     progress.update_fraction if progress is not None else None
                 ),
+                target_token_count=self._target_token_count,
             )
             if progress is not None:
                 progress.complete_stage()

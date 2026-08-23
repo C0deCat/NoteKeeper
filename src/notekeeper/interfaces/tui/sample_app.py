@@ -79,7 +79,7 @@ class VoiceSampleScreen(ModalScreen[bool]):
         if self._source_path is None:
             return
         try:
-            result = self.runtime.use_cases.inspect_local_audio_file.execute(
+            result = self.runtime.use_cases.media.inspect_local_file.execute(
                 InspectLocalAudioFileCommand(source_path=str(self._source_path)),
             )
             self._source_path = Path(result.source_path)
@@ -101,7 +101,7 @@ class VoiceSampleScreen(ModalScreen[bool]):
         ):
             return
         try:
-            self.runtime.use_cases.add_voice_sample.execute(
+            self.runtime.use_cases.samples.add.execute(
                 AddVoiceSampleCommand(
                     campaign_id=self.campaign_id,
                     participant_id=str(participant_id),
@@ -114,7 +114,7 @@ class VoiceSampleScreen(ModalScreen[bool]):
 
 
 def open_add_sample(app: NoteKeeperTui, campaign_id: str) -> None:
-    participants = app.runtime.use_cases.list_participants.execute(
+    participants = app.runtime.use_cases.participants.list.execute(
         ListParticipantsCommand(campaign_id=campaign_id),
     ).participants
     app.push_screen(
@@ -131,7 +131,7 @@ def open_add_sample(app: NoteKeeperTui, campaign_id: str) -> None:
 
 def open_remove_sample(app: NoteKeeperTui, participant: Participant) -> None:
     try:
-        samples = app.runtime.use_cases.list_voice_samples.execute(
+        samples = app.runtime.use_cases.samples.list.execute(
             ListVoiceSamplesCommand(
                 campaign_id=str(participant.campaign_id),
                 participant_id=str(participant.id),
@@ -159,7 +159,7 @@ def _remove_sample(
     if sample_id is None:
         return
     try:
-        app.runtime.use_cases.delete_voice_sample.execute(
+        app.runtime.use_cases.samples.delete.execute(
             DeleteVoiceSampleCommand(
                 campaign_id=str(participant.campaign_id),
                 voice_sample_id=sample_id,

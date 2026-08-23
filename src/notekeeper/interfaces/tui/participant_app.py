@@ -47,7 +47,7 @@ def add_participant(
     if not display_name:
         return
     try:
-        app.runtime.use_cases.add_participant.execute(
+        app.runtime.use_cases.participants.add.execute(
             AddParticipantToCampaignCommand(
                 campaign_id=campaign_id,
                 display_name=display_name,
@@ -76,7 +76,7 @@ def _rename_participant(
     if not name:
         return
     try:
-        app.runtime.use_cases.update_participant.execute(
+        app.runtime.use_cases.participants.update.execute(
             UpdateParticipantCommand(
                 campaign_id=str(participant.campaign_id),
                 participant_id=str(participant.id),
@@ -106,7 +106,7 @@ def _remove_participant(
     if not confirmed:
         return
     try:
-        app.runtime.use_cases.delete_participant.execute(
+        app.runtime.use_cases.participants.delete.execute(
             DeleteParticipantCommand(
                 campaign_id=str(participant.campaign_id),
                 participant_id=str(participant.id),

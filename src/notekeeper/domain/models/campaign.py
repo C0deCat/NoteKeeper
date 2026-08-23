@@ -3,7 +3,14 @@
 from dataclasses import dataclass
 
 from ..errors import CampaignValidationError
-from ..ids import AudioTrackId, CampaignId, ParticipantId, VoiceSampleId
+from ..ids import (
+    BUILTIN_ROOT_WORKSPACE_ID,
+    AudioTrackId,
+    CampaignId,
+    ParticipantId,
+    WorkspaceId,
+    VoiceSampleId,
+)
 from ..validation import as_tuple, non_empty_str
 from .audio_track import AudioTrack
 from .participant import Participant
@@ -14,12 +21,18 @@ from .voice_sample import VoiceSample
 class Campaign:
     id: CampaignId
     name: str
+    workspace_id: WorkspaceId = BUILTIN_ROOT_WORKSPACE_ID
     participants: tuple[Participant, ...] = ()
     voice_samples: tuple[VoiceSample, ...] = ()
     audio_tracks: tuple[AudioTrack, ...] = ()
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "name", non_empty_str(self.name, "name"))
+        object.__setattr__(
+            self,
+            "workspace_id",
+            WorkspaceId(non_empty_str(str(self.workspace_id), "workspace_id")),
+        )
         object.__setattr__(
             self,
             "participants",
@@ -50,7 +63,9 @@ class Campaign:
 
             name_key = participant.display_name.casefold()
             if name_key in participant_names:
-                raise CampaignValidationError("campaign has duplicate participant names")
+                raise CampaignValidationError(
+                    "campaign has duplicate participant names"
+                )
 
             participant_ids.add(participant.id)
             participant_names.add(name_key)
@@ -58,7 +73,9 @@ class Campaign:
         sample_ids: set[VoiceSampleId] = set()
         for voice_sample in self.voice_samples:
             if voice_sample.campaign_id != self.id:
-                raise CampaignValidationError("voice sample belongs to another campaign")
+                raise CampaignValidationError(
+                    "voice sample belongs to another campaign"
+                )
             if voice_sample.participant_id not in participant_ids:
                 raise CampaignValidationError(
                     "voice sample participant is not in the campaign"

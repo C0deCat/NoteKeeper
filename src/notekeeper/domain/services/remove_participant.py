@@ -8,7 +8,9 @@ from ..models import Campaign
 
 
 def remove_participant(campaign: Campaign, participant_id: ParticipantId) -> Campaign:
-    if not any(participant.id == participant_id for participant in campaign.participants):
+    if not any(
+        participant.id == participant_id for participant in campaign.participants
+    ):
         raise CampaignValidationError("participant is not in the campaign")
 
     participants = tuple(
@@ -17,6 +19,8 @@ def remove_participant(campaign: Campaign, participant_id: ParticipantId) -> Cam
         if participant.id != participant_id
     )
     voice_samples = tuple(
-        sample for sample in campaign.voice_samples if sample.participant_id != participant_id
+        sample
+        for sample in campaign.voice_samples
+        if sample.participant_id != participant_id
     )
     return replace(campaign, participants=participants, voice_samples=voice_samples)

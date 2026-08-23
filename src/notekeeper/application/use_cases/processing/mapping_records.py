@@ -46,4 +46,3 @@ def build_review_mapping_records(
 
 
 __all__ = ["build_automatic_mapping_records", "build_review_mapping_records"]
-

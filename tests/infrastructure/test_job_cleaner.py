@@ -1,7 +1,7 @@
 from datetime import datetime
 from pathlib import Path
 
-from notekeeper.application import ProgressEvent, ProgressEventKind
+from notekeeper.application import SYSTEM_SCOPE, ProgressEvent, ProgressEventKind
 from notekeeper.domain import CampaignId, JobStatus, ProcessingJob, ProgressBar
 from notekeeper.infrastructure.cleanup import LocalJobCleaner
 from notekeeper.infrastructure.filesystem import LocalCampaignArtifactStorage
@@ -15,7 +15,7 @@ from notekeeper.infrastructure.sqlite import (
 def test_job_cleaner_deletes_progress_snapshot(tmp_path: Path) -> None:
     database = SQLiteDatabase(tmp_path / "notekeeper.sqlite3")
     database.initialize()
-    jobs = SQLiteJobRepository(database)
+    jobs = SQLiteJobRepository(database, SYSTEM_SCOPE)
     snapshots = SQLiteProgressEventSnapshotStore(database)
     job = ProcessingJob(
         id="job-1",

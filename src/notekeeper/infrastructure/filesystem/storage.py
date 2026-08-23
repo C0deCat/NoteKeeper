@@ -150,8 +150,12 @@ class LocalCampaignArtifactStorage(CampaignArtifactStorage):
             raise InfrastructureError(f"unknown campaign folder: {folder}")
 
         self.ensure_campaign_layout(campaign_id)
-        target = self.campaign_path(campaign_id) / folder / safe_relative_name(
-            suggested_name,
+        target = (
+            self.campaign_path(campaign_id)
+            / folder
+            / safe_relative_name(
+                suggested_name,
+            )
         )
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(content, encoding="utf-8")

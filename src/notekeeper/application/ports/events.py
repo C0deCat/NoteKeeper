@@ -80,4 +80,3 @@ class ProgressTrackerFactory(Protocol):
         operation_id: str,
         stages: tuple[ProcessingStage, ...],
     ) -> ProgressTracker: ...
-

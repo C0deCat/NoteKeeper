@@ -83,7 +83,10 @@ def test_persisted_hub_keeps_operation_snapshots_independent(
 
     unsubscribe_first = observer.subscribe(
         "job-a",
-        lambda event: (observed.__setitem__(event.operation_id, event), first_changed.set()),
+        lambda event: (
+            observed.__setitem__(event.operation_id, event),
+            first_changed.set(),
+        ),
     )
     unsubscribe_second = observer.subscribe(
         "job-b",

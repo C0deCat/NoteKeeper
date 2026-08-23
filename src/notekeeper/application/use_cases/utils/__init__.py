@@ -11,6 +11,7 @@ from .guarded_campaign_mutation import (
     CampaignMutationUseCase,
     GuardedCampaignMutation,
 )
+from .guarded_job_queue import GuardedJobQueue
 from .lookups import (
     require_audio_track,
     require_campaign,
@@ -18,6 +19,7 @@ from .lookups import (
     require_recap,
     require_transcript,
 )
+from .role_authorized_use_case import RoleAuthorizedUseCase
 
 __all__ = [
     "ACTIVE_CAMPAIGN_JOB_STATUSES",
@@ -25,6 +27,8 @@ __all__ = [
     "CampaignMutationPolicy",
     "CampaignMutationUseCase",
     "GuardedCampaignMutation",
+    "GuardedJobQueue",
+    "RoleAuthorizedUseCase",
     "delete_artifact_with_warning",
     "require_audio_track",
     "require_campaign",

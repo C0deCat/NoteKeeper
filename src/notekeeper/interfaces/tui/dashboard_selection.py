@@ -45,7 +45,10 @@ def _update_action_buttons(app: NoteKeeperTui) -> None:
         "manage-campaign",
         campaign_selected and app._campaign_has_active_jobs,
     )
-    app._set_button_disabled("settings", not campaign_mutable)
+    app._set_button_disabled(
+        "settings",
+        False if app._has_settings_service() else not campaign_mutable,
+    )
     app._set_button_disabled("diagnostics", False)
     app._set_button_disabled("sync-folder", not campaign_mutable)
     app._set_button_disabled("add-player", not campaign_mutable)

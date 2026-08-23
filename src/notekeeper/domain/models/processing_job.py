@@ -8,6 +8,7 @@ from ..errors import DomainValidationError
 from ..ids import AudioTrackId, CampaignId, ProcessingJobId, RecapId, TranscriptId
 from ..validation import as_tuple, optional_non_empty_str
 from ..value_objects import PipelineWarning
+from .settings import ProcessingSettingsSnapshot
 
 
 @dataclass(frozen=True, slots=True)
@@ -22,10 +23,13 @@ class ProcessingJob:
     recap_id: RecapId | None = None
     warnings: tuple[PipelineWarning, ...] = ()
     error_message: str | None = None
+    settings_snapshot: ProcessingSettingsSnapshot | None = None
 
     def __post_init__(self) -> None:
         if self.updated_at < self.created_at:
-            raise DomainValidationError("updated_at must not be earlier than created_at")
+            raise DomainValidationError(
+                "updated_at must not be earlier than created_at"
+            )
 
         object.__setattr__(self, "warnings", as_tuple(self.warnings))
         object.__setattr__(

@@ -32,6 +32,12 @@ class JobStatus(str, Enum):
     CANCELED = "canceled"
 
 
+class WorkspaceRole(str, Enum):
+    OWNER = "owner"
+    EDITOR = "editor"
+    VIEWER = "viewer"
+
+
 class PipelineWarningKind(str, Enum):
     UNRESOLVED_SPEAKER_LABEL = "unresolved_speaker_label"
     DUPLICATE_MAPPING = "duplicate_mapping"

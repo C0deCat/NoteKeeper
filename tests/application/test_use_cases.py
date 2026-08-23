@@ -231,7 +231,9 @@ class FakeSourceMetadataReader:
 
 class FakeAudioProcessor:
     def __init__(self) -> None:
-        self.calls: list[tuple[AudioTrack, tuple[VoiceSample, ...], ProcessingJobId]] = []
+        self.calls: list[
+            tuple[AudioTrack, tuple[VoiceSample, ...], ProcessingJobId]
+        ] = []
         self.error: PortExecutionError | None = None
 
     def prepare_session_audio(
@@ -382,9 +384,7 @@ class FakeSpeakerMappingRepository:
 
     def list_for_transcript(self, transcript_id) -> tuple[SpeakerMappingRecord, ...]:
         return tuple(
-            record
-            for record in self.records
-            if record.transcript_id == transcript_id
+            record for record in self.records if record.transcript_id == transcript_id
         )
 
 
@@ -770,13 +770,17 @@ class Harness:
 def test_campaign_use_cases_create_campaign_add_participant_and_voice_sample() -> None:
     harness = Harness()
 
-    campaign = CreateCampaign(
-        harness.campaigns,
-        harness.ids,
-        harness.recap_guidances,
-    ).execute(
-        CreateCampaignCommand(name="Storm King's Thunder"),
-    ).campaign
+    campaign = (
+        CreateCampaign(
+            harness.campaigns,
+            harness.ids,
+            harness.recap_guidances,
+        )
+        .execute(
+            CreateCampaignCommand(name="Storm King's Thunder"),
+        )
+        .campaign
+    )
     participant_result = AddParticipantToCampaign(
         harness.campaigns,
         harness.ids,
@@ -864,22 +868,30 @@ def test_recap_guidance_use_cases_validate_campaign_and_updates() -> None:
 
 def test_add_voice_sample_imports_local_source_for_participant() -> None:
     harness = Harness()
-    campaign = CreateCampaign(
-        harness.campaigns,
-        harness.ids,
-        harness.recap_guidances,
-    ).execute(
-        CreateCampaignCommand(name="Storm King's Thunder"),
-    ).campaign
-    participant = AddParticipantToCampaign(
-        harness.campaigns,
-        harness.ids,
-    ).execute(
-        AddParticipantToCampaignCommand(
-            campaign_id=campaign.id,
-            display_name="Alice",
-        ),
-    ).participant
+    campaign = (
+        CreateCampaign(
+            harness.campaigns,
+            harness.ids,
+            harness.recap_guidances,
+        )
+        .execute(
+            CreateCampaignCommand(name="Storm King's Thunder"),
+        )
+        .campaign
+    )
+    participant = (
+        AddParticipantToCampaign(
+            harness.campaigns,
+            harness.ids,
+        )
+        .execute(
+            AddParticipantToCampaignCommand(
+                campaign_id=campaign.id,
+                display_name="Alice",
+            ),
+        )
+        .participant
+    )
     source_path = Path("alice.wav").resolve()
 
     result = AddVoiceSample(
@@ -968,7 +980,9 @@ def test_submit_recording_rejects_campaign_without_voice_samples() -> None:
     assert not harness.audio_tracks.items
 
 
-def test_submit_recording_normalizes_external_source_without_copying_or_deleting() -> None:
+def test_submit_recording_normalizes_external_source_without_copying_or_deleting() -> (
+    None
+):
     harness = Harness()
     campaign = harness.ready_campaign("Alice")
     source_path = Path("session.wav").resolve()
@@ -1385,9 +1399,7 @@ def test_clear_failed_jobs_keeps_jobs_when_cleaner_fails() -> None:
 def test_run_processing_job_completes_clean_mapping_flow() -> None:
     harness = Harness()
     campaign = harness.ready_campaign("Alice")
-    harness.transcriber.segments = (
-        segment(0, 0, 1, "SPEAKER_00", "Hello there"),
-    )
+    harness.transcriber.segments = (segment(0, 0, 1, "SPEAKER_00", "Hello there"),)
     harness.speaker_identifier.mappings = (
         confirmed_mapping("SPEAKER_00", "Alice", "participant-1"),
     )
@@ -1460,9 +1472,7 @@ def test_run_processing_job_always_cleans_transient_audio() -> None:
 def test_run_processing_job_does_not_overwrite_concurrent_cancel() -> None:
     harness = Harness()
     harness.ready_campaign("Alice")
-    harness.transcriber.segments = (
-        segment(0, 0, 1, "SPEAKER_00", "Hello there"),
-    )
+    harness.transcriber.segments = (segment(0, 0, 1, "SPEAKER_00", "Hello there"),)
     harness.speaker_identifier.mappings = (
         confirmed_mapping("SPEAKER_00", "Alice", "participant-1"),
     )
@@ -1530,9 +1540,10 @@ def test_run_processing_job_waits_for_review_when_mapping_warnings_exist() -> No
         "SPEAKER_01",
     ]
     assert harness.speaker_mappings.records[0].transcript_id == result.transcript.id
-    assert harness.speaker_mappings.records[0].diagnostics[
-        "prepared_audio_artifact_uri"
-    ] == f"prepared/{submitted.job.id}.wav"
+    assert (
+        harness.speaker_mappings.records[0].diagnostics["prepared_audio_artifact_uri"]
+        == f"prepared/{submitted.job.id}.wav"
+    )
     assert harness.transient_audio_cleaner.calls == [
         (CampaignId("campaign-1"), submitted.job.id),
     ]
@@ -1566,9 +1577,7 @@ def test_run_processing_job_marks_failed_when_early_adapter_fails() -> None:
 def test_run_processing_job_failed_recap_preserves_persisted_transcript() -> None:
     harness = Harness()
     harness.ready_campaign("Alice")
-    harness.transcriber.segments = (
-        segment(0, 0, 1, "SPEAKER_00", "Hello there"),
-    )
+    harness.transcriber.segments = (segment(0, 0, 1, "SPEAKER_00", "Hello there"),)
     harness.speaker_identifier.mappings = (
         confirmed_mapping("SPEAKER_00", "Alice", "participant-1"),
     )
@@ -1808,10 +1817,7 @@ def test_review_speaker_mappings_does_not_overwrite_concurrent_cancel() -> None:
     review_status_index = len(harness.jobs.saved_statuses)
 
     def cancel_before_terminal_save(job, expected_status):
-        if (
-            expected_status is JobStatus.RUNNING
-            and job.status is JobStatus.COMPLETED
-        ):
+        if expected_status is JobStatus.RUNNING and job.status is JobStatus.COMPLETED:
             current = harness.jobs.get(job.id)
             harness.jobs.save(replace(current, status=JobStatus.CANCELED))
             return False
@@ -1896,9 +1902,7 @@ def test_review_speaker_mappings_rejects_invalid_manual_decisions(
 ) -> None:
     harness = Harness()
     harness.ready_campaign("Alice")
-    harness.transcriber.segments = (
-        segment(0, 0, 1, "SPEAKER_00", "A guest speaks"),
-    )
+    harness.transcriber.segments = (segment(0, 0, 1, "SPEAKER_00", "A guest speaks"),)
     submitted = harness.submit_use_case().execute(
         SubmitRecordingForProcessingCommand(
             campaign_id="campaign-1",
@@ -1979,8 +1983,7 @@ def test_generate_recap_and_export_markdown_use_artifact_storage() -> None:
     assert harness.recaps.get(old_recap.id) == old_recap
     assert harness.transcripts.get(transcript.id) == transcript
     assert (
-        harness.recap_generator.generated_contexts[0].recap_id
-        == recap_result.recap.id
+        harness.recap_generator.generated_contexts[0].recap_id == recap_result.recap.id
     )
     assert harness.recap_generator.generated_contexts[0].job_id == job.id
     assert harness.recap_generator.generated_guidances == ["chunk guidance"]
@@ -2147,8 +2150,7 @@ def test_query_use_cases_list_jobs_inspect_metadata_and_preview_markdown() -> No
     assert local_metadata.metadata.checksum == "source-checksum:session.wav"
     assert (
         "[00:00:00 - 00:00:05] **Alice:** We enter the crypt.\n\n"
-        "[00:00:05 - 00:00:09] **Bob:** I light a torch."
-        in transcript_preview.markdown
+        "[00:00:05 - 00:00:09] **Bob:** I light a torch." in transcript_preview.markdown
     )
     assert recap_preview.markdown == "# Recap\n\nDone."
 

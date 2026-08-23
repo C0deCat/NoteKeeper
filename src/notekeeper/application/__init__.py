@@ -1,5 +1,15 @@
 """Application layer public facade."""
 
+from .access_context import (
+    AccessContext,
+    RepositoryScope,
+    SYSTEM_SCOPE,
+    SystemScope,
+    WorkspaceScope,
+)
+from .authenticator import Authenticator
+from .settings_service import SettingsService
+
 from .commands import (
     AddParticipantToCampaignCommand,
     AddVoiceSampleCommand,
@@ -44,9 +54,13 @@ from .commands import (
 )
 from .errors import (
     ApplicationError,
+    AuthenticationRequiredError,
+    AuthorizationError,
     InvalidOperationError,
+    InvalidCredentialsError,
     NotFoundError,
     PortExecutionError,
+    UserAlreadyExistsError,
 )
 from .results import (
     AddParticipantToCampaignResult,
@@ -144,8 +158,20 @@ from .use_cases import (
     UpdateRecapGuidances,
     UpdateVoiceSample,
 )
+from .use_case_facade import (
+    ApplicationUseCases,
+    CampaignUseCases,
+    JobUseCases,
+    MediaUseCases,
+    ParticipantUseCases,
+    RecapUseCases,
+    RecordingUseCases,
+    SampleUseCases,
+    TranscriptUseCases,
+)
 
 __all__ = [
+    "AccessContext",
     "AddParticipantToCampaign",
     "AddParticipantToCampaignCommand",
     "AddParticipantToCampaignResult",
@@ -156,6 +182,9 @@ __all__ = [
     "CancelProcessingJobCommand",
     "CancelProcessingJobResult",
     "ApplicationError",
+    "Authenticator",
+    "AuthenticationRequiredError",
+    "AuthorizationError",
     "CampaignFolderSnapshot",
     "ClearFailedJobsForCampaign",
     "ClearFailedJobsForCampaignCommand",
@@ -207,6 +236,7 @@ __all__ = [
     "InspectLocalAudioFileCommand",
     "InspectLocalAudioFileResult",
     "InvalidOperationError",
+    "InvalidCredentialsError",
     "ListAudioTracks",
     "ListAudioTracksCommand",
     "ListAudioTracksResult",
@@ -227,6 +257,7 @@ __all__ = [
     "ManualSpeakerMappingCommand",
     "NotFoundError",
     "PortExecutionError",
+    "UserAlreadyExistsError",
     "PreviewRecapMarkdown",
     "PreviewRecapMarkdownCommand",
     "PreviewTranscriptMarkdown",
@@ -254,8 +285,10 @@ __all__ = [
     "RestartProcessingJobResult",
     "RunProcessingJob",
     "ExecuteQueuedProcessingJob",
+    "RepositoryScope",
     "RunProcessingJobCommand",
     "RunProcessingJobResult",
+    "SYSTEM_SCOPE",
     "ScannedAudioTrackArtifact",
     "ScannedVoiceSampleArtifact",
     "SpeakerMappingRecord",
@@ -266,6 +299,8 @@ __all__ = [
     "SyncCampaignFolder",
     "SyncCampaignFolderCommand",
     "SyncCampaignFolderResult",
+    "SettingsService",
+    "SystemScope",
     "TranscriptChunk",
     "UpdateAudioTrack",
     "UpdateAudioTrackCommand",
@@ -282,4 +317,14 @@ __all__ = [
     "UpdateVoiceSample",
     "UpdateVoiceSampleCommand",
     "UpdateVoiceSampleResult",
+    "WorkspaceScope",
+    "ApplicationUseCases",
+    "CampaignUseCases",
+    "JobUseCases",
+    "MediaUseCases",
+    "ParticipantUseCases",
+    "RecapUseCases",
+    "RecordingUseCases",
+    "SampleUseCases",
+    "TranscriptUseCases",
 ]

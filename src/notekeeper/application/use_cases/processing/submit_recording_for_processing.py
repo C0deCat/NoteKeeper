@@ -13,6 +13,7 @@ from notekeeper.application.ports import (
     SourceAudioMetadataReader,
 )
 from notekeeper.application.results import SubmitRecordingForProcessingResult
+from notekeeper.application.settings_service import SettingsService
 from notekeeper.application.use_cases.utils import (
     delete_artifact_with_warning,
     require_campaign,
@@ -44,6 +45,7 @@ class SubmitRecordingForProcessing:
         id_generator: IdGenerator,
         *,
         audio_normalizer: AudioRecordingNormalizer,
+        settings_service: SettingsService | None = None,
     ) -> None:
         self._campaign_repository = campaign_repository
         self._audio_track_repository = audio_track_repository
@@ -54,6 +56,7 @@ class SubmitRecordingForProcessing:
         self._clock = clock
         self._id_generator = id_generator
         self._audio_normalizer = audio_normalizer
+        self._settings_service = settings_service
 
     def execute(
         self,
@@ -111,6 +114,11 @@ class SubmitRecordingForProcessing:
             status=JobStatus.PENDING,
             created_at=now,
             updated_at=now,
+            settings_snapshot=(
+                self._settings_service.snapshot_for_campaign(str(campaign.id))
+                if self._settings_service is not None
+                else None
+            ),
         )
         self._job_repository.save(job)
         cleanup_warnings = ()

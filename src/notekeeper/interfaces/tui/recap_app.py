@@ -27,7 +27,7 @@ def recreate_recap(app: NoteKeeperTui) -> None:
     app._update_action_buttons()
     app._watch_progress(str(job.id))
     app.run_worker(
-        lambda: app.runtime.use_cases.generate_recap.execute(
+        lambda: app.runtime.use_cases.recaps.generate.execute(
             GenerateRecapCommand(job_id=str(job.id)),
         ),
         group="recap",
@@ -42,7 +42,7 @@ def preview_recap(app: NoteKeeperTui) -> None:
         app._set_status("No recap")
         return
     try:
-        result = app.runtime.use_cases.preview_recap_markdown.execute(
+        result = app.runtime.use_cases.recaps.preview_markdown.execute(
             PreviewRecapMarkdownCommand(recap_id=str(job.recap_id)),
         )
         app.push_screen(MarkdownPreviewScreen("Recap", result.markdown))
@@ -56,7 +56,7 @@ def export_recap(app: NoteKeeperTui) -> None:
         app._set_status("No recap")
         return
     try:
-        result = app.runtime.use_cases.export_recap_markdown.execute(
+        result = app.runtime.use_cases.recaps.export_markdown.execute(
             ExportRecapMarkdownCommand(recap_id=str(job.recap_id)),
         )
         location = app.runtime.format_artifact_location(result.artifact)

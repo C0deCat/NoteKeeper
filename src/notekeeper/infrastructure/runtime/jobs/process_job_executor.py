@@ -7,10 +7,12 @@ import multiprocessing
 import threading
 import time
 from collections import deque
+from collections.abc import Callable
 from dataclasses import dataclass, replace
 from multiprocessing.connection import Connection
 from multiprocessing.process import BaseProcess
 from pathlib import Path
+from typing import Protocol
 
 from filelock import FileLock, Timeout
 
@@ -23,6 +25,7 @@ from notekeeper.application import (
 from notekeeper.application.errors import InvalidOperationError, PortExecutionError
 from notekeeper.application.ports import (
     Clock,
+    CampaignRepository,
     DashboardEventHub,
     JobManager,
     JobRepository,
@@ -41,12 +44,22 @@ from notekeeper.domain import (
 from .job_capacity import ExecutionCapacity, JobCapacityPool
 from .process_execution_registry import ProcessExecutionRegistry
 from .process_tree import terminate_process_tree
-from .settings import NoteKeeperSettings
 
 logger = logging.getLogger(__name__)
 
 
 _ExecutionCapacity = ExecutionCapacity
+
+
+class JobManagerSettings(Protocol):
+    max_concurrent_jobs: int
+    max_concurrent_gpu_jobs: int
+    whisperx_device: str
+    whisperx_alignment_enabled: bool
+    whisperx_diarization_enabled: bool
+
+
+WorkerTarget = Callable[[JobManagerSettings, str, str, Connection], None]
 
 
 @dataclass(slots=True)
@@ -60,11 +73,13 @@ class _ManagedExecution:
 class LocalJobManager(JobManager):
     def __init__(
         self,
-        settings: NoteKeeperSettings,
+        settings: JobManagerSettings,
         pipeline: ExecuteQueuedProcessingJob,
+        campaign_repository: CampaignRepository,
         job_repository: JobRepository,
         clock: Clock,
         *,
+        worker_target: WorkerTarget,
         lock_root: str | Path,
         progress_events: ProgressEventHub | None = None,
         dashboard_events: DashboardEventHub | None = None,
@@ -73,7 +88,9 @@ class LocalJobManager(JobManager):
     ) -> None:
         self._settings = settings
         self._pipeline = pipeline
+        self._campaign_repository = campaign_repository
         self._job_repository = job_repository
+        self._worker_target = worker_target
         self._clock = clock
         self._progress_events = progress_events
         self._dashboard_events = dashboard_events
@@ -327,10 +344,21 @@ class LocalJobManager(JobManager):
                 self._condition.notify_all()
 
     def _run_child(self, job_id: ProcessingJobId) -> None:
+        job = self._job_repository.get(job_id)
+        if job is None:
+            raise PortExecutionError(f"processing job {job_id} disappeared")
+        campaign = self._campaign_repository.get(job.campaign_id)
+        if campaign is None:
+            raise PortExecutionError(f"campaign {job.campaign_id} disappeared")
         result_reader, result_writer = self._context.Pipe(duplex=False)
         process = self._context.Process(
-            target=_execute_job,
-            args=(self._settings, str(job_id), result_writer),
+            target=self._worker_target,
+            args=(
+                self._settings,
+                str(campaign.workspace_id),
+                str(job_id),
+                result_writer,
+            ),
             name=f"notekeeper-job-{job_id}",
         )
         key = str(job_id)
@@ -551,50 +579,6 @@ class LocalJobManager(JobManager):
 
     def _delete_execution_metadata(self, job_id: ProcessingJobId) -> None:
         self._execution_registry.delete(job_id)
-
-
-def _execute_job(
-    settings: NoteKeeperSettings,
-    job_id: str,
-    result_writer: Connection,
-) -> None:
-    from .process_message_writer import ProcessMessageWriter
-
-    writer = ProcessMessageWriter(result_writer)
-    try:
-        from dataclasses import replace as dataclass_replace
-
-        from notekeeper.infrastructure.runtime import (
-            EventPublishingJobRepository,
-            StreamingProgressTrackerFactory,
-        )
-
-        from .factory import build_infrastructure
-        from .job_pipeline import build_processing_pipeline
-
-        infrastructure = build_infrastructure(
-            settings,
-            on_gpu_phase_completed=lambda: writer.resource_released("gpu"),
-        )
-        infrastructure = dataclass_replace(
-            infrastructure,
-            job_repository=EventPublishingJobRepository(
-                infrastructure.job_repository,
-                writer,
-            ),
-        )
-        pipeline = build_processing_pipeline(
-            infrastructure,
-            progress_tracker_factory=StreamingProgressTrackerFactory(writer),
-        )
-        result = pipeline.execute_running(
-            RunProcessingJobCommand(job_id=job_id),
-        )
-        writer.result(result)
-    except BaseException as exc:
-        writer.error(f"{type(exc).__name__}: {exc}")
-    finally:
-        writer.close()
 
 
 def _terminate_process_tree(pid: int) -> None:

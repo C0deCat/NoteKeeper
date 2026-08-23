@@ -33,7 +33,9 @@ def run_ffmpeg_with_progress(
         ) from exc
 
     if process.stdout is None:
-        raise InfrastructureError(f"ffmpeg progress stream is unavailable during {stage}")
+        raise InfrastructureError(
+            f"ffmpeg progress stream is unavailable during {stage}"
+        )
 
     for line in process.stdout:
         key, separator, value = line.strip().partition("=")
@@ -64,4 +66,3 @@ def run_ffmpeg_with_progress(
 
 
 __all__ = ["run_ffmpeg_with_progress"]
-

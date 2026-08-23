@@ -75,13 +75,14 @@ from notekeeper.infrastructure.sqlite import (
     SQLiteDatabase,
     SQLiteProgressEventSnapshotStore,
 )
-from notekeeper.interfaces import RuntimeDiagnostics, Stage1UseCases
+from notekeeper.interfaces import RuntimeDiagnostics
 from notekeeper.interfaces.tui import (
     AudioFileExplorerScreen,
     NoteKeeperTui,
     RecordingScreen,
     VoiceSampleScreen,
 )
+from use_case_fixture import application_use_cases_from_flat
 from notekeeper.interfaces.tui.campaign_management_screen import ManageCampaignsScreen
 from notekeeper.interfaces.tui.campaign_settings_screen import CampaignSettingsScreen
 from notekeeper.interfaces.tui.clear_failed_jobs_screen import ClearFailedJobsScreen
@@ -166,11 +167,7 @@ class FakeClearFailedJobsUseCase:
             and job.status is JobStatus.FAILED
         )
         self.list_jobs_use_case.result = ListJobsForCampaignResult(
-            jobs=tuple(
-                job
-                for job in jobs
-                if str(job.id) not in deleted_job_ids
-            ),
+            jobs=tuple(job for job in jobs if str(job.id) not in deleted_job_ids),
         )
         self.dashboard_events.publish(
             DashboardChangedEvent(
@@ -228,7 +225,9 @@ class FakeCreateCampaignUseCase:
     def execute(self, command):
         self.commands.append(command)
         campaign = Campaign(
-            id=CampaignId(f"campaign-{len(self.list_campaigns_use_case.result.campaigns) + 1}"),
+            id=CampaignId(
+                f"campaign-{len(self.list_campaigns_use_case.result.campaigns) + 1}"
+            ),
             name=command.name,
         )
         self.list_campaigns_use_case.result = ListCampaignsResult(
@@ -333,7 +332,7 @@ class FakeRuntime:
         )
         list_campaigns = FakeUseCase(ListCampaignsResult(campaigns=campaigns))
         list_jobs = FakeUseCase(ListJobsForCampaignResult(jobs=jobs))
-        self.use_cases = Stage1UseCases(
+        self.use_cases = application_use_cases_from_flat(
             create_campaign=FakeCreateCampaignUseCase(list_campaigns),
             get_campaign=FakeUseCase(
                 GetCampaignResult(campaign=dashboard_campaign),
@@ -714,7 +713,7 @@ def _set_fake_job_status(
     job_id: str,
     status: JobStatus,
 ) -> ProcessingJob:
-    list_jobs = runtime.use_cases.list_jobs_for_campaign
+    list_jobs = runtime.use_cases.jobs.list_for_campaign
     jobs = tuple(
         replace(
             job,
@@ -727,7 +726,7 @@ def _set_fake_job_status(
     )
     updated = next(job for job in jobs if str(job.id) == job_id)
     list_jobs.result = ListJobsForCampaignResult(jobs=jobs)
-    runtime.use_cases.get_job_status.jobs[job_id] = updated
+    runtime.use_cases.jobs.get_status.jobs[job_id] = updated
     return updated
 
 
@@ -758,7 +757,7 @@ async def _wait_for(pilot, condition) -> None:
 def test_tui_dashboard_shows_voice_sample_counts_for_players() -> None:
     async def run() -> None:
         runtime = FakeRuntime()
-        campaign = runtime.use_cases.get_campaign.result.campaign
+        campaign = runtime.use_cases.campaigns.get.result.campaign
         participants = (
             campaign.participants[0],
             Participant(
@@ -796,7 +795,7 @@ def test_tui_dashboard_shows_voice_sample_counts_for_players() -> None:
                 metadata=metadata,
             ),
         )
-        runtime.use_cases.get_campaign.result = GetCampaignResult(
+        runtime.use_cases.campaigns.get.result = GetCampaignResult(
             campaign=replace(
                 campaign,
                 participants=participants,
@@ -809,7 +808,9 @@ def test_tui_dashboard_shows_voice_sample_counts_for_players() -> None:
             await pilot.pause()
             players_table = app.query_one("#players-table", DataTable)
 
-            assert [column.label.plain for column in players_table.columns.values()] == [
+            assert [
+                column.label.plain for column in players_table.columns.values()
+            ] == [
                 "ID",
                 "Name",
                 "Voice Samples",
@@ -825,13 +826,13 @@ def test_tui_dashboard_shows_voice_sample_counts_for_players() -> None:
 def test_tui_dashboard_refreshes_from_events_without_overwriting_status() -> None:
     async def run() -> None:
         runtime = FakeRuntime()
-        pending, failed = runtime.use_cases.list_jobs_for_campaign.result.jobs
+        pending, failed = runtime.use_cases.jobs.list_for_campaign.result.jobs
         waiting = replace(
             failed,
             status=JobStatus.WAITING_FOR_REVIEW,
             error_message=None,
         )
-        runtime.use_cases.list_jobs_for_campaign.result = ListJobsForCampaignResult(
+        runtime.use_cases.jobs.list_for_campaign.result = ListJobsForCampaignResult(
             jobs=(pending, waiting),
         )
         app = NoteKeeperTui(runtime)
@@ -845,7 +846,7 @@ def test_tui_dashboard_refreshes_from_events_without_overwriting_status() -> Non
                 JobStatus.RUNNING,
             ):
                 updated = replace(waiting, status=status)
-                runtime.use_cases.list_jobs_for_campaign.result = (
+                runtime.use_cases.jobs.list_for_campaign.result = (
                     ListJobsForCampaignResult(jobs=(pending, updated))
                 )
                 runtime.dashboard_events.publish(
@@ -862,8 +863,8 @@ def test_tui_dashboard_refreshes_from_events_without_overwriting_status() -> Non
             assert "Processing" in str(app.query_one("#status", Static).render())
 
             completed = replace(waiting, status=JobStatus.COMPLETED)
-            runtime.use_cases.list_jobs_for_campaign.result = (
-                ListJobsForCampaignResult(jobs=(pending, completed))
+            runtime.use_cases.jobs.list_for_campaign.result = ListJobsForCampaignResult(
+                jobs=(pending, completed)
             )
             runtime.dashboard_events.publish(
                 DashboardChangedEvent(
@@ -874,7 +875,7 @@ def test_tui_dashboard_refreshes_from_events_without_overwriting_status() -> Non
             await pilot.pause()
             assert jobs_table.get_row_at(0)[1] == JobStatus.RUNNING.value
 
-            campaign_reads = len(runtime.use_cases.list_campaigns.commands)
+            campaign_reads = len(runtime.use_cases.campaigns.list.commands)
             runtime.dashboard_events.publish(
                 DashboardChangedEvent(
                     campaign_id="campaign-2",
@@ -883,7 +884,7 @@ def test_tui_dashboard_refreshes_from_events_without_overwriting_status() -> Non
             )
             await pilot.pause()
             await pilot.pause()
-            assert len(runtime.use_cases.list_campaigns.commands) > campaign_reads
+            assert len(runtime.use_cases.campaigns.list.commands) > campaign_reads
             assert jobs_table.get_row_at(0)[1] == JobStatus.COMPLETED.value
 
     asyncio.run(run())
@@ -892,13 +893,13 @@ def test_tui_dashboard_refreshes_from_events_without_overwriting_status() -> Non
 def test_tui_compacts_identifier_cells_and_shows_full_hover_tooltips() -> None:
     async def run() -> None:
         runtime = FakeRuntime()
-        jobs = runtime.use_cases.list_jobs_for_campaign.result.jobs
+        jobs = runtime.use_cases.jobs.list_for_campaign.result.jobs
         job_with_transcript = replace(
             jobs[0],
             transcript_id="transcript-123456789",
         )
         job_with_recap = replace(jobs[1], recap_id="recap-987654321")
-        runtime.use_cases.list_jobs_for_campaign.result = ListJobsForCampaignResult(
+        runtime.use_cases.jobs.list_for_campaign.result = ListJobsForCampaignResult(
             jobs=(job_with_transcript, job_with_recap),
         )
 
@@ -937,7 +938,7 @@ def test_tui_compacts_identifier_cells_and_shows_full_hover_tooltips() -> None:
 def test_tui_sorts_dashboard_rows_newest_first() -> None:
     async def run() -> None:
         runtime = FakeRuntime()
-        campaign = runtime.use_cases.list_campaigns.result.campaigns[0]
+        campaign = runtime.use_cases.campaigns.list.result.campaigns[0]
         metadata = AudioMetadata(duration_seconds=30, format="wav")
         second_track = AudioTrack(
             id="audio-track-2",
@@ -953,7 +954,7 @@ def test_tui_sorts_dashboard_rows_newest_first() -> None:
             campaign_id=campaign.id,
             display_name="Bob",
         )
-        jobs = runtime.use_cases.list_jobs_for_campaign.result.jobs
+        jobs = runtime.use_cases.jobs.list_for_campaign.result.jobs
         older_job = replace(
             jobs[0],
             warnings=(
@@ -963,26 +964,31 @@ def test_tui_sorts_dashboard_rows_newest_first() -> None:
         newer_job = replace(
             jobs[1],
             warnings=(
-                PipelineWarning(PipelineWarningKind.UNKNOWN_PARTICIPANT, "newer warning"),
+                PipelineWarning(
+                    PipelineWarningKind.UNKNOWN_PARTICIPANT, "newer warning"
+                ),
             ),
         )
-        runtime.use_cases.list_audio_tracks.result = ListAudioTracksResult(
-            audio_tracks=(*runtime.use_cases.list_audio_tracks.result.audio_tracks, second_track),
+        runtime.use_cases.recordings.list.result = ListAudioTracksResult(
+            audio_tracks=(
+                *runtime.use_cases.recordings.list.result.audio_tracks,
+                second_track,
+            ),
         )
-        runtime.use_cases.list_participants.result = ListParticipantsResult(
+        runtime.use_cases.participants.list.result = ListParticipantsResult(
             participants=(
-                *runtime.use_cases.list_participants.result.participants,
+                *runtime.use_cases.participants.list.result.participants,
                 second_participant,
             ),
         )
-        runtime.use_cases.get_campaign.result = GetCampaignResult(
+        runtime.use_cases.campaigns.get.result = GetCampaignResult(
             campaign=replace(
-                runtime.use_cases.get_campaign.result.campaign,
-                audio_tracks=runtime.use_cases.list_audio_tracks.result.audio_tracks,
-                participants=runtime.use_cases.list_participants.result.participants,
+                runtime.use_cases.campaigns.get.result.campaign,
+                audio_tracks=runtime.use_cases.recordings.list.result.audio_tracks,
+                participants=runtime.use_cases.participants.list.result.participants,
             ),
         )
-        runtime.use_cases.list_jobs_for_campaign.result = ListJobsForCampaignResult(
+        runtime.use_cases.jobs.list_for_campaign.result = ListJobsForCampaignResult(
             jobs=(older_job, newer_job),
         )
 
@@ -1043,10 +1049,10 @@ def test_tui_action_buttons_follow_current_dashboard_context() -> None:
             assert action_button.disabled is False
             assert str(action_button.label) == "Run"
 
-            campaign = runtime.use_cases.list_campaigns.result.campaigns[0]
-            participant = runtime.use_cases.list_participants.result.participants[0]
+            campaign = runtime.use_cases.campaigns.list.result.campaigns[0]
+            participant = runtime.use_cases.participants.list.result.participants[0]
             metadata = AudioMetadata(duration_seconds=12, format="wav")
-            runtime.use_cases.list_voice_samples.result = ListVoiceSamplesResult(
+            runtime.use_cases.samples.list.result = ListVoiceSamplesResult(
                 voice_samples=(
                     VoiceSample(
                         id="voice-sample-1",
@@ -1057,10 +1063,10 @@ def test_tui_action_buttons_follow_current_dashboard_context() -> None:
                     ),
                 ),
             )
-            runtime.use_cases.get_campaign.result = GetCampaignResult(
+            runtime.use_cases.campaigns.get.result = GetCampaignResult(
                 campaign=replace(
-                    runtime.use_cases.get_campaign.result.campaign,
-                    voice_samples=runtime.use_cases.list_voice_samples.result.voice_samples,
+                    runtime.use_cases.campaigns.get.result.campaign,
+                    voice_samples=runtime.use_cases.samples.list.result.voice_samples,
                 ),
             )
             app.refresh_dashboard(update_campaigns=False)
@@ -1081,13 +1087,13 @@ def test_tui_action_buttons_follow_current_dashboard_context() -> None:
             assert str(action_button.label) == "Restart"
 
             waiting_job = replace(
-                runtime.use_cases.list_jobs_for_campaign.result.jobs[1],
+                runtime.use_cases.jobs.list_for_campaign.result.jobs[1],
                 status=JobStatus.WAITING_FOR_REVIEW,
                 transcript_id="transcript-1",
                 error_message=None,
             )
-            pending_job = runtime.use_cases.list_jobs_for_campaign.result.jobs[0]
-            runtime.use_cases.list_jobs_for_campaign.result = ListJobsForCampaignResult(
+            pending_job = runtime.use_cases.jobs.list_for_campaign.result.jobs[0]
+            runtime.use_cases.jobs.list_for_campaign.result = ListJobsForCampaignResult(
                 jobs=(pending_job, waiting_job),
             )
             app._selected_object = waiting_job
@@ -1113,7 +1119,7 @@ def test_tui_action_buttons_follow_current_dashboard_context() -> None:
                 status=JobStatus.COMPLETED,
                 recap_id="recap-1",
             )
-            runtime.use_cases.list_jobs_for_campaign.result = ListJobsForCampaignResult(
+            runtime.use_cases.jobs.list_for_campaign.result = ListJobsForCampaignResult(
                 jobs=(pending_job, completed_job),
             )
             app.refresh_dashboard(update_campaigns=False)
@@ -1127,7 +1133,7 @@ def test_tui_action_buttons_follow_current_dashboard_context() -> None:
 def test_tui_recreate_recap_runs_worker_and_refreshes_selected_job() -> None:
     async def run() -> None:
         runtime = FakeRuntime()
-        pending_job, failed_job = runtime.use_cases.list_jobs_for_campaign.result.jobs
+        pending_job, failed_job = runtime.use_cases.jobs.list_for_campaign.result.jobs
         job_with_transcript = replace(
             failed_job,
             status=JobStatus.COMPLETED,
@@ -1135,7 +1141,7 @@ def test_tui_recreate_recap_runs_worker_and_refreshes_selected_job() -> None:
             recap_id="recap-old",
             error_message=None,
         )
-        runtime.use_cases.list_jobs_for_campaign.result = ListJobsForCampaignResult(
+        runtime.use_cases.jobs.list_for_campaign.result = ListJobsForCampaignResult(
             jobs=(pending_job, job_with_transcript),
         )
         new_recap = Recap(
@@ -1144,7 +1150,7 @@ def test_tui_recreate_recap_runs_worker_and_refreshes_selected_job() -> None:
             markdown="# New recap",
         )
         updated_job = replace(job_with_transcript, recap_id=new_recap.id)
-        runtime.use_cases.generate_recap.result = GenerateRecapResult(
+        runtime.use_cases.recaps.generate.result = GenerateRecapResult(
             job=updated_job,
             recap=new_recap,
         )
@@ -1159,7 +1165,7 @@ def test_tui_recreate_recap_runs_worker_and_refreshes_selected_job() -> None:
             await pilot.click("#recreate-recap")
             await pilot.pause()
 
-            command = runtime.use_cases.generate_recap.commands[-1]
+            command = runtime.use_cases.recaps.generate.commands[-1]
             assert isinstance(command, GenerateRecapCommand)
             assert command.job_id == "job-2"
             assert isinstance(app._selected_object, ProcessingJob)
@@ -1187,7 +1193,7 @@ def test_tui_job_delete_and_cancel_buttons_follow_job_status() -> None:
             failed = app._selected_object
             assert isinstance(failed, ProcessingJob)
             running = replace(failed, status=JobStatus.RUNNING)
-            runtime.use_cases.list_jobs_for_campaign.result = ListJobsForCampaignResult(
+            runtime.use_cases.jobs.list_for_campaign.result = ListJobsForCampaignResult(
                 jobs=(running,),
             )
             app.refresh_dashboard(update_campaigns=False)
@@ -1210,9 +1216,7 @@ def test_tui_delete_job_opens_preserving_confirmation() -> None:
             await pilot.click("#delete-job")
             await pilot.pause()
             assert isinstance(app.screen, JobActionConfirmationScreen)
-            text = " ".join(
-                str(label.render()) for label in app.screen.query("Label")
-            )
+            text = " ".join(str(label.render()) for label in app.screen.query("Label"))
             assert "Transcripts and recaps will be preserved" in text
             await pilot.click("#back")
 
@@ -1225,18 +1229,18 @@ def test_tui_dashboard_uses_one_campaign_aggregate_read() -> None:
         app = NoteKeeperTui(runtime)
         async with app.run_test() as pilot:
             await pilot.pause()
-            assert len(runtime.use_cases.get_campaign.commands) == 1
-            command = runtime.use_cases.get_campaign.commands[0]
+            assert len(runtime.use_cases.campaigns.get.commands) == 1
+            command = runtime.use_cases.campaigns.get.commands[0]
             assert isinstance(command, GetCampaignCommand)
             assert command.campaign_id == "campaign-1"
-            assert not runtime.use_cases.list_participants.commands
-            assert not runtime.use_cases.list_voice_samples.commands
-            assert not runtime.use_cases.list_audio_tracks.commands
+            assert not runtime.use_cases.participants.list.commands
+            assert not runtime.use_cases.samples.list.commands
+            assert not runtime.use_cases.recordings.list.commands
 
-            campaign_list_reads = len(runtime.use_cases.list_campaigns.commands)
+            campaign_list_reads = len(runtime.use_cases.campaigns.list.commands)
             app.refresh_dashboard(update_campaigns=False)
-            assert len(runtime.use_cases.get_campaign.commands) == 2
-            assert len(runtime.use_cases.list_campaigns.commands) == campaign_list_reads
+            assert len(runtime.use_cases.campaigns.get.commands) == 2
+            assert len(runtime.use_cases.campaigns.list.commands) == campaign_list_reads
 
     asyncio.run(run())
 
@@ -1249,7 +1253,8 @@ def test_tui_players_and_warnings_are_selectable_without_object_actions() -> Non
             tables = {
                 table.id: table
                 for table in app.query(DataTable)
-                if table.id in {
+                if table.id
+                in {
                     "jobs-table",
                     "recordings-table",
                     "players-table",
@@ -1365,7 +1370,7 @@ def test_tui_recording_and_player_actions_follow_selection_and_sample_state() ->
             )
             assert app.query_one("#remove-voice-sample", Button).disabled is True
 
-            campaign = runtime.use_cases.get_campaign.result.campaign
+            campaign = runtime.use_cases.campaigns.get.result.campaign
             sample = VoiceSample(
                 id="sample-1",
                 campaign_id=campaign.id,
@@ -1373,7 +1378,7 @@ def test_tui_recording_and_player_actions_follow_selection_and_sample_state() ->
                 artifact=ArtifactRef(uri="players/Alice/sample.wav"),
                 metadata=AudioMetadata(duration_seconds=10, format="wav"),
             )
-            runtime.use_cases.get_campaign.result = GetCampaignResult(
+            runtime.use_cases.campaigns.get.result = GetCampaignResult(
                 campaign=replace(campaign, voice_samples=(sample,)),
             )
             app.refresh_dashboard(update_campaigns=False)
@@ -1403,7 +1408,7 @@ def test_tui_rename_recording_and_player_use_existing_update_use_cases() -> None
             await pilot.click("#rename")
             await pilot.pause()
 
-            recording_command = runtime.use_cases.update_audio_track.commands[-1]
+            recording_command = runtime.use_cases.recordings.update.commands[-1]
             assert isinstance(recording_command, UpdateAudioTrackCommand)
             assert recording_command.campaign_id == "campaign-1"
             assert recording_command.audio_track_id == "audio-track-1"
@@ -1428,7 +1433,7 @@ def test_tui_rename_recording_and_player_use_existing_update_use_cases() -> None
             await pilot.click("#rename")
             await pilot.pause()
 
-            participant_command = runtime.use_cases.update_participant.commands[-1]
+            participant_command = runtime.use_cases.participants.update.commands[-1]
             assert isinstance(participant_command, UpdateParticipantCommand)
             assert participant_command.campaign_id == "campaign-1"
             assert participant_command.participant_id == "participant-1"
@@ -1454,22 +1459,22 @@ def test_tui_remove_recording_and_player_require_confirmation() -> None:
             assert isinstance(app.screen, ObjectActionConfirmationScreen)
             await pilot.click("#back")
             await pilot.pause()
-            assert runtime.use_cases.delete_audio_track.commands == []
+            assert runtime.use_cases.recordings.delete.commands == []
 
             await pilot.click("#remove-recording")
             await pilot.pause()
-            campaign = runtime.use_cases.get_campaign.result.campaign
-            runtime.use_cases.get_campaign.result = GetCampaignResult(
+            campaign = runtime.use_cases.campaigns.get.result.campaign
+            runtime.use_cases.campaigns.get.result = GetCampaignResult(
                 campaign=replace(campaign, audio_tracks=()),
             )
             await pilot.click("#confirm")
             await pilot.pause()
-            recording_command = runtime.use_cases.delete_audio_track.commands[-1]
+            recording_command = runtime.use_cases.recordings.delete.commands[-1]
             assert isinstance(recording_command, DeleteAudioTrackCommand)
             assert recording_command.audio_track_id == "audio-track-1"
             assert isinstance(app._selected_object, ProcessingJob)
 
-            campaign = runtime.use_cases.get_campaign.result.campaign
+            campaign = runtime.use_cases.campaigns.get.result.campaign
             app._select_table_row(
                 app.query_one("#players-table", DataTable),
                 "participant-1",
@@ -1482,12 +1487,12 @@ def test_tui_remove_recording_and_player_require_confirmation() -> None:
                 str(label.render()) for label in app.screen.query("Label")
             )
             assert "voice samples" in modal_text
-            runtime.use_cases.get_campaign.result = GetCampaignResult(
+            runtime.use_cases.campaigns.get.result = GetCampaignResult(
                 campaign=replace(campaign, participants=()),
             )
             await pilot.click("#confirm")
             await pilot.pause()
-            participant_command = runtime.use_cases.delete_participant.commands[-1]
+            participant_command = runtime.use_cases.participants.delete.commands[-1]
             assert isinstance(participant_command, DeleteParticipantCommand)
             assert participant_command.participant_id == "participant-1"
             assert isinstance(app._selected_object, ProcessingJob)
@@ -1498,7 +1503,7 @@ def test_tui_remove_recording_and_player_require_confirmation() -> None:
 def test_tui_remove_voice_sample_selects_one_sample_and_keeps_player_selected() -> None:
     async def run() -> None:
         runtime = FakeRuntime()
-        campaign = runtime.use_cases.get_campaign.result.campaign
+        campaign = runtime.use_cases.campaigns.get.result.campaign
         samples = tuple(
             VoiceSample(
                 id=f"sample-{index}",
@@ -1509,10 +1514,10 @@ def test_tui_remove_voice_sample_selects_one_sample_and_keeps_player_selected() 
             )
             for index in (1, 2)
         )
-        runtime.use_cases.get_campaign.result = GetCampaignResult(
+        runtime.use_cases.campaigns.get.result = GetCampaignResult(
             campaign=replace(campaign, voice_samples=samples),
         )
-        runtime.use_cases.list_voice_samples.result = ListVoiceSamplesResult(
+        runtime.use_cases.samples.list.result = ListVoiceSamplesResult(
             voice_samples=samples,
         )
         app = NoteKeeperTui(runtime)
@@ -1526,7 +1531,7 @@ def test_tui_remove_voice_sample_selects_one_sample_and_keeps_player_selected() 
             await pilot.click("#remove-voice-sample")
             await pilot.pause()
             assert isinstance(app.screen, RemoveVoiceSampleScreen)
-            list_command = runtime.use_cases.list_voice_samples.commands[-1]
+            list_command = runtime.use_cases.samples.list.commands[-1]
             assert list_command.campaign_id == "campaign-1"
             assert list_command.participant_id == "participant-1"
 
@@ -1535,7 +1540,7 @@ def test_tui_remove_voice_sample_selects_one_sample_and_keeps_player_selected() 
             await pilot.pause()
             await pilot.click("#remove")
             await pilot.pause()
-            delete_command = runtime.use_cases.delete_voice_sample.commands[-1]
+            delete_command = runtime.use_cases.samples.delete.commands[-1]
             assert isinstance(delete_command, DeleteVoiceSampleCommand)
             assert delete_command.campaign_id == "campaign-1"
             assert delete_command.voice_sample_id == "sample-2"
@@ -1583,12 +1588,12 @@ def test_tui_selection_falls_back_to_job_then_recording() -> None:
                 "participant-1",
             )
 
-            runtime.use_cases.list_participants.result = ListParticipantsResult(
+            runtime.use_cases.participants.list.result = ListParticipantsResult(
                 participants=(),
             )
-            runtime.use_cases.get_campaign.result = GetCampaignResult(
+            runtime.use_cases.campaigns.get.result = GetCampaignResult(
                 campaign=replace(
-                    runtime.use_cases.get_campaign.result.campaign,
+                    runtime.use_cases.campaigns.get.result.campaign,
                     participants=(),
                 ),
             )
@@ -1596,7 +1601,7 @@ def test_tui_selection_falls_back_to_job_then_recording() -> None:
             assert isinstance(app._selected_object, ProcessingJob)
             assert str(app._selected_object.id) == "job-2"
 
-            runtime.use_cases.list_jobs_for_campaign.result = ListJobsForCampaignResult(
+            runtime.use_cases.jobs.list_for_campaign.result = ListJobsForCampaignResult(
                 jobs=(),
             )
             app.refresh_dashboard(update_campaigns=False)
@@ -1658,7 +1663,7 @@ def test_tui_campaign_settings_edit_each_recap_prompt_independently() -> None:
             editor = app.screen.query_one("#recap-prompt-text", TextArea)
             assert editor.text == "chunk prompt"
             assert isinstance(
-                runtime.use_cases.get_recap_guidances.commands[-1],
+                runtime.use_cases.campaigns.get_recap_guidances.commands[-1],
                 GetRecapGuidancesCommand,
             )
             editor.text = "updated chunk"
@@ -1667,7 +1672,9 @@ def test_tui_campaign_settings_edit_each_recap_prompt_independently() -> None:
             await pilot.click("#save")
             await pilot.pause()
             assert isinstance(app.screen, CampaignSettingsScreen)
-            chunk_command = runtime.use_cases.update_recap_guidances.commands[-1]
+            chunk_command = runtime.use_cases.campaigns.update_recap_guidances.commands[
+                -1
+            ]
             assert isinstance(chunk_command, UpdateRecapGuidancesCommand)
             assert chunk_command.chunk_recap_guidances == "updated chunk"
             assert chunk_command.combined_recap_guidances is None
@@ -1722,7 +1729,9 @@ def test_tui_manages_campaigns_in_a_modal() -> None:
             assert screen.query_one("#create", Button).disabled is False
             screen.query_one("#create", Button).press()
             await pilot.pause()
-            assert runtime.use_cases.create_campaign.commands[-1].name == "New Campaign"
+            assert (
+                runtime.use_cases.campaigns.create.commands[-1].name == "New Campaign"
+            )
             assert campaigns_table.row_count == 2
             assert screen._selected_campaign_id == "campaign-2"
 
@@ -1730,7 +1739,10 @@ def test_tui_manages_campaigns_in_a_modal() -> None:
             await pilot.pause()
             screen.query_one("#rename", Button).press()
             await pilot.pause()
-            assert runtime.use_cases.update_campaign.commands[-1].name == "Renamed Campaign"
+            assert (
+                runtime.use_cases.campaigns.update.commands[-1].name
+                == "Renamed Campaign"
+            )
             assert screen.query_one("#campaigns-table", DataTable).get_row_at(1)[1] == (
                 "Renamed Campaign"
             )
@@ -1739,14 +1751,14 @@ def test_tui_manages_campaigns_in_a_modal() -> None:
             await pilot.pause()
             app.screen.query_one("#database-only", Button).press()
             await pilot.pause()
-            assert runtime.use_cases.delete_campaign.commands[-1].delete_files is False
+            assert runtime.use_cases.campaigns.delete.commands[-1].delete_files is False
             assert screen.query_one("#campaigns-table", DataTable).row_count == 1
 
             screen.query_one("#delete", Button).press()
             await pilot.pause()
             app.screen.query_one("#campaign-and-files", Button).press()
             await pilot.pause()
-            assert runtime.use_cases.delete_campaign.commands[-1].delete_files is True
+            assert runtime.use_cases.campaigns.delete.commands[-1].delete_files is True
             assert screen.query_one("#campaigns-table", DataTable).row_count == 0
 
             screen.query_one("#close", Button).press()
@@ -1846,7 +1858,7 @@ def test_tui_sync_folder_button_uses_runtime_use_case() -> None:
                 if "Synced:" in str(app.query_one("#status", Static).render()):
                     break
 
-            command = runtime.use_cases.sync_campaign_folder.commands[0]
+            command = runtime.use_cases.campaigns.sync_folder.commands[0]
             assert isinstance(command, SyncCampaignFolderCommand)
             assert command.campaign_id == "campaign-1"
 
@@ -1864,18 +1876,16 @@ def test_tui_create_job_button_uses_selected_recording() -> None:
             app._select_table_row(recordings_table, "audio-track-1")
             assert isinstance(app._selected_object, AudioTrack)
             assert str(app._selected_object.id) == "audio-track-1"
-            campaign_list_reads = len(runtime.use_cases.list_campaigns.commands)
+            campaign_list_reads = len(runtime.use_cases.campaigns.list.commands)
             app.on_button_pressed(
                 SimpleNamespace(button=SimpleNamespace(id="create-job")),
             )
             await pilot.pause()
 
-            command = (
-                runtime.use_cases.create_processing_job_for_audio_track.commands[0]
-            )
+            command = runtime.use_cases.jobs.create.commands[0]
             assert isinstance(command, CreateProcessingJobForAudioTrackCommand)
             assert command.audio_track_id == "audio-track-1"
-            assert len(runtime.use_cases.list_campaigns.commands) == campaign_list_reads
+            assert len(runtime.use_cases.campaigns.list.commands) == campaign_list_reads
             status = str(app.query_one("#status", Static).render())
             assert "Created job job-1" in status
 
@@ -1898,12 +1908,12 @@ def test_tui_run_job_button_uses_selected_job() -> None:
             )
             for _ in range(20):
                 await pilot.pause()
-                if runtime.use_cases.run_processing_job.commands:
+                if runtime.use_cases.jobs.queue.commands:
                     break
             for _ in range(10):
                 await pilot.pause()
 
-            command = runtime.use_cases.run_processing_job.commands[0]
+            command = runtime.use_cases.jobs.queue.commands[0]
             assert isinstance(command, QueueProcessingJobCommand)
             assert command.job_id == "job-1"
 
@@ -1925,7 +1935,7 @@ def test_tui_restart_failed_job_button_uses_selected_failed_job() -> None:
             )
             await pilot.pause()
 
-            command = runtime.use_cases.restart_failed_processing_job.commands[0]
+            command = runtime.use_cases.jobs.restart_failed.commands[0]
             assert isinstance(command, RestartFailedProcessingJobCommand)
             assert command.job_id == "job-2"
             assert isinstance(app._selected_object, ProcessingJob)
@@ -1940,14 +1950,14 @@ def test_tui_job_action_opens_review_for_waiting_job() -> None:
     async def run() -> None:
         runtime = FakeRuntime()
         waiting_job = replace(
-            runtime.use_cases.list_jobs_for_campaign.result.jobs[1],
+            runtime.use_cases.jobs.list_for_campaign.result.jobs[1],
             status=JobStatus.WAITING_FOR_REVIEW,
             transcript_id="transcript-1",
             error_message=None,
         )
-        runtime.use_cases.list_jobs_for_campaign.result = ListJobsForCampaignResult(
+        runtime.use_cases.jobs.list_for_campaign.result = ListJobsForCampaignResult(
             jobs=(
-                runtime.use_cases.list_jobs_for_campaign.result.jobs[0],
+                runtime.use_cases.jobs.list_for_campaign.result.jobs[0],
                 waiting_job,
             ),
         )
@@ -1969,7 +1979,7 @@ def test_tui_job_action_opens_review_for_waiting_job() -> None:
 def test_tui_review_screen_collects_player_and_custom_label_decisions() -> None:
     async def run() -> None:
         runtime = FakeRuntime()
-        job = runtime.use_cases.list_jobs_for_campaign.result.jobs[0]
+        job = runtime.use_cases.jobs.list_for_campaign.result.jobs[0]
         waiting_job = replace(
             job,
             status=JobStatus.WAITING_FOR_REVIEW,
@@ -1987,7 +1997,7 @@ def test_tui_review_screen_collects_player_and_custom_label_decisions() -> None:
                 ),
             ),
         )
-        participants = runtime.use_cases.list_participants.result.participants
+        participants = runtime.use_cases.participants.list.result.participants
         results = []
         app = NoteKeeperTui(runtime)
         async with app.run_test() as pilot:
@@ -2042,7 +2052,7 @@ def test_tui_review_screen_collects_player_and_custom_label_decisions() -> None:
 def test_tui_review_screen_defaults_to_custom_labels_without_players() -> None:
     async def run() -> None:
         runtime = FakeRuntime()
-        job = runtime.use_cases.list_jobs_for_campaign.result.jobs[0]
+        job = runtime.use_cases.jobs.list_for_campaign.result.jobs[0]
         waiting_job = replace(
             job,
             status=JobStatus.WAITING_FOR_REVIEW,
@@ -2084,7 +2094,7 @@ def test_tui_review_screen_defaults_to_custom_labels_without_players() -> None:
 def test_tui_review_screen_keeps_actions_visible_with_many_speakers() -> None:
     async def run() -> None:
         runtime = FakeRuntime()
-        job = runtime.use_cases.list_jobs_for_campaign.result.jobs[0]
+        job = runtime.use_cases.jobs.list_for_campaign.result.jobs[0]
         warnings = tuple(
             PipelineWarning(
                 kind=PipelineWarningKind.UNRESOLVED_SPEAKER_LABEL,
@@ -2147,14 +2157,14 @@ def test_tui_clear_failed_jobs_confirms_and_refreshes_current_campaign() -> None
             app.screen.query_one("#confirm-clear", Button).press()
             for _ in range(30):
                 await pilot.pause()
-                if runtime.use_cases.clear_failed_jobs_for_campaign.commands:
+                if runtime.use_cases.jobs.clear_failed.commands:
                     break
             for _ in range(30):
                 await pilot.pause()
                 if app.query_one("#jobs-table", DataTable).row_count == 1:
                     break
 
-            command = runtime.use_cases.clear_failed_jobs_for_campaign.commands[0]
+            command = runtime.use_cases.jobs.clear_failed.commands[0]
             assert isinstance(command, ClearFailedJobsForCampaignCommand)
             assert command.campaign_id == "campaign-1"
             assert app.query_one("#jobs-table", DataTable).row_count == 1
@@ -2253,11 +2263,11 @@ def test_voice_sample_screen_selects_and_preflights_local_file() -> None:
                 screen.query_one("#metadata", Static).render(),
             )
             assert screen.query_one("#save", Button).disabled is False
-            assert runtime.use_cases.inspect_local_audio_file.commands
+            assert runtime.use_cases.media.inspect_local_file.commands
             screen.query_one("#participant", Select).value = "participant-1"
             screen._save()
 
-            command = runtime.use_cases.add_voice_sample.commands[-1]
+            command = runtime.use_cases.samples.add.commands[-1]
             assert command.artifact_uri is None
             assert command.source_path == str(Path("session.wav").resolve())
 
@@ -2280,13 +2290,13 @@ def test_recording_screen_preflight_shows_metadata() -> None:
                 screen.query_one("#metadata", Static).render(),
             )
             assert screen.query_one("#submit", Button).disabled is False
-            command = runtime.use_cases.inspect_local_audio_file.commands[-1]
+            command = runtime.use_cases.media.inspect_local_file.commands[-1]
             assert command.source_path == str(Path("session.wav").resolve())
             screen._submit()
             await pilot.pause()
 
             submit_command = (
-                runtime.use_cases.submit_recording_for_processing.commands[-1]
+                runtime.use_cases.recordings.submit_for_processing.commands[-1]
             )
             assert submit_command.artifact_uri is None
             assert submit_command.source_path == str(Path("session.wav").resolve())

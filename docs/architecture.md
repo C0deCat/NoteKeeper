@@ -235,7 +235,7 @@ Jobs layer отвечает за выполнение длительных за�
 
 На ранней стадии job runner может быть синхронным. Позже его можно заменить на очередь и отдельный worker без изменения доменного ядра и use cases.
 
-Текущий `LocalProcessJobExecutor` запускает тяжёлый pipeline в дочернем процессе.
+Текущий `LocalJobManager` запускает тяжёлый pipeline в дочернем процессе.
 Общий locked pipe переносит `progress`, `result` и `error`, а родитель публикует
 события в process-local `InMemoryProgressEventHub`. Активный снимок не
 персистится и удаляется после terminal event. Детали модели и потока описаны в

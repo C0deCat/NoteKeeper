@@ -279,12 +279,5 @@ def _context(*, chunk_index: int | None = 0) -> RecapGenerationContext:
 
 
 def _read_log(tmp_path: Path, filename: str) -> dict:
-    path = (
-        tmp_path
-        / "campaign-1"
-        / "recaps"
-        / "llm-diagnostics"
-        / "recap-1"
-        / filename
-    )
+    path = tmp_path / "campaign-1" / "recaps" / "llm-diagnostics" / "recap-1" / filename
     return json.loads(path.read_text(encoding="utf-8"))
