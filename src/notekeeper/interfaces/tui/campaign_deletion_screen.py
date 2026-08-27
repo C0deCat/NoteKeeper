@@ -7,6 +7,9 @@ from textual.containers import Vertical
 from textual.screen import ModalScreen
 from textual.widgets import Button, Label
 
+from .modal_body import ModalBody
+from .modal_header import ModalHeader
+
 
 class CampaignDeletionScreen(ModalScreen[bool | None]):
     """Let the user choose whether campaign files are removed too."""
@@ -17,15 +20,17 @@ class CampaignDeletionScreen(ModalScreen[bool | None]):
 
     def compose(self) -> ComposeResult:
         with Vertical(classes="modal"):
-            yield Label(f"Delete campaign: {self._campaign_name}")
-            yield Label("This action cannot be undone.")
-            yield Button("Delete from database only", id="database-only")
-            yield Button(
-                "Delete campaign and files",
-                id="campaign-and-files",
-                variant="error",
-            )
-            yield Button("Cancel", id="cancel", variant="primary")
+            yield ModalHeader("Delete Campaign")
+            with ModalBody(classes="modal-body"):
+                yield Label(f"Delete campaign: {self._campaign_name}")
+                yield Label("This action cannot be undone.")
+                yield Button("Delete from database only", id="database-only")
+                yield Button(
+                    "Delete campaign and files",
+                    id="campaign-and-files",
+                    variant="error",
+                )
+                yield Button("Cancel", id="cancel", variant="primary")
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "database-only":

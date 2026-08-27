@@ -1,9 +1,12 @@
 """Modal screen for renaming dashboard objects."""
 
 from textual.app import ComposeResult
-from textual.containers import Vertical
+from textual.containers import Horizontal, Vertical
 from textual.screen import ModalScreen
-from textual.widgets import Button, Input, Label
+from textual.widgets import Button, Input
+
+from .modal_body import ModalBody
+from .modal_header import ModalHeader
 
 
 class RenameScreen(ModalScreen[str | None]):
@@ -16,10 +19,12 @@ class RenameScreen(ModalScreen[str | None]):
 
     def compose(self) -> ComposeResult:
         with Vertical(classes="modal"):
-            yield Label(self._title)
-            yield Input(value=self._current_name, id="new-name")
-            yield Button("Rename", id="rename", variant="primary")
-            yield Button("Cancel", id="cancel")
+            yield ModalHeader(self._title)
+            with ModalBody(classes="modal-body"):
+                yield Input(value=self._current_name, id="new-name")
+                with Horizontal(classes="modal-actions"):
+                    yield Button("Rename", id="rename", variant="primary")
+                    yield Button("Cancel", id="cancel")
 
     def on_mount(self) -> None:
         name_input = self.query_one("#new-name", Input)

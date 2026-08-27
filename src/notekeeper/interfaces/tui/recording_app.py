@@ -6,9 +6,9 @@ from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
 from textual.app import ComposeResult
-from textual.containers import Vertical
+from textual.containers import Horizontal, Vertical
 from textual.screen import ModalScreen
-from textual.widgets import Button, Input, Label, Static
+from textual.widgets import Button, Input, Static
 from textual.worker import Worker, WorkerState
 
 from notekeeper.application import (
@@ -24,6 +24,8 @@ from notekeeper.domain import AudioTrack, DomainError
 from ..contracts import InterfaceRuntime
 from .audio_file_explorer_screen import AudioFileExplorerScreen
 from .common import metadata_text
+from .modal_body import ModalBody
+from .modal_header import ModalHeader
 from .object_action_confirmation_screen import ObjectActionConfirmationScreen
 from .rename_screen import RenameScreen
 
@@ -41,17 +43,24 @@ class RecordingScreen(ModalScreen[bool]):
 
     def compose(self) -> ComposeResult:
         with Vertical(classes="modal"):
-            yield Label("Recording")
-            yield Static(
-                "No file selected",
-                id="source-path",
-                classes="selected-file",
-            )
-            yield Button("Choose File", id="choose-file")
-            yield Input(placeholder="Title", id="title")
-            yield Static("No metadata", id="metadata", classes="metadata")
-            yield Button("Submit", id="submit", variant="primary", disabled=True)
-            yield Button("Cancel", id="cancel")
+            yield ModalHeader("Recording")
+            with ModalBody(classes="modal-body"):
+                yield Static(
+                    "No file selected",
+                    id="source-path",
+                    classes="selected-file",
+                )
+                yield Button("Choose File", id="choose-file")
+                yield Input(placeholder="Title", id="title")
+                yield Static("No metadata", id="metadata", classes="metadata")
+                with Horizontal(classes="modal-actions"):
+                    yield Button(
+                        "Submit",
+                        id="submit",
+                        variant="primary",
+                        disabled=True,
+                    )
+                    yield Button("Cancel", id="cancel")
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "choose-file":
@@ -168,7 +177,7 @@ def _rename_recording(
         )
         app.refresh_dashboard(update_campaigns=False)
     except (ApplicationError, DomainError, ValueError) as exc:
-        app._set_status(str(exc))
+        app._write_ui_log(str(exc))
 
 
 def confirm_remove_recording(
@@ -198,4 +207,4 @@ def _remove_recording(
         )
         app.refresh_dashboard(update_campaigns=False)
     except (ApplicationError, DomainError, ValueError) as exc:
-        app._set_status(str(exc))
+        app._write_ui_log(str(exc))

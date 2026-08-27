@@ -4,7 +4,7 @@ from dataclasses import dataclass
 
 from textual.message import Message
 
-from notekeeper.application import DashboardChangedEvent, ProgressEvent
+from notekeeper.application import ConsoleLogEvent, DashboardChangedEvent, ProgressEvent
 from notekeeper.domain import AudioTrack, Participant, ProcessingJob
 
 
@@ -33,9 +33,16 @@ class ProgressChanged(Message):
         self.event = event
 
 
+class ConsoleLogChanged(Message):
+    def __init__(self, event: ConsoleLogEvent) -> None:
+        super().__init__()
+        self.event = event
+
+
 __all__ = [
     "DashboardInvalidated",
     "DashboardWarning",
+    "ConsoleLogChanged",
     "ProgressChanged",
     "SelectedObject",
 ]

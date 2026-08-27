@@ -5,7 +5,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Protocol
 
-from notekeeper.application.ports import DashboardEventStream, ProgressEventStream
+from notekeeper.application.ports import (
+    ConsoleLogEventStream,
+    DashboardEventStream,
+    ProgressEventStream,
+)
 from notekeeper.application.use_case_facade import ApplicationUseCases
 from notekeeper.domain import ArtifactRef, AuthenticatedUser, ProcessingJob, Workspace
 
@@ -65,6 +69,9 @@ class InterfaceRuntime(Protocol):
 
     @property
     def dashboard_events(self) -> DashboardEventStream: ...
+
+    @property
+    def console_logs(self) -> ConsoleLogEventStream: ...
 
     def start_job_manager(self, *, recover_queued: bool = True) -> None: ...
 

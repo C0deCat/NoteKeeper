@@ -55,6 +55,25 @@ class DashboardRefreshScope(str, Enum):
     CAMPAIGN_CONTENT = "campaign_content"
 
 
+class ConsoleLogSource(str, Enum):
+    STDOUT = "stdout"
+    STDERR = "stderr"
+    LOGGING = "logging"
+
+
+@dataclass(frozen=True, slots=True)
+class ConsoleLogEvent:
+    operation_id: str | None
+    source: ConsoleLogSource
+    text: str
+
+    def __post_init__(self) -> None:
+        if self.operation_id is not None and not self.operation_id.strip():
+            raise ValueError("operation_id must not be empty")
+        if not self.text:
+            raise ValueError("text must not be empty")
+
+
 @dataclass(frozen=True, slots=True)
 class DashboardChangedEvent:
     campaign_id: str | None
@@ -463,6 +482,8 @@ __all__ = [
     "CancelProcessingJobResult",
     "CampaignFolderSnapshot",
     "ClearFailedJobsForCampaignResult",
+    "ConsoleLogEvent",
+    "ConsoleLogSource",
     "CreateCampaignResult",
     "CreateProcessingJobForAudioTrackResult",
     "DashboardChangedEvent",

@@ -3,11 +3,13 @@
 from textual.app import ComposeResult
 from textual.containers import Vertical
 from textual.screen import ModalScreen
-from textual.widgets import Button, Label, Select, Static
+from textual.widgets import Button, Select, Static
 
 from notekeeper.application import ListCampaignsCommand
 
 from ..contracts import InterfaceRuntime
+from .modal_body import ModalBody
+from .modal_header import ModalHeader
 from .recap_prompt_editor_screen import RecapPromptEditorScreen
 from .settings_confirmation_screen import SettingsConfirmationScreen
 
@@ -29,33 +31,39 @@ class CampaignSettingsScreen(ModalScreen[None]):
 
     def compose(self) -> ComposeResult:
         with Vertical(classes="modal settings-menu"):
-            yield Label("Campaign settings")
-            yield Select(
-                ((campaign.name, str(campaign.id)) for campaign in self._campaigns),
-                value=self._campaign_id if self._campaign_id is not None else Select.NULL,
-                prompt="Campaign",
-                id="settings-campaign-select",
-            )
-            yield Static(
-                self._campaign_name or "Select a campaign",
-                id="campaign-settings-name",
-            )
-            disabled = self._campaign_id is None
-            yield Button(
-                "Chunk Recap Prompt", id="chunk-recap-prompt", disabled=disabled
-            )
-            yield Button(
-                "Combined Recap Prompt",
-                id="combined-recap-prompt",
-                disabled=disabled,
-            )
-            yield Button(
-                "Reset Prompts",
-                id="reset-prompts",
-                variant="warning",
-                disabled=disabled,
-            )
-            yield Button("Close", id="close")
+            yield ModalHeader("Campaign Settings", close=True)
+            with ModalBody(classes="modal-body"):
+                yield Select(
+                    ((campaign.name, str(campaign.id)) for campaign in self._campaigns),
+                    value=(
+                        self._campaign_id
+                        if self._campaign_id is not None
+                        else Select.NULL
+                    ),
+                    prompt="Campaign",
+                    id="settings-campaign-select",
+                )
+                yield Static(
+                    self._campaign_name or "Select a campaign",
+                    id="campaign-settings-name",
+                )
+                disabled = self._campaign_id is None
+                yield Button(
+                    "Chunk Recap Prompt",
+                    id="chunk-recap-prompt",
+                    disabled=disabled,
+                )
+                yield Button(
+                    "Combined Recap Prompt",
+                    id="combined-recap-prompt",
+                    disabled=disabled,
+                )
+                yield Button(
+                    "Reset Prompts",
+                    id="reset-prompts",
+                    variant="warning",
+                    disabled=disabled,
+                )
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "chunk-recap-prompt":

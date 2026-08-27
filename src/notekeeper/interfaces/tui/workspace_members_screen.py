@@ -3,12 +3,14 @@
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical
 from textual.screen import ModalScreen
-from textual.widgets import Button, DataTable, Input, Label, Select, Static
+from textual.widgets import Button, DataTable, Input, Select, Static
 
 from notekeeper.application import ApplicationError
 from notekeeper.domain import DomainError, WorkspaceRole
 
 from ..contracts import InterfaceRuntime
+from .modal_body import ModalBody
+from .modal_header import ModalHeader
 from .settings_confirmation_screen import SettingsConfirmationScreen
 
 
@@ -25,32 +27,37 @@ class WorkspaceMembersScreen(ModalScreen[None]):
 
     def compose(self) -> ComposeResult:
         with Vertical(classes="modal workspace-members"):
-            yield Label("Workspace access")
-            yield DataTable(id="workspace-members-table")
-            with Horizontal():
-                yield Input(
-                    placeholder="Existing user login",
-                    id="member-login",
-                    disabled=not self._owner,
-                )
-                yield Select(
-                    (("Editor", "editor"), ("Viewer", "viewer")),
-                    value="editor",
-                    allow_blank=False,
-                    id="member-role",
-                    disabled=not self._owner,
-                )
-            with Horizontal():
-                yield Button("Add", id="add-member", disabled=not self._owner)
-                yield Button(
-                    "Change role", id="change-member-role", disabled=not self._owner
-                )
-                yield Button(
-                    "Remove", id="remove-member", variant="error",
-                    disabled=not self._owner,
-                )
-                yield Button("Back", id="back")
-            yield Static("", id="member-status")
+            yield ModalHeader("Workspace Access")
+            with ModalBody(classes="modal-body"):
+                yield DataTable(id="workspace-members-table")
+                with Horizontal(classes="form-group-row"):
+                    yield Input(
+                        placeholder="Existing user login",
+                        id="member-login",
+                        disabled=not self._owner,
+                    )
+                    yield Select(
+                        (("Editor", "editor"), ("Viewer", "viewer")),
+                        value="editor",
+                        allow_blank=False,
+                        id="member-role",
+                        disabled=not self._owner,
+                    )
+                with Horizontal(classes="modal-actions"):
+                    yield Button("Add", id="add-member", disabled=not self._owner)
+                    yield Button(
+                        "Change role",
+                        id="change-member-role",
+                        disabled=not self._owner,
+                    )
+                    yield Button(
+                        "Remove",
+                        id="remove-member",
+                        variant="error",
+                        disabled=not self._owner,
+                    )
+                    yield Button("Back", id="back")
+                yield Static("", id="member-status")
 
     def on_mount(self) -> None:
         table = self.query_one("#workspace-members-table", DataTable)

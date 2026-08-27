@@ -5,7 +5,7 @@ from typing import Literal, cast
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical
 from textual.screen import ModalScreen
-from textual.widgets import Button, Label, Static, TextArea
+from textual.widgets import Button, Static, TextArea
 
 from notekeeper.application import (
     ApplicationError,
@@ -15,6 +15,7 @@ from notekeeper.application import (
 from notekeeper.domain import DomainError
 
 from ..contracts import InterfaceRuntime
+from .modal_header import ModalHeader
 
 PromptKind = Literal["chunk", "combined"]
 
@@ -36,13 +37,19 @@ class RecapPromptEditorScreen(ModalScreen[None]):
         self._prompt_kind = cast(PromptKind, prompt_kind)
 
     def compose(self) -> ComposeResult:
-        with Vertical(classes="modal recap-prompt-editor"):
-            yield Label(f"{self._title()} — {self._campaign_name}")
-            yield TextArea(id="recap-prompt-text")
-            yield Static("", id="recap-prompt-status")
-            with Horizontal():
-                yield Button("Save", id="save", variant="primary", disabled=True)
-                yield Button("Cancel", id="cancel")
+        with Vertical(classes="modal large-modal recap-prompt-editor"):
+            yield ModalHeader(f"{self._title()} — {self._campaign_name}")
+            with Vertical(classes="modal-body prompt-body"):
+                yield TextArea(id="recap-prompt-text")
+                yield Static("", id="recap-prompt-status")
+                with Horizontal(classes="modal-actions"):
+                    yield Button(
+                        "Save",
+                        id="save",
+                        variant="primary",
+                        disabled=True,
+                    )
+                    yield Button("Cancel", id="cancel")
 
     def on_mount(self) -> None:
         try:

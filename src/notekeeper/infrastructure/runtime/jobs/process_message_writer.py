@@ -6,7 +6,12 @@ from multiprocessing.connection import Connection
 from threading import Lock
 from typing import Any
 
-from notekeeper.application.results import DashboardChangedEvent, ProgressEvent
+from notekeeper.application.results import (
+    ConsoleLogEvent,
+    ConsoleLogSource,
+    DashboardChangedEvent,
+    ProgressEvent,
+)
 
 
 class ProcessMessageWriter:
@@ -23,6 +28,14 @@ class ProcessMessageWriter:
 
     def error(self, value: str) -> None:
         self._send("error", value)
+
+    def log(
+        self,
+        operation_id: str,
+        source: ConsoleLogSource,
+        value: str,
+    ) -> None:
+        self._send("log", ConsoleLogEvent(operation_id, source, value))
 
     def resource_released(self, resource: str) -> None:
         self._send("resource_released", resource)

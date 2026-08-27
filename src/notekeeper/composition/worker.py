@@ -1,9 +1,11 @@
 """Composition root for isolated processing workers."""
 
+from contextlib import redirect_stderr, redirect_stdout
 from dataclasses import dataclass, replace
 from multiprocessing.connection import Connection
 
 from notekeeper.application import (
+    ConsoleLogSource,
     DashboardChangedEvent,
     DashboardRefreshScope,
     RunProcessingJobCommand,
@@ -12,7 +14,7 @@ from notekeeper.application.errors import PortExecutionError
 from notekeeper.domain import ProcessingJobId, ProcessingSettingsSnapshot, WorkspaceId
 from notekeeper.infrastructure.filesystem import SnapshotRecapGuidances
 from notekeeper.infrastructure.runtime import StreamingProgressTrackerFactory
-from notekeeper.infrastructure.runtime.jobs import ProcessMessageWriter
+from notekeeper.infrastructure.runtime.jobs import ProcessLogStream, ProcessMessageWriter
 
 from .factory import LocalServices, build_local_services
 from .job_pipeline import build_processing_pipeline
@@ -60,33 +62,38 @@ def execute_worker_process(
     result_writer: Connection,
 ) -> None:
     writer = ProcessMessageWriter(result_writer)
+    stdout = ProcessLogStream(writer, job_id, ConsoleLogSource.STDOUT)
+    stderr = ProcessLogStream(writer, job_id, ConsoleLogSource.STDERR)
     try:
-        runtime = build_worker_runtime(settings)
-        job = runtime.repositories.job_repository.get(ProcessingJobId(job_id))
-        if job is None:
-            raise PortExecutionError(f"processing job {job_id} was not found")
-        campaign = runtime.repositories.campaign_repository.get(job.campaign_id)
-        if campaign is None or campaign.workspace_id != WorkspaceId(workspace_id):
-            raise PortExecutionError(
-                "processing job does not belong to the requested workspace"
+        with redirect_stdout(stdout), redirect_stderr(stderr):
+            runtime = build_worker_runtime(settings)
+            job = runtime.repositories.job_repository.get(ProcessingJobId(job_id))
+            if job is None:
+                raise PortExecutionError(f"processing job {job_id} was not found")
+            campaign = runtime.repositories.campaign_repository.get(job.campaign_id)
+            if campaign is None or campaign.workspace_id != WorkspaceId(workspace_id):
+                raise PortExecutionError(
+                    "processing job does not belong to the requested workspace"
+                )
+            services = _services_for_job(runtime.services, job, writer=writer)
+            pipeline = build_processing_pipeline(
+                services,
+                services.repositories,
+                progress_tracker_factory=StreamingProgressTrackerFactory(writer),
             )
-        services = _services_for_job(runtime.services, job, writer=writer)
-        pipeline = build_processing_pipeline(
-            services,
-            services.repositories,
-            progress_tracker_factory=StreamingProgressTrackerFactory(writer),
-        )
-        result = pipeline.execute_running(RunProcessingJobCommand(job_id=job_id))
-        writer.publish(
-            DashboardChangedEvent(
-                campaign_id=str(campaign.id),
-                scope=DashboardRefreshScope.CAMPAIGN_CONTENT,
+            result = pipeline.execute_running(RunProcessingJobCommand(job_id=job_id))
+            writer.publish(
+                DashboardChangedEvent(
+                    campaign_id=str(campaign.id),
+                    scope=DashboardRefreshScope.CAMPAIGN_CONTENT,
+                )
             )
-        )
         writer.result(result)
     except BaseException as exc:
         writer.error(f"{type(exc).__name__}: {exc}")
     finally:
+        stdout.flush()
+        stderr.flush()
         writer.close()
 
 

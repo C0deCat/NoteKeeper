@@ -1,6 +1,7 @@
 """Runtime utility adapters."""
 
 from .campaign_mutation_guard import LocalCampaignMutationGuard
+from .console_log_event_hub import InMemoryConsoleLogEventHub
 from .dashboard_event_hub import InMemoryDashboardEventHub
 from .local_dashboard_campaign_repository import (
     LocalDashboardCampaignRepositoryDecorator,
@@ -16,6 +17,7 @@ from .uuid_generator import UuidGenerator
 
 __all__ = [
     "InMemoryDashboardEventHub",
+    "InMemoryConsoleLogEventHub",
     "LocalCampaignMutationGuard",
     "LocalDashboardCampaignRepositoryDecorator",
     "LocalDashboardJobCleanerDecorator",

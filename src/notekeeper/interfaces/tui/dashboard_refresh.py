@@ -47,7 +47,7 @@ def refresh_dashboard(
             app._refresh_campaign_select()
         app._refresh_campaign_panels(announce=announce)
     except (ApplicationError, DomainError, ValueError) as exc:
-        app._set_status(str(exc))
+        app._write_ui_log(str(exc))
 
 
 def _setup_tables(app: NoteKeeperTui) -> None:
@@ -97,8 +97,9 @@ def _refresh_campaign_panels(app: NoteKeeperTui, *, announce: bool = True) -> No
         app._clear_tables()
         app._sync_progress_subscriptions(())
         app._hide_progress()
+        app._set_job_count(0)
         if announce:
-            app._set_status("No campaign")
+            app._write_ui_log("No campaign")
         app._update_action_buttons()
         return
 
@@ -260,8 +261,7 @@ def _refresh_campaign_panels(app: NoteKeeperTui, *, announce: bool = True) -> No
             else (ordered_audio_tracks[0] if ordered_audio_tracks else None)
         )
     app._sync_table_selection()
-    if announce:
-        app._set_status(f"{len(ordered_jobs)} jobs")
+    app._set_job_count(len(ordered_jobs))
     app._update_action_buttons()
     app._sync_progress_subscriptions(ordered_jobs)
     app._show_selected_progress()
@@ -357,14 +357,14 @@ def _select_table_row(
 
     if app._selected_object_key(app._selected_object) == previous_key:
         if announce and app._selected_object is not None:
-            app._set_status(f"Selected {selected_label}")
+            app._write_ui_log(f"Selected {selected_label}")
         return
 
     app._sync_table_selection()
     app._update_action_buttons()
     app._show_selected_progress()
     if announce and app._selected_object is not None:
-        app._set_status(f"Selected {selected_label}")
+        app._write_ui_log(f"Selected {selected_label}")
 
 
 def _event_matches_table_cursor(

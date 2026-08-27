@@ -21,7 +21,7 @@ if TYPE_CHECKING:
 def recreate_recap(app: NoteKeeperTui) -> None:
     job = app._selected_job()
     if job is None or job.transcript_id is None:
-        app._set_status("No transcript")
+        app._write_ui_log("No transcript")
         return
     app._recap_generation_in_progress = True
     app._update_action_buttons()
@@ -39,7 +39,7 @@ def recreate_recap(app: NoteKeeperTui) -> None:
 def preview_recap(app: NoteKeeperTui) -> None:
     job = app._selected_job()
     if job is None or job.recap_id is None:
-        app._set_status("No recap")
+        app._write_ui_log("No recap")
         return
     try:
         result = app.runtime.use_cases.recaps.preview_markdown.execute(
@@ -47,13 +47,13 @@ def preview_recap(app: NoteKeeperTui) -> None:
         )
         app.push_screen(MarkdownPreviewScreen("Recap", result.markdown))
     except (ApplicationError, DomainError, ValueError) as exc:
-        app._set_status(str(exc))
+        app._write_ui_log(str(exc))
 
 
 def export_recap(app: NoteKeeperTui) -> None:
     job = app._selected_job()
     if job is None or job.recap_id is None:
-        app._set_status("No recap")
+        app._write_ui_log("No recap")
         return
     try:
         result = app.runtime.use_cases.recaps.export_markdown.execute(
@@ -61,6 +61,6 @@ def export_recap(app: NoteKeeperTui) -> None:
         )
         location = app.runtime.format_artifact_location(result.artifact)
         app.copy_to_clipboard(location)
-        app._set_status(location)
+        app._write_ui_log(location)
     except (ApplicationError, DomainError, ValueError) as exc:
-        app._set_status(str(exc))
+        app._write_ui_log(str(exc))

@@ -29,7 +29,7 @@ def selected_job(app: NoteKeeperTui) -> ProcessingJob | None:
 def run_selected_job(app: NoteKeeperTui) -> None:
     job = selected_job(app)
     if job is None:
-        app._set_status("Select a job")
+        app._write_ui_log("Select a job")
         return
     app._watch_progress(str(job.id))
     app.run_worker(
@@ -47,7 +47,7 @@ def run_selected_job(app: NoteKeeperTui) -> None:
 def create_job_for_selected_audio_track(app: NoteKeeperTui) -> None:
     audio_track = app._selected_object
     if not isinstance(audio_track, AudioTrack):
-        app._set_status("Select a recording")
+        app._write_ui_log("Select a recording")
         return
 
     try:
@@ -57,18 +57,18 @@ def create_job_for_selected_audio_track(app: NoteKeeperTui) -> None:
             ),
         )
         app._pending_selected_job_id = str(result.job.id)
-        app._set_status(f"Created job {result.job.id}")
+        app._write_ui_log(f"Created job {result.job.id}")
     except (ApplicationError, DomainError, ValueError) as exc:
-        app._set_status(str(exc))
+        app._write_ui_log(str(exc))
 
 
 def restart_selected_failed_job(app: NoteKeeperTui) -> None:
     job = selected_job(app)
     if job is None:
-        app._set_status("Select a job")
+        app._write_ui_log("Select a job")
         return
     if job.status not in {JobStatus.FAILED, JobStatus.CANCELED}:
-        app._set_status("Job is not failed or canceled")
+        app._write_ui_log("Job is not failed or canceled")
         return
 
     try:
@@ -80,15 +80,15 @@ def restart_selected_failed_job(app: NoteKeeperTui) -> None:
             RestartProcessingJobCommand(job_id=str(job.id)),
         )
         app._pending_selected_job_id = str(result.job.id)
-        app._set_status(f"Restarted job {job.id} as {result.job.id}")
+        app._write_ui_log(f"Restarted job {job.id} as {result.job.id}")
     except (ApplicationError, DomainError, ValueError) as exc:
-        app._set_status(str(exc))
+        app._write_ui_log(str(exc))
 
 
 def confirm_delete_selected_job(app: NoteKeeperTui) -> None:
     job = selected_job(app)
     if job is None:
-        app._set_status("Select a job")
+        app._write_ui_log("Select a job")
         return
     app.push_screen(
         JobActionConfirmationScreen("delete", str(job.id)),
@@ -119,7 +119,7 @@ def _delete_job(
 def confirm_cancel_selected_job(app: NoteKeeperTui) -> None:
     job = selected_job(app)
     if job is None:
-        app._set_status("Select a job")
+        app._write_ui_log("Select a job")
         return
     app.push_screen(
         JobActionConfirmationScreen("cancel", str(job.id)),

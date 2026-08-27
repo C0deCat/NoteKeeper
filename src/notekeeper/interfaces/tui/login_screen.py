@@ -3,12 +3,14 @@
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical
 from textual.screen import ModalScreen
-from textual.widgets import Button, Input, Label, Static
+from textual.widgets import Button, Input, Static
 
 from notekeeper.application import ApplicationError
 from notekeeper.domain import AuthenticatedUser, DomainError
 
 from ..contracts import InterfaceRuntime
+from .modal_body import ModalBody
+from .modal_header import ModalHeader
 from .registration_screen import RegistrationScreen
 
 
@@ -19,13 +21,14 @@ class LoginScreen(ModalScreen[AuthenticatedUser]):
 
     def compose(self) -> ComposeResult:
         with Vertical(classes="modal auth-modal"):
-            yield Label("Sign in")
-            yield Input(placeholder="Login", id="login")
-            yield Input(placeholder="Password", password=True, id="password")
-            yield Static("", classes="auth-error", id="login-error")
-            with Horizontal():
-                yield Button("Sign in", id="sign-in", variant="primary")
-                yield Button("Register", id="open-registration")
+            yield ModalHeader("Sign in")
+            with ModalBody(classes="modal-body"):
+                yield Input(placeholder="Login", id="login")
+                yield Input(placeholder="Password", password=True, id="password")
+                yield Static("", classes="auth-error", id="login-error")
+                with Horizontal(classes="modal-actions"):
+                    yield Button("Sign in", id="sign-in", variant="primary")
+                    yield Button("Register", id="open-registration")
 
     def on_mount(self) -> None:
         self.query_one("#login", Input).focus()

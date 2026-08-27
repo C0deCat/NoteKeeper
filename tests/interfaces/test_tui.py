@@ -6,11 +6,15 @@ from types import SimpleNamespace
 
 from textual.containers import VerticalScroll
 from textual.coordinate import Coordinate
+from textual.geometry import Region
 from textual.widgets import Button, DataTable, Input, Select, Static, Switch, TextArea
+from textual.widgets import RichLog
 
 from notekeeper.application import (
     ClearFailedJobsForCampaignCommand,
     ClearFailedJobsForCampaignResult,
+    ConsoleLogEvent,
+    ConsoleLogSource,
     CreateCampaignResult,
     CreateProcessingJobForAudioTrackCommand,
     CreateProcessingJobForAudioTrackResult,
@@ -67,6 +71,7 @@ from notekeeper.domain import (
     VoiceSample,
 )
 from notekeeper.infrastructure.runtime import (
+    InMemoryConsoleLogEventHub,
     InMemoryDashboardEventHub,
     InMemoryProgressEventHub,
     PersistedProgressEventHub,
@@ -119,6 +124,37 @@ def assert_modal_is_centered(screen) -> None:
     modal = screen.query_one(".modal")
     assert abs(2 * modal.region.x + modal.region.width - screen.region.width) <= 1
     assert abs(2 * modal.region.y + modal.region.height - screen.region.height) <= 1
+
+
+def assert_modal_sections_fill_surface(screen) -> None:
+    modal = screen.query_one(".modal")
+    header = screen.query_one(".modal-header")
+    body = screen.query_one(".modal-body")
+
+    assert not modal.styles.border
+    assert not modal.styles.outline
+    assert modal.styles.background.a == 0
+    assert body.styles.background.a > 0
+    assert header.region.x == modal.region.x
+    assert header.region.y == modal.region.y
+    assert header.region.width == modal.region.width
+    assert body.region.x == modal.region.x
+    assert body.region.y == header.region.bottom
+    assert body.region.width == modal.region.width
+    assert body.region.bottom == modal.region.bottom
+
+
+def rich_log_text(log: RichLog) -> str:
+    return "\n".join(line.text for line in log.lines)
+
+
+def assert_icon_button_centered(button: Button, icon: str) -> None:
+    assert button.content_region == button.region
+    lines = button.render_lines(Region(0, 0, button.size.width, button.size.height))
+    center_row = button.size.height // 2
+    center_column = button.size.width // 2
+    assert lines[center_row].text[center_column] == icon
+    assert "".join(line.text for line in lines).strip() == icon
 
 
 class FakeRestartUseCase(FakeUseCase):
@@ -276,6 +312,7 @@ class FakeDeleteCampaignUseCase:
 class FakeRuntime:
     def __init__(self, *, has_campaigns: bool = True) -> None:
         self.dashboard_events = InMemoryDashboardEventHub()
+        self.console_logs = InMemoryConsoleLogEventHub()
         self.progress_events = InMemoryProgressEventHub()
         campaign = Campaign(id=CampaignId("campaign-1"), name="Demo")
         participant = Participant(
@@ -823,7 +860,7 @@ def test_tui_dashboard_shows_voice_sample_counts_for_players() -> None:
     asyncio.run(run())
 
 
-def test_tui_dashboard_refreshes_from_events_without_overwriting_status() -> None:
+def test_tui_dashboard_refreshes_from_events_without_overwriting_logs() -> None:
     async def run() -> None:
         runtime = FakeRuntime()
         pending, failed = runtime.use_cases.jobs.list_for_campaign.result.jobs
@@ -838,7 +875,7 @@ def test_tui_dashboard_refreshes_from_events_without_overwriting_status() -> Non
         app = NoteKeeperTui(runtime)
         async with app.run_test() as pilot:
             await pilot.pause()
-            app._set_status("Processing")
+            app._write_ui_log("Processing")
             jobs_table = app.query_one("#jobs-table", DataTable)
             for status in (
                 JobStatus.RUNNING,
@@ -860,7 +897,8 @@ def test_tui_dashboard_refreshes_from_events_without_overwriting_status() -> Non
                 assert jobs_table.get_row_at(0)[1] == status.value
                 assert isinstance(app._selected_object, ProcessingJob)
                 assert app._selected_object.status is status
-            assert "Processing" in str(app.query_one("#status", Static).render())
+            assert "Processing" in rich_log_text(app.query_one("#console-log", RichLog))
+            assert str(app.query_one("#job-count", Static).render()) == "2 jobs"
 
             completed = replace(waiting, status=JobStatus.COMPLETED)
             runtime.use_cases.jobs.list_for_campaign.result = ListJobsForCampaignResult(
@@ -1174,7 +1212,7 @@ def test_tui_recreate_recap_runs_worker_and_refreshes_selected_job() -> None:
                 compact_identifier("recap-new")
             )
             assert "Recreated recap recap-new" in str(
-                app.query_one("#status", Static).render(),
+                rich_log_text(app.query_one("#console-log", RichLog)),
             )
             assert app._recap_generation_in_progress is False
 
@@ -1216,6 +1254,7 @@ def test_tui_delete_job_opens_preserving_confirmation() -> None:
             await pilot.click("#delete-job")
             await pilot.pause()
             assert isinstance(app.screen, JobActionConfirmationScreen)
+            assert_modal_sections_fill_surface(app.screen)
             text = " ".join(str(label.render()) for label in app.screen.query("Label"))
             assert "Transcripts and recaps will be preserved" in text
             await pilot.click("#back")
@@ -1457,6 +1496,7 @@ def test_tui_remove_recording_and_player_require_confirmation() -> None:
             await pilot.click("#remove-recording")
             await pilot.pause()
             assert isinstance(app.screen, ObjectActionConfirmationScreen)
+            assert_modal_sections_fill_surface(app.screen)
             await pilot.click("#back")
             await pilot.pause()
             assert runtime.use_cases.recordings.delete.commands == []
@@ -1641,6 +1681,136 @@ def test_tui_campaign_actions_wrap_by_available_width() -> None:
     asyncio.run(run())
 
 
+def test_tui_topbar_wraps_without_shrinking_selectors() -> None:
+    async def run() -> None:
+        app = NoteKeeperTui(FakeRuntime())
+        async with app.run_test(size=(140, 35)) as pilot:
+            await pilot.pause()
+            topbar = app.query_one("#topbar")
+            campaign_select = app.query_one("#campaign-select", Select)
+            campaigns = app.query_one("#manage-campaign", Button)
+            settings = app.query_one("#settings", Button)
+            account_status = app.query_one("#account-status")
+
+            assert topbar.has_class("topbar-wide")
+            assert len({widget.region.y for widget in (
+                campaign_select,
+                campaigns,
+                settings,
+                account_status,
+            )}) == 1
+            assert campaign_select.region.x < campaigns.region.x < settings.region.x
+            assert account_status.region.right == topbar.content_region.right
+            assert campaign_select.region.width >= 24
+            assert_icon_button_centered(settings, "⚙")
+
+            await pilot.resize_terminal(80, 35)
+            await pilot.pause()
+            assert topbar.has_class("topbar-account-row")
+            assert account_status.region.y > settings.region.y
+
+            await pilot.resize_terminal(59, 35)
+            await pilot.pause()
+            assert topbar.has_class("topbar-action-row")
+            assert campaigns.region.y > campaign_select.region.y
+            assert account_status.region.y > campaigns.region.y
+
+            await pilot.resize_terminal(58, 35)
+            await pilot.pause()
+            assert topbar.has_class("topbar-selector-rows")
+            assert campaigns.region.y > campaign_select.region.y
+            assert campaign_select.region.width >= 24
+
+            await pilot.resize_terminal(140, 35)
+            await pilot.pause()
+            assert topbar.has_class("topbar-wide")
+            assert account_status.region.right == topbar.content_region.right
+
+    asyncio.run(run())
+
+
+def test_tui_campaign_selector_uses_full_name_as_tooltip() -> None:
+    async def run() -> None:
+        runtime = FakeRuntime()
+        long_name = "A campaign name that is much wider than the selector"
+        campaign = runtime.use_cases.campaigns.list.result.campaigns[0]
+        runtime.use_cases.campaigns.list.result = ListCampaignsResult(
+            campaigns=(replace(campaign, name=long_name),),
+        )
+        app = NoteKeeperTui(runtime)
+
+        async with app.run_test(size=(80, 30)) as pilot:
+            await pilot.pause()
+            selector = app.query_one("#campaign-select", Select)
+            selected_label = selector.query_one("#label", Static).render()
+            assert selector.region.width >= 24
+            assert selector.tooltip == long_name
+            assert str(selected_label).endswith("...")
+
+    asyncio.run(run())
+
+
+def test_tui_console_panel_retains_logs_and_reopens_for_started_job() -> None:
+    async def run() -> None:
+        runtime = FakeRuntime()
+        app = NoteKeeperTui(runtime)
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            panel = app.query_one("#console-panel")
+            log = app.query_one("#console-log", RichLog)
+            assert panel.has_class("collapsed")
+            assert log.max_lines == 1000
+
+            runtime.console_logs.publish(
+                ConsoleLogEvent("job-1", ConsoleLogSource.STDOUT, "first line"),
+            )
+            await pilot.pause()
+            assert panel.has_class("collapsed")
+
+            job_count = str(app.query_one("#job-count", Static).render())
+            app._write_ui_log("Selected job job-1")
+            await pilot.pause()
+            assert panel.has_class("collapsed")
+            assert str(app.query_one("#job-count", Static).render()) == job_count
+            assert "[app] [logging] Selected job job-1" in rich_log_text(log)
+            assert len(app.query("#status")) == 0
+
+            app._on_progress_event(
+                ProgressEvent(
+                    operation_id="job-1",
+                    stage_index=1,
+                    stage_count=1,
+                    timing_available=False,
+                    kind=ProgressEventKind.STARTED,
+                    progress=ProgressBar(stage="transcribing"),
+                ),
+            )
+            await pilot.pause()
+            assert not panel.has_class("collapsed")
+            assert len(log.lines) == 2
+
+            app.query_one("#console-toggle", Button).press()
+            await pilot.pause()
+            assert panel.has_class("collapsed")
+            runtime.console_logs.publish(
+                ConsoleLogEvent("job-1", ConsoleLogSource.STDERR, "second line"),
+            )
+            await pilot.pause()
+            assert panel.has_class("collapsed")
+            assert len(log.lines) == 3
+
+            app.query_one("#console-toggle", Button).press()
+            await pilot.pause()
+            assert not panel.has_class("collapsed")
+            assert len(log.lines) == 3
+
+            for index in range(1005):
+                log.write(f"line {index}")
+            assert len(log.lines) == 1000
+
+    asyncio.run(run())
+
+
 def test_tui_campaign_settings_edit_each_recap_prompt_independently() -> None:
     async def run() -> None:
         runtime = FakeRuntime()
@@ -1661,7 +1831,14 @@ def test_tui_campaign_settings_edit_each_recap_prompt_independently() -> None:
             await pilot.pause()
             assert isinstance(app.screen, RecapPromptEditorScreen)
             editor = app.screen.query_one("#recap-prompt-text", TextArea)
+            modal = app.screen.query_one(".modal")
+            actions = app.screen.query_one(".modal-actions")
             assert editor.text == "chunk prompt"
+            assert modal.region.width >= int(app.screen.region.width * 0.85)
+            assert modal.region.height >= int(app.screen.region.height * 0.85)
+            assert_modal_sections_fill_surface(app.screen)
+            assert editor.region.bottom <= actions.region.y
+            assert actions.region.bottom <= modal.region.bottom
             assert isinstance(
                 runtime.use_cases.campaigns.get_recap_guidances.commands[-1],
                 GetRecapGuidancesCommand,
@@ -1762,9 +1939,17 @@ def test_tui_manages_campaigns_in_a_modal() -> None:
             assert screen.query_one("#campaigns-table", DataTable).row_count == 0
 
             screen.query_one("#close", Button).press()
-            await pilot.pause()
+            for _ in range(10):
+                await pilot.pause()
+                if app.screen is not screen and "No campaign" in rich_log_text(
+                    app.query_one("#console-log", RichLog),
+                ):
+                    break
             assert app._selected_campaign_id is None
-            assert "No campaign" in str(app.query_one("#status", Static).render())
+            assert str(app.query_one("#job-count", Static).render()) == "0 jobs"
+            assert "No campaign" in rich_log_text(
+                app.query_one("#console-log", RichLog),
+            )
 
     asyncio.run(run())
 
@@ -1776,7 +1961,10 @@ def test_tui_dashboard_loads_without_campaigns() -> None:
             await pilot.pause()
             assert app.query_one("#jobs-table", DataTable).row_count == 0
             assert app.query_one("#players-table", DataTable).row_count == 0
-            assert "No campaign" in str(app.query_one("#status", Static).render())
+            assert str(app.query_one("#job-count", Static).render()) == "0 jobs"
+            assert "No campaign" in rich_log_text(
+                app.query_one("#console-log", RichLog),
+            )
             assert app.query_one("#manage-campaign", Button).disabled is False
             assert app.query_one("#sync-folder", Button).disabled is True
             assert app.query_one("#add-player", Button).disabled is True
@@ -1820,13 +2008,33 @@ def test_tui_markdown_previews_are_scrollable_and_centered() -> None:
                 await pilot.pause()
 
                 preview_scroll = screen.query_one("#preview-scroll", VerticalScroll)
+                modal = screen.query_one(".modal")
+                header = screen.query_one(".modal-header")
+                close = screen.query_one("#close", Button)
                 assert preview_scroll.has_focus is True
                 assert preview_scroll.max_scroll_y > 0
                 assert_modal_is_centered(screen)
+                assert modal.region.width >= 85
+                assert modal.region.height >= 34
+                assert_modal_sections_fill_surface(screen)
+                assert close.parent is header
+                assert close.variant == "error"
+                assert str(close.label) == "×"
+                assert header.region.x == modal.region.x
+                assert header.region.y == modal.region.y
+                assert header.region.width == modal.region.width
+                assert close.region.right == modal.region.right
+                assert close.styles.margin.top == 0
+                assert close.styles.margin.right == 0
+                assert close.styles.margin.bottom == 0
+                assert close.styles.margin.left == 0
+                assert_icon_button_centered(close, "×")
 
+                header_region = header.region
                 await pilot.press("end")
                 await pilot.pause()
                 assert preview_scroll.scroll_y > 0
+                assert header.region == header_region
 
                 screen.dismiss(None)
                 await pilot.pause()
@@ -1842,6 +2050,31 @@ def test_tui_short_modal_is_centered() -> None:
             app.push_screen(screen)
             await pilot.pause()
             assert_modal_is_centered(screen)
+            assert_modal_sections_fill_surface(screen)
+            assert screen.query_one(".modal-header").region.height == 3
+            assert screen.query_one(".modal").region.height < 36
+
+    asyncio.run(run())
+
+
+def test_tui_modal_reflows_without_stale_scrollbars_after_resize() -> None:
+    async def run() -> None:
+        app = NoteKeeperTui(FakeRuntime())
+        async with app.run_test(size=(120, 45)) as pilot:
+            screen = ManageCampaignsScreen(app.runtime, "campaign-1")
+            app.push_screen(screen)
+            await pilot.pause()
+            header = screen.query_one(".modal-header")
+
+            await pilot.resize_terminal(60, 24)
+            await pilot.pause()
+            narrow_header = header.region
+            assert_modal_sections_fill_surface(screen)
+
+            await pilot.resize_terminal(120, 45)
+            await pilot.pause()
+            assert header.region.width > narrow_header.width
+            assert_modal_sections_fill_surface(screen)
 
     asyncio.run(run())
 
@@ -1855,7 +2088,9 @@ def test_tui_sync_folder_button_uses_runtime_use_case() -> None:
             await pilot.click("#sync-folder")
             for _ in range(20):
                 await pilot.pause()
-                if "Synced:" in str(app.query_one("#status", Static).render()):
+                if "Synced:" in rich_log_text(
+                    app.query_one("#console-log", RichLog),
+                ):
                     break
 
             command = runtime.use_cases.campaigns.sync_folder.commands[0]
@@ -1886,8 +2121,9 @@ def test_tui_create_job_button_uses_selected_recording() -> None:
             assert isinstance(command, CreateProcessingJobForAudioTrackCommand)
             assert command.audio_track_id == "audio-track-1"
             assert len(runtime.use_cases.campaigns.list.commands) == campaign_list_reads
-            status = str(app.query_one("#status", Static).render())
-            assert "Created job job-1" in status
+            assert "Created job job-1" in rich_log_text(
+                app.query_one("#console-log", RichLog),
+            )
 
     asyncio.run(run())
 
@@ -1940,8 +2176,9 @@ def test_tui_restart_failed_job_button_uses_selected_failed_job() -> None:
             assert command.job_id == "job-2"
             assert isinstance(app._selected_object, ProcessingJob)
             assert str(app._selected_object.id) == "job-3"
-            status = str(app.query_one("#status", Static).render())
-            assert "Restarted job job-2 as job-3" in status
+            assert "Restarted job job-2 as job-3" in rich_log_text(
+                app.query_one("#console-log", RichLog),
+            )
 
     asyncio.run(run())
 
@@ -2117,6 +2354,7 @@ def test_tui_review_screen_keeps_actions_visible_with_many_speakers() -> None:
             screen = app.screen
 
             assert isinstance(screen, ReviewMappingsScreen)
+            assert_modal_sections_fill_surface(screen)
             modal = screen.query_one(".review-modal")
             mappings = screen.query_one(".review-mappings")
             actions = screen.query_one(".review-actions")
@@ -2148,10 +2386,13 @@ def test_tui_clear_failed_jobs_confirms_and_refreshes_current_campaign() -> None
             assert clear_button.disabled is False
 
             clear_button.press()
-            await pilot.pause()
+            for _ in range(10):
+                await pilot.pause()
+                if isinstance(app.screen, ClearFailedJobsScreen):
+                    break
             assert isinstance(app.screen, ClearFailedJobsScreen)
             assert "Clear 1 failed job" in str(
-                app.screen.query_one("Label").render(),
+                app.screen.query_one(".modal-body Label").render(),
             )
 
             app.screen.query_one("#confirm-clear", Button).press()
@@ -2172,7 +2413,7 @@ def test_tui_clear_failed_jobs_confirms_and_refreshes_current_campaign() -> None
             assert str(app._selected_object.id) == "job-1"
             assert clear_button.disabled is True
             assert "Cleared 1 failed jobs" in str(
-                app.query_one("#status", Static).render(),
+                rich_log_text(app.query_one("#console-log", RichLog)),
             )
 
     asyncio.run(run())

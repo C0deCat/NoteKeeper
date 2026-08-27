@@ -3,11 +3,16 @@
 from collections.abc import Callable
 from typing import Protocol
 
-from notekeeper.application.results import DashboardChangedEvent, ProgressEvent
+from notekeeper.application.results import (
+    ConsoleLogEvent,
+    DashboardChangedEvent,
+    ProgressEvent,
+)
 from notekeeper.domain import ProcessingStage
 
 ProgressEventListener = Callable[[ProgressEvent], None]
 DashboardEventListener = Callable[[DashboardChangedEvent], None]
+ConsoleLogEventListener = Callable[[ConsoleLogEvent], None]
 Unsubscribe = Callable[[], None]
 
 
@@ -20,6 +25,22 @@ class DashboardEventStream(Protocol):
 
 
 class DashboardEventHub(DashboardEventPublisher, DashboardEventStream, Protocol):
+    pass
+
+
+class ConsoleLogEventPublisher(Protocol):
+    def publish(self, event: ConsoleLogEvent) -> None: ...
+
+
+class ConsoleLogEventStream(Protocol):
+    def subscribe(self, listener: ConsoleLogEventListener) -> Unsubscribe: ...
+
+
+class ConsoleLogEventHub(
+    ConsoleLogEventPublisher,
+    ConsoleLogEventStream,
+    Protocol,
+):
     pass
 
 

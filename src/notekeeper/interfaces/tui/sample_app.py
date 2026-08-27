@@ -6,9 +6,9 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from textual.app import ComposeResult
-from textual.containers import Vertical
+from textual.containers import Horizontal, Vertical
 from textual.screen import ModalScreen
-from textual.widgets import Button, Label, Select, Static
+from textual.widgets import Button, Select, Static
 
 from notekeeper.application import (
     AddVoiceSampleCommand,
@@ -23,6 +23,8 @@ from notekeeper.domain import DomainError, Participant
 from ..contracts import InterfaceRuntime
 from .audio_file_explorer_screen import AudioFileExplorerScreen
 from .common import metadata_text
+from .modal_body import ModalBody
+from .modal_header import ModalHeader
 from .remove_voice_sample_screen import RemoveVoiceSampleScreen
 
 if TYPE_CHECKING:
@@ -45,17 +47,24 @@ class VoiceSampleScreen(ModalScreen[bool]):
 
     def compose(self) -> ComposeResult:
         with Vertical(classes="modal"):
-            yield Label("Voice Sample")
-            yield Select(self.participants, prompt="Player", id="participant")
-            yield Static(
-                "No file selected",
-                id="source-path",
-                classes="selected-file",
-            )
-            yield Button("Choose File", id="choose-file")
-            yield Static("No metadata", id="metadata", classes="metadata")
-            yield Button("Save", id="save", variant="primary", disabled=True)
-            yield Button("Cancel", id="cancel")
+            yield ModalHeader("Voice Sample")
+            with ModalBody(classes="modal-body"):
+                yield Select(self.participants, prompt="Player", id="participant")
+                yield Static(
+                    "No file selected",
+                    id="source-path",
+                    classes="selected-file",
+                )
+                yield Button("Choose File", id="choose-file")
+                yield Static("No metadata", id="metadata", classes="metadata")
+                with Horizontal(classes="modal-actions"):
+                    yield Button(
+                        "Save",
+                        id="save",
+                        variant="primary",
+                        disabled=True,
+                    )
+                    yield Button("Cancel", id="cancel")
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "choose-file":
@@ -138,11 +147,13 @@ def open_remove_sample(app: NoteKeeperTui, participant: Participant) -> None:
             ),
         ).voice_samples
     except (ApplicationError, DomainError, ValueError) as exc:
-        app._set_status(str(exc))
+        app._write_ui_log(str(exc))
         return
 
     if not samples:
-        app._set_status(f"Player {participant.display_name} has no voice samples")
+        app._write_ui_log(
+            f"Player {participant.display_name} has no voice samples",
+        )
         app._update_action_buttons()
         return
     app.push_screen(
@@ -167,4 +178,4 @@ def _remove_sample(
         )
         app.refresh_dashboard(update_campaigns=False)
     except (ApplicationError, DomainError, ValueError) as exc:
-        app._set_status(str(exc))
+        app._write_ui_log(str(exc))

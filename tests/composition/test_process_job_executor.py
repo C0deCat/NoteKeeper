@@ -10,6 +10,8 @@ from unittest.mock import patch
 import psutil
 
 from notekeeper.application import (
+    ConsoleLogEvent,
+    ConsoleLogSource,
     DashboardChangedEvent,
     DashboardRefreshScope,
     RunProcessingJobResult,
@@ -28,7 +30,10 @@ from notekeeper.domain import (
     ProcessingJob,
     ProcessingJobId,
 )
-from notekeeper.infrastructure.runtime import InMemoryDashboardEventHub
+from notekeeper.infrastructure.runtime import (
+    InMemoryConsoleLogEventHub,
+    InMemoryDashboardEventHub,
+)
 
 
 def _worker_target(*_args):
@@ -119,6 +124,51 @@ def test_job_manager_forwards_dashboard_events_from_child(tmp_path: Path) -> Non
     )
 
     manager._execute_managed(job.id)
+    assert received == [event]
+
+
+def test_job_manager_forwards_console_logs_from_child(tmp_path: Path) -> None:
+    job = ProcessingJob(
+        id=ProcessingJobId("job-1"),
+        campaign_id=CampaignId("campaign-1"),
+        audio_track_id=AudioTrackId("audio-track-1"),
+        status=JobStatus.QUEUED,
+        created_at=datetime(2026, 1, 1),
+        updated_at=datetime(2026, 1, 1),
+    )
+    event = ConsoleLogEvent("job-1", ConsoleLogSource.STDOUT, "loading model")
+    result = RunProcessingJobResult(
+        job=job,
+        transcript=None,
+        recap=None,
+        warnings=(),
+    )
+    console_logs = InMemoryConsoleLogEventHub()
+    received: list[ConsoleLogEvent] = []
+    console_logs.subscribe(received.append)
+    repository = _JobRepository(job)
+    manager = LocalJobManager(
+        _settings(),
+        _Pipeline(repository),
+        _campaigns(),
+        repository,
+        _Clock(),
+        worker_target=_worker_target,
+        lock_root=tmp_path,
+        console_logs=console_logs,
+    )
+    manager._context = _MessageProcessContext(
+        (("log", event), ("result", result)),
+    )
+    manager._write_execution_metadata = lambda *_: None
+    manager._executions[str(job.id)] = _ManagedExecution(
+        job_id=job.id,
+        thread=threading.current_thread(),
+        capacity=_ExecutionCapacity(None, None, None),
+    )
+
+    manager._execute_managed(job.id)
+
     assert received == [event]
 
 

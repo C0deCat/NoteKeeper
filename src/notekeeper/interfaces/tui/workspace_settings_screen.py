@@ -3,7 +3,7 @@
 from textual.app import ComposeResult
 from typing import cast
 
-from textual.containers import Horizontal, VerticalScroll
+from textual.containers import Horizontal, Vertical
 from textual.screen import ModalScreen
 from textual.widgets import Button, Input, Label, Select, Static
 
@@ -13,6 +13,8 @@ from notekeeper.domain import DomainError, WorkspaceRole
 from ..contracts import InterfaceRuntime
 from .settings_confirmation_screen import SettingsConfirmationScreen
 from .workspace_members_screen import WorkspaceMembersScreen
+from .modal_header import ModalHeader
+from .modal_body import ModalBody
 
 
 class WorkspaceSettingsScreen(ModalScreen[None]):
@@ -28,64 +30,82 @@ class WorkspaceSettingsScreen(ModalScreen[None]):
         self._owner = service.current_role() is WorkspaceRole.OWNER
 
     def compose(self) -> ComposeResult:
-        with VerticalScroll(classes="modal workspace-settings-form"):
-            yield Label(f"Workspace — {self._settings.name}")
-            yield Label("Name")
-            yield Input(
-                value=self._settings.name,
-                id="workspace-name",
-                disabled=not self._owner,
-            )
-            yield Label("WhisperX model")
-            yield Select(
-                ((value, value) for value in self._catalog.whisperx_models),
-                value=self._settings.whisperx_model_name,
-                allow_blank=False,
-                id="workspace-whisperx-model",
-                disabled=not self._owner,
-            )
-            yield Label("Transcription language")
-            language = self._settings.whisperx_language or "auto"
-            yield Select(
-                ((value.upper() if value != "auto" else "Auto", value)
-                 for value in self._catalog.whisperx_languages),
-                value=language,
-                allow_blank=False,
-                id="workspace-language",
-                disabled=not self._owner,
-            )
-            yield Label("Recap model")
-            yield Select(
-                ((value, value) for value in self._catalog.deepseek_models),
-                value=self._settings.deepseek_model_name,
-                allow_blank=False,
-                id="workspace-recap-model",
-                disabled=not self._owner,
-            )
-            yield Label("Recap temperature")
-            yield Select(
-                ((f"{value:.1f}", value) for value in self._catalog.temperatures),
-                value=self._settings.deepseek_temperature,
-                allow_blank=False,
-                id="workspace-temperature",
-                disabled=not self._owner,
-            )
-            yield Static("", id="workspace-settings-status")
-            with Horizontal():
-                yield Button(
-                    "Save", id="save-workspace-settings", variant="primary",
-                    disabled=not self._owner,
-                )
-                yield Button(
-                    "Reset processing defaults", id="reset-workspace-settings",
-                    variant="warning", disabled=not self._owner,
-                )
-                yield Button(
-                    "Access",
-                    id="workspace-access",
-                    disabled=not self._runtime.auth.enabled,
-                )
-                yield Button("Back", id="back")
+        with Vertical(classes="modal workspace-settings-form"):
+            yield ModalHeader(f"Workspace — {self._settings.name}")
+            with ModalBody(classes="modal-body"):
+                with Vertical(classes="form-group"):
+                    yield Label("Name")
+                    yield Input(
+                        value=self._settings.name,
+                        id="workspace-name",
+                        disabled=not self._owner,
+                    )
+                with Vertical(classes="form-group"):
+                    yield Label("WhisperX model")
+                    yield Select(
+                        ((value, value) for value in self._catalog.whisperx_models),
+                        value=self._settings.whisperx_model_name,
+                        allow_blank=False,
+                        id="workspace-whisperx-model",
+                        disabled=not self._owner,
+                    )
+                with Vertical(classes="form-group"):
+                    yield Label("Transcription language")
+                    language = self._settings.whisperx_language or "auto"
+                    yield Select(
+                        (
+                            (
+                                value.upper() if value != "auto" else "Auto",
+                                value,
+                            )
+                            for value in self._catalog.whisperx_languages
+                        ),
+                        value=language,
+                        allow_blank=False,
+                        id="workspace-language",
+                        disabled=not self._owner,
+                    )
+                with Vertical(classes="form-group"):
+                    yield Label("Recap model")
+                    yield Select(
+                        ((value, value) for value in self._catalog.deepseek_models),
+                        value=self._settings.deepseek_model_name,
+                        allow_blank=False,
+                        id="workspace-recap-model",
+                        disabled=not self._owner,
+                    )
+                with Vertical(classes="form-group"):
+                    yield Label("Recap temperature")
+                    yield Select(
+                        (
+                            (f"{value:.1f}", value)
+                            for value in self._catalog.temperatures
+                        ),
+                        value=self._settings.deepseek_temperature,
+                        allow_blank=False,
+                        id="workspace-temperature",
+                        disabled=not self._owner,
+                    )
+                yield Static("", id="workspace-settings-status")
+                with Horizontal(classes="modal-actions"):
+                    yield Button(
+                        "Save",
+                        id="save-workspace-settings",
+                        variant="primary",
+                        disabled=not self._owner,
+                    )
+                    yield Button(
+                        "Reset processing defaults",
+                        id="reset-workspace-settings",
+                        variant="warning",
+                        disabled=not self._owner,
+                    )
+                    yield Button(
+                        "Access",
+                        id="workspace-access",
+                        disabled=not self._runtime.auth.enabled,
+                    )
+                    yield Button("Back", id="back")
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "save-workspace-settings":
