@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from pathlib import Path
 from typing import cast
 
+from rich.text import Text
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal, ItemGrid, Vertical, VerticalScroll
 from textual.widgets import (
@@ -15,6 +17,7 @@ from textual.widgets import (
     Header,
     Label,
     ProgressBar,
+    RichLog,
     Select,
     Static,
 )
@@ -25,6 +28,7 @@ from notekeeper.application import (
     CancelProcessingJobResult,
     ClearFailedJobsForCampaignCommand,
     ClearFailedJobsForCampaignResult,
+    ConsoleLogEvent,
     DeleteProcessingJobResult,
     GenerateRecapResult,
     GetCampaignCommand,
@@ -60,13 +64,17 @@ from .campaign_settings_screen import CampaignSettingsScreen
 from .clear_failed_jobs_screen import ClearFailedJobsScreen
 from .common import sync_result_status
 from .dashboard_messages import (
+    ConsoleLogChanged,
     DashboardWarning,
     SelectedObject,
 )
+from .ellipsis_select import EllipsisSelect
 from .identifier_data_table import IdentifierDataTable
 from .login_screen import LoginScreen
 from .participant_app import AddParticipantScreen
+from .responsive_topbar import ResponsiveTopbar
 from .settings_screen import SettingsScreen
+from .tui_log_handler import TuiLogHandler
 
 
 class NoteKeeperTui(App[None]):
@@ -101,6 +109,9 @@ class NoteKeeperTui(App[None]):
         self._active_progress_events: dict[str, ProgressEvent] = {}
         self._progress_unsubscribes: dict[str, Callable[[], None]] = {}
         self._dashboard_unsubscribe: Callable[[], None] | None = None
+        self._console_unsubscribe: Callable[[], None] | None = None
+        self._tui_log_handler: TuiLogHandler | None = None
+        self._notekeeper_logger_propagate = True
         self._dashboard_refresh_scheduled = False
         self._pending_full_refresh = False
         self._pending_content_refresh = False
@@ -112,15 +123,42 @@ class NoteKeeperTui(App[None]):
         auth = getattr(self.runtime, "auth", None)
         auth_enabled = auth is not None and auth.enabled
         yield Header()
-        with Horizontal(id="topbar"):
-            yield Select((), prompt="Workspace", id="workspace-select")
-            yield Select((), prompt="Campaign", id="campaign-select")
-            yield Button("Manage Campaign", id="manage-campaign")
-            yield Button("Settings", id="settings")
-            if auth_enabled:
-                yield Static("", id="auth-user")
-                yield Button("Logout", id="logout")
-            yield Static("Ready", id="status")
+        with ResponsiveTopbar(id="topbar"):
+            with Horizontal(id="topbar-left"):
+                with Horizontal(id="topbar-selectors"):
+                    yield EllipsisSelect(
+                        (),
+                        prompt="Workspace",
+                        id="workspace-select",
+                    )
+                    yield EllipsisSelect(
+                        (),
+                        prompt="Campaign",
+                        id="campaign-select",
+                    )
+                with Horizontal(id="topbar-actions"):
+                    yield Button("Campaigns", id="manage-campaign")
+                    yield Button(
+                        "⚙",
+                        id="settings",
+                        classes="icon-button",
+                        tooltip="Settings",
+                        compact=True,
+                    )
+            with Horizontal(id="account-status"):
+                if auth_enabled:
+                    yield Button(
+                        "⇥",
+                        id="logout",
+                        classes="icon-button",
+                        variant="error",
+                        tooltip="Logout",
+                        compact=True,
+                    )
+                with Vertical(id="account-copy"):
+                    yield Static("0 jobs", id="job-count")
+                    if auth_enabled:
+                        yield Static("", id="auth-user")
         with ItemGrid(
             id="campaign-actions",
             min_column_width=20,
@@ -187,9 +225,20 @@ class NoteKeeperTui(App[None]):
                     classes="panel short-panel",
                     show_cursor=False,
                 )
+        with Vertical(id="console-panel", classes="collapsed"):
+            yield Button("Logs ▲", id="console-toggle")
+            yield RichLog(
+                id="console-log",
+                max_lines=1000,
+                min_width=1,
+                wrap=True,
+                markup=False,
+                auto_scroll=True,
+            )
         yield Footer()
 
     def on_mount(self) -> None:
+        self._setup_console_logging()
         auth = getattr(self.runtime, "auth", None)
         if auth is not None and auth.enabled and auth.current_user is None:
             self.push_screen(LoginScreen(self.runtime), self._authenticated)
@@ -200,7 +249,9 @@ class NoteKeeperTui(App[None]):
         auth = getattr(self.runtime, "auth", None)
         auth_enabled = auth is not None and auth.enabled
         if auth is not None and auth_enabled and auth.current_user is not None:
-            self.query_one("#auth-user", Static).update(auth.current_user.login)
+            user_label = self.query_one("#auth-user", Static)
+            user_label.update(auth.current_user.login)
+            user_label.tooltip = auth.current_user.login
         self._refresh_workspace_select()
         self.runtime.start_job_manager(recover_queued=True)
         if not self._dashboard_initialized:
@@ -237,7 +288,7 @@ class NoteKeeperTui(App[None]):
                     self._refresh_workspace_select()
                     self.refresh_dashboard()
             except (ApplicationError, DomainError, ValueError) as exc:
-                self._set_status(str(exc))
+                self._write_ui_log(str(exc))
             return
         if event.select.id != "campaign-select":
             return
@@ -323,6 +374,48 @@ class NoteKeeperTui(App[None]):
             self._export_recap()
         elif button_id == "diagnostics":
             self._open_diagnostics()
+        elif button_id == "console-toggle":
+            self._set_console_expanded(self.query_one("#console-panel").has_class("collapsed"))
+
+    def _setup_console_logging(self) -> None:
+        if self._console_unsubscribe is None:
+            self._console_unsubscribe = self.runtime.console_logs.subscribe(
+                self._on_console_log_event,
+            )
+        if self._tui_log_handler is not None:
+            return
+        logger = logging.getLogger("notekeeper")
+        self._notekeeper_logger_propagate = logger.propagate
+        logger.propagate = False
+        self._tui_log_handler = TuiLogHandler(self._on_console_log_event)
+        logger.addHandler(self._tui_log_handler)
+
+    def _teardown_console_logging(self) -> None:
+        if self._console_unsubscribe is not None:
+            self._console_unsubscribe()
+            self._console_unsubscribe = None
+        if self._tui_log_handler is not None:
+            logger = logging.getLogger("notekeeper")
+            logger.removeHandler(self._tui_log_handler)
+            logger.propagate = self._notekeeper_logger_propagate
+            self._tui_log_handler = None
+
+    def _on_console_log_event(self, event: ConsoleLogEvent) -> None:
+        self.post_message(ConsoleLogChanged(event))
+
+    def on_console_log_changed(self, message: ConsoleLogChanged) -> None:
+        event = message.event
+        operation = event.operation_id[-8:] if event.operation_id else "app"
+        prefix = Text(f"[{operation}] [{event.source.value}] ", style="dim")
+        prefix.append_text(Text.from_ansi(event.text))
+        self.query_one("#console-log", RichLog).write(prefix)
+
+    def _set_console_expanded(self, expanded: bool) -> None:
+        panel = self.query_one("#console-panel")
+        panel.set_class(not expanded, "collapsed")
+        self.query_one("#console-toggle", Button).label = (
+            "Logs ▼" if expanded else "Logs ▲"
+        )
 
     def on_worker_state_changed(self, event: Worker.StateChanged) -> None:
         if event.worker.group not in {
@@ -338,17 +431,17 @@ class NoteKeeperTui(App[None]):
 
         if event.state is WorkerState.RUNNING:
             if event.worker.group == "sync":
-                self._set_status("Syncing")
+                self._write_ui_log("Syncing")
             elif event.worker.group == "cleanup":
-                self._set_status("Clearing failed jobs")
+                self._write_ui_log("Clearing failed jobs")
             elif event.worker.group == "job-delete":
-                self._set_status("Deleting job")
+                self._write_ui_log("Deleting job")
             elif event.worker.group == "job-cancel":
-                self._set_status("Canceling job")
+                self._write_ui_log("Canceling job")
             elif event.worker.group == "recap":
-                self._set_status("Recreating recap")
+                self._write_ui_log("Recreating recap")
             else:
-                self._set_status("Running")
+                self._write_ui_log("Running")
         elif event.state is WorkerState.SUCCESS:
             if event.worker.group == "review":
                 self._review_job_id = None
@@ -358,7 +451,7 @@ class NoteKeeperTui(App[None]):
             if event.worker.group == "sync":
                 result = cast(SyncCampaignFolderResult, event.worker.result)
                 message = sync_result_status(result)
-                self._set_status(message)
+                self._write_ui_log(message)
                 self.notify(message)
             elif event.worker.group == "cleanup":
                 self._clear_failed_jobs_in_progress = False
@@ -368,35 +461,35 @@ class NoteKeeperTui(App[None]):
                 )
                 deleted_count = len(result.deleted_job_ids)
                 message = f"Cleared {deleted_count} failed jobs"
-                self._set_status(message)
+                self._write_ui_log(message)
                 self.notify(message)
             elif event.worker.group == "job-delete":
                 self._job_delete_in_progress = False
                 result = cast(DeleteProcessingJobResult, event.worker.result)
                 message = f"Deleted job {result.job_id}"
-                self._set_status(message)
+                self._write_ui_log(message)
                 self.notify(message)
             elif event.worker.group == "job-cancel":
                 self._job_cancel_in_progress = False
                 result = cast(CancelProcessingJobResult, event.worker.result)
                 message = f"Canceled job {result.job.id}"
-                self._set_status(message)
+                self._write_ui_log(message)
                 self.notify(message)
             elif event.worker.group == "recap":
                 self._recap_generation_in_progress = False
                 result = cast(GenerateRecapResult, event.worker.result)
                 message = f"Recreated recap {result.recap.id}"
-                self._set_status(message)
+                self._write_ui_log(message)
                 self.notify(message)
             elif event.worker.group == "job":
                 result = cast(QueueProcessingJobResult, event.worker.result)
                 message = f"Queued job {result.job.id}"
-                self._set_status(message)
+                self._write_ui_log(message)
                 self.notify(message)
             elif event.worker.group == "review":
-                self._set_status("Queued reviewed job")
+                self._write_ui_log("Queued reviewed job")
             else:
-                self._set_status("Done")
+                self._write_ui_log("Done")
         elif event.state is WorkerState.ERROR:
             if event.worker.group == "review":
                 self._review_job_id = None
@@ -416,7 +509,7 @@ class NoteKeeperTui(App[None]):
                 self._recap_generation_in_progress = False
                 self._update_action_buttons()
             message = str(event.worker.error) if event.worker.error else "worker failed"
-            self._set_status(message)
+            self._write_ui_log(message)
             self.notify(message, severity="error")
         elif event.state is WorkerState.CANCELLED:
             if event.worker.group == "review":
@@ -493,7 +586,7 @@ class NoteKeeperTui(App[None]):
                         GetCampaignCommand(campaign_id=campaign_id),
                     ).campaign.name
                 except (ApplicationError, DomainError, ValueError) as exc:
-                    self._set_status(str(exc))
+                    self._write_ui_log(str(exc))
                     return
             self.push_screen(
                 SettingsScreen(
@@ -505,14 +598,14 @@ class NoteKeeperTui(App[None]):
             return
         campaign_id = self._selected_campaign_id
         if campaign_id is None:
-            self._set_status("Select a campaign")
+            self._write_ui_log("Select a campaign")
             return
         try:
             campaign = self.runtime.use_cases.campaigns.get.execute(
                 GetCampaignCommand(campaign_id=campaign_id),
             ).campaign
         except (ApplicationError, DomainError, ValueError) as exc:
-            self._set_status(str(exc))
+            self._write_ui_log(str(exc))
             return
         self.push_screen(
             CampaignSettingsScreen(
@@ -572,7 +665,7 @@ class NoteKeeperTui(App[None]):
     def _perform_selected_job_action(self) -> None:
         job = self._selected_job()
         if job is None:
-            self._set_status("Select a job")
+            self._write_ui_log("Select a job")
         elif job.status is JobStatus.PENDING:
             self._run_selected_job()
         elif job.status in {JobStatus.FAILED, JobStatus.CANCELED}:
@@ -580,14 +673,14 @@ class NoteKeeperTui(App[None]):
         elif job.status is JobStatus.WAITING_FOR_REVIEW:
             self._with_campaign(self._open_review)
         else:
-            self._set_status("No action is available for this job")
+            self._write_ui_log("No action is available for this job")
 
     def _confirm_clear_failed_jobs(self) -> None:
         if self._selected_campaign_id is None:
-            self._set_status("Select a campaign")
+            self._write_ui_log("Select a campaign")
             return
         if self._failed_job_count == 0:
-            self._set_status("No failed jobs to clear")
+            self._write_ui_log("No failed jobs to clear")
             return
         if self._clear_failed_jobs_in_progress:
             return
@@ -645,7 +738,9 @@ class NoteKeeperTui(App[None]):
 
     _with_campaign = dashboard_progress._with_campaign
 
-    _set_status = dashboard_progress._set_status
+    _write_ui_log = dashboard_progress._write_ui_log
+
+    _set_job_count = dashboard_progress._set_job_count
 
     _progress = dashboard_progress._progress
 
@@ -667,7 +762,9 @@ class NoteKeeperTui(App[None]):
 
     _hide_progress_if_inactive = dashboard_progress._hide_progress_if_inactive
 
-    on_unmount = dashboard_progress.on_unmount
+    def on_unmount(self) -> None:
+        dashboard_progress.on_unmount(self)
+        self._teardown_console_logging()
 
 
 def run_tui(runtime: InterfaceRuntime) -> None:

@@ -12,6 +12,8 @@ from textual.widgets import (
 )
 
 from notekeeper.application import (
+    ConsoleLogEvent,
+    ConsoleLogSource,
     ProgressEvent,
     ProgressEventKind,
 )
@@ -61,13 +63,19 @@ def _selected_job(app: NoteKeeperTui) -> ProcessingJob | None:
 
 def _with_campaign(app: NoteKeeperTui, action: Callable[[str], object]) -> None:
     if app._selected_campaign_id is None:
-        app._set_status("Select a campaign")
+        app._write_ui_log("Select a campaign")
         return
     action(app._selected_campaign_id)
 
 
-def _set_status(app: NoteKeeperTui, message: str) -> None:
-    app.query_one("#status", Static).update(message)
+def _write_ui_log(app: NoteKeeperTui, message: str) -> None:
+    app._on_console_log_event(
+        ConsoleLogEvent(None, ConsoleLogSource.LOGGING, message),
+    )
+
+
+def _set_job_count(app: NoteKeeperTui, count: int) -> None:
+    app.query_one("#job-count", Static).update(f"{count} jobs")
 
 
 def _progress(app: NoteKeeperTui) -> ProgressBar:
@@ -90,6 +98,8 @@ def _on_progress_event(app: NoteKeeperTui, event: ProgressEvent) -> None:
 
 def on_progress_changed(app: NoteKeeperTui, message: ProgressChanged) -> None:
     event = message.event
+    if event.kind is ProgressEventKind.STARTED:
+        app._set_console_expanded(True)
     app._apply_progress_event(event)
     if (
         event.kind.is_terminal
@@ -204,10 +214,11 @@ __all__ = [
     "_progress",
     "_selected_job",
     "_selected_job_id",
-    "_set_status",
+    "_set_job_count",
     "_show_selected_progress",
     "_sync_progress_subscriptions",
     "_watch_progress",
+    "_write_ui_log",
     "_with_campaign",
     "on_progress_changed",
     "on_unmount",

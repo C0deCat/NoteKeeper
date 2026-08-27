@@ -22,6 +22,7 @@ from notekeeper.domain import (
 )
 
 from .common import warnings_text
+from .modal_header import ModalHeader
 
 if TYPE_CHECKING:
     from .tui import NoteKeeperTui
@@ -49,50 +50,57 @@ class ReviewMappingsScreen(ModalScreen[tuple[ManualSpeakerMappingCommand, ...] |
 
     def compose(self) -> ComposeResult:
         with Vertical(classes="modal review-modal"):
-            yield Label("Review Mapping")
-            yield Static(warnings_text(self.job), classes="metadata")
-            with Vertical(classes="review-mappings"):
-                for index, anonymous_label in enumerate(self.unresolved_labels):
-                    use_custom_label = not self.participants
-                    with Vertical(classes="review-mapping"):
-                        yield Label(anonymous_label, classes="review-speaker-label")
-                        with Horizontal(classes="review-mode"):
-                            yield Label("Select Existing Player")
-                            yield Switch(
-                                value=use_custom_label,
-                                id=f"review-mode-{index}",
+            yield ModalHeader("Review Mapping")
+            with Vertical(classes="modal-body review-body"):
+                yield Static(warnings_text(self.job), classes="metadata")
+                with Vertical(classes="review-mappings"):
+                    for index, anonymous_label in enumerate(self.unresolved_labels):
+                        use_custom_label = not self.participants
+                        with Vertical(classes="review-mapping"):
+                            yield Label(
+                                anonymous_label,
+                                classes="review-speaker-label",
                             )
-                            yield Label("Type Any Label")
-                        participant_select = Select(
-                            tuple(
-                                (
-                                    f"{participant.display_name} ({participant.id})",
-                                    str(participant.id),
+                            with Horizontal(classes="review-mode"):
+                                yield Label("Select Existing Player")
+                                yield Switch(
+                                    value=use_custom_label,
+                                    id=f"review-mode-{index}",
                                 )
-                                for participant in self.participants
-                            ),
-                            prompt="Player",
-                            id=f"review-participant-{index}",
-                        )
-                        participant_select.display = not use_custom_label
-                        yield participant_select
-                        label_input = Input(
-                            value=anonymous_label,
-                            id=f"review-label-{index}",
-                        )
-                        label_input.display = use_custom_label
-                        yield label_input
-            if not self.unresolved_labels:
-                yield Static("No unresolved speaker labels", classes="review-error")
-            yield Static("", id="review-error", classes="review-error")
-            with Horizontal(classes="review-actions"):
-                yield Button(
-                    "Submit",
-                    id="submit",
-                    variant="primary",
-                    disabled=not self.unresolved_labels,
-                )
-                yield Button("Cancel", id="cancel")
+                                yield Label("Type Any Label")
+                            participant_select = Select(
+                                tuple(
+                                    (
+                                        f"{participant.display_name} ({participant.id})",
+                                        str(participant.id),
+                                    )
+                                    for participant in self.participants
+                                ),
+                                prompt="Player",
+                                id=f"review-participant-{index}",
+                            )
+                            participant_select.display = not use_custom_label
+                            yield participant_select
+                            label_input = Input(
+                                value=anonymous_label,
+                                id=f"review-label-{index}",
+                            )
+                            label_input.display = use_custom_label
+                            yield label_input
+                if not self.unresolved_labels:
+                    yield Static(
+                        "No unresolved speaker labels",
+                        classes="review-error",
+                    )
+                yield Static("", id="review-error", classes="review-error")
+                with Horizontal(classes="review-actions"):
+                    yield Button(
+                        "Submit",
+                        id="submit",
+                        variant="primary",
+                        disabled=not self.unresolved_labels,
+                    )
+                    yield Button("Cancel", id="cancel")
 
     def on_switch_changed(self, event: Switch.Changed) -> None:
         switch_id = event.switch.id
@@ -151,10 +159,10 @@ class ReviewMappingsScreen(ModalScreen[tuple[ManualSpeakerMappingCommand, ...] |
 def open_review(app: NoteKeeperTui, campaign_id: str) -> None:
     job = app._selected_job()
     if job is None:
-        app._set_status("Select a job")
+        app._write_ui_log("Select a job")
         return
     if job.status is not JobStatus.WAITING_FOR_REVIEW:
-        app._set_status("Job is not waiting for review")
+        app._write_ui_log("Job is not waiting for review")
         return
 
     participants = app.runtime.use_cases.participants.list.execute(

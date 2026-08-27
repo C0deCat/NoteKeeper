@@ -5,9 +5,9 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from textual.app import ComposeResult
-from textual.containers import Vertical
+from textual.containers import Horizontal, Vertical
 from textual.screen import ModalScreen
-from textual.widgets import Button, Input, Label
+from textual.widgets import Button, Input
 
 from notekeeper.application import (
     AddParticipantToCampaignCommand,
@@ -17,6 +17,8 @@ from notekeeper.application import (
 )
 from notekeeper.domain import DomainError, Participant
 
+from .modal_body import ModalBody
+from .modal_header import ModalHeader
 from .object_action_confirmation_screen import ObjectActionConfirmationScreen
 from .rename_screen import RenameScreen
 
@@ -27,10 +29,12 @@ if TYPE_CHECKING:
 class AddParticipantScreen(ModalScreen[str | None]):
     def compose(self) -> ComposeResult:
         with Vertical(classes="modal"):
-            yield Label("Add Player")
-            yield Input(placeholder="Display name", id="display-name")
-            yield Button("Add", id="add", variant="primary")
-            yield Button("Cancel", id="cancel")
+            yield ModalHeader("Add Player")
+            with ModalBody(classes="modal-body"):
+                yield Input(placeholder="Display name", id="display-name")
+                with Horizontal(classes="modal-actions"):
+                    yield Button("Add", id="add", variant="primary")
+                    yield Button("Cancel", id="cancel")
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "add":
@@ -55,7 +59,7 @@ def add_participant(
         )
         app.refresh_dashboard(update_campaigns=False)
     except (ApplicationError, DomainError, ValueError) as exc:
-        app._set_status(str(exc))
+        app._write_ui_log(str(exc))
 
 
 def open_rename_participant(
@@ -85,7 +89,7 @@ def _rename_participant(
         )
         app.refresh_dashboard(update_campaigns=False)
     except (ApplicationError, DomainError, ValueError) as exc:
-        app._set_status(str(exc))
+        app._write_ui_log(str(exc))
 
 
 def confirm_remove_participant(
@@ -114,4 +118,4 @@ def _remove_participant(
         )
         app.refresh_dashboard(update_campaigns=False)
     except (ApplicationError, DomainError, ValueError) as exc:
-        app._set_status(str(exc))
+        app._write_ui_log(str(exc))

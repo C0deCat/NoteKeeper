@@ -24,8 +24,9 @@ from notekeeper.application import (
 )
 from notekeeper.application.errors import InvalidOperationError, PortExecutionError
 from notekeeper.application.ports import (
-    Clock,
     CampaignRepository,
+    Clock,
+    ConsoleLogEventHub,
     DashboardEventHub,
     JobManager,
     JobRepository,
@@ -83,6 +84,7 @@ class LocalJobManager(JobManager):
         lock_root: str | Path,
         progress_events: ProgressEventHub | None = None,
         dashboard_events: DashboardEventHub | None = None,
+        console_logs: ConsoleLogEventHub | None = None,
         transient_audio_cleaner: TransientAudioCleaner | None = None,
         review_submission_repository: SpeakerReviewSubmissionRepository | None = None,
     ) -> None:
@@ -94,6 +96,7 @@ class LocalJobManager(JobManager):
         self._clock = clock
         self._progress_events = progress_events
         self._dashboard_events = dashboard_events
+        self._console_logs = console_logs
         self._transient_audio_cleaner = transient_audio_cleaner
         self._review_submission_repository = review_submission_repository
         self._lock_root = Path(lock_root)
@@ -384,6 +387,10 @@ class LocalJobManager(JobManager):
                 if kind == "dashboard":
                     if self._dashboard_events is not None:
                         self._dashboard_events.publish(payload)
+                    continue
+                if kind == "log":
+                    if self._console_logs is not None:
+                        self._console_logs.publish(payload)
                     continue
                 if kind == "resource_released":
                     if payload == "gpu":

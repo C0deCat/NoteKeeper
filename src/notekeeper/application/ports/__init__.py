@@ -3,6 +3,10 @@
 from .auth import AuthProvider
 
 from .events import (
+    ConsoleLogEventHub,
+    ConsoleLogEventListener,
+    ConsoleLogEventPublisher,
+    ConsoleLogEventStream,
     DashboardEventHub,
     DashboardEventListener,
     DashboardEventPublisher,
@@ -64,6 +68,10 @@ __all__ = [
     "CampaignMutationGuard",
     "CampaignRepository",
     "Clock",
+    "ConsoleLogEventHub",
+    "ConsoleLogEventListener",
+    "ConsoleLogEventPublisher",
+    "ConsoleLogEventStream",
     "DashboardEventHub",
     "DashboardEventListener",
     "DashboardEventPublisher",

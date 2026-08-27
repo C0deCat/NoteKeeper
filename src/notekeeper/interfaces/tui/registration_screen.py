@@ -3,12 +3,14 @@
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical
 from textual.screen import ModalScreen
-from textual.widgets import Button, Input, Label, Static
+from textual.widgets import Button, Input, Static
 
 from notekeeper.application import ApplicationError
 from notekeeper.domain import AuthenticatedUser, DomainError
 
 from ..contracts import InterfaceRuntime
+from .modal_body import ModalBody
+from .modal_header import ModalHeader
 
 
 class RegistrationScreen(ModalScreen[AuthenticatedUser | None]):
@@ -18,18 +20,23 @@ class RegistrationScreen(ModalScreen[AuthenticatedUser | None]):
 
     def compose(self) -> ComposeResult:
         with Vertical(classes="modal auth-modal"):
-            yield Label("Register")
-            yield Input(placeholder="Login", id="register-login")
-            yield Input(placeholder="Password", password=True, id="register-password")
-            yield Input(
-                placeholder="Repeat password",
-                password=True,
-                id="register-password-confirmation",
-            )
-            yield Static("", classes="auth-error", id="register-error")
-            with Horizontal():
-                yield Button("Register", id="register", variant="primary")
-                yield Button("Back", id="back")
+            yield ModalHeader("Register")
+            with ModalBody(classes="modal-body"):
+                yield Input(placeholder="Login", id="register-login")
+                yield Input(
+                    placeholder="Password",
+                    password=True,
+                    id="register-password",
+                )
+                yield Input(
+                    placeholder="Repeat password",
+                    password=True,
+                    id="register-password-confirmation",
+                )
+                yield Static("", classes="auth-error", id="register-error")
+                with Horizontal(classes="modal-actions"):
+                    yield Button("Register", id="register", variant="primary")
+                    yield Button("Back", id="back")
 
     def on_mount(self) -> None:
         self.query_one("#register-login", Input).focus()

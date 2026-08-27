@@ -30,6 +30,7 @@ from notekeeper.infrastructure.runtime import (
     LocalDashboardJobCleanerDecorator,
     LocalDashboardJobRepositoryDecorator,
     InMemoryDashboardEventHub,
+    InMemoryConsoleLogEventHub,
     PersistedProgressEventHub,
     StreamingProgressTrackerFactory,
 )
@@ -73,6 +74,7 @@ class LocalApplicationHost:
     system_repositories: SystemRepositories
     progress_events: PersistedProgressEventHub
     dashboard_events: InMemoryDashboardEventHub
+    console_logs: InMemoryConsoleLogEventHub
     job_manager: LocalJobManager
 
     def authenticate(self, login: str, password: str) -> ApplicationSession:
@@ -185,6 +187,7 @@ def build_local_host(
     services.transient_audio_cleaner.clean_stale()
     progress_events = PersistedProgressEventHub(services.progress_event_snapshot_store)
     dashboard_events = InMemoryDashboardEventHub()
+    console_logs = InMemoryConsoleLogEventHub()
     system_repositories = _with_dashboard_events(
         services.repositories,
         dashboard_events,
@@ -196,6 +199,7 @@ def build_local_host(
         pipeline,
         progress_events,
         dashboard_events,
+        console_logs,
     )
     return LocalApplicationHost(
         settings=services.settings,
@@ -204,6 +208,7 @@ def build_local_host(
         system_repositories=system_repositories,
         progress_events=progress_events,
         dashboard_events=dashboard_events,
+        console_logs=console_logs,
         job_manager=job_manager,
     )
 
@@ -368,6 +373,7 @@ def _build_local_job_manager(
     processing_pipeline,
     progress_events: PersistedProgressEventHub,
     dashboard_events: InMemoryDashboardEventHub,
+    console_logs: InMemoryConsoleLogEventHub,
 ) -> LocalJobManager:
     return LocalJobManager(
         services.settings,
@@ -379,6 +385,7 @@ def _build_local_job_manager(
         lock_root=_job_lock_root(services.settings),
         progress_events=progress_events,
         dashboard_events=dashboard_events,
+        console_logs=console_logs,
         transient_audio_cleaner=services.transient_audio_cleaner,
         review_submission_repository=(
             repositories.speaker_review_submission_repository

@@ -5,7 +5,7 @@ from __future__ import annotations
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical
 from textual.screen import ModalScreen
-from textual.widgets import Button, DataTable, Input, Label, Static
+from textual.widgets import Button, DataTable, Input, Static
 
 from notekeeper.application import (
     ApplicationError,
@@ -19,6 +19,8 @@ from notekeeper.domain import Campaign, DomainError
 from ..contracts import InterfaceRuntime
 from .campaign_deletion_screen import CampaignDeletionScreen
 from .identifier_data_table import IdentifierDataTable
+from .modal_header import ModalHeader
+from .modal_body import ModalBody
 
 
 class ManageCampaignsScreen(ModalScreen[str | None]):
@@ -36,15 +38,15 @@ class ManageCampaignsScreen(ModalScreen[str | None]):
 
     def compose(self) -> ComposeResult:
         with Vertical(classes="modal"):
-            yield Label("Manage Campaigns")
-            yield IdentifierDataTable(id="campaigns-table")
-            yield Input(placeholder="Campaign name", id="campaign-name")
-            yield Static("", id="campaign-management-status")
-            with Horizontal():
-                yield Button("Create", id="create", variant="primary")
-                yield Button("Rename", id="rename")
-                yield Button("Delete", id="delete", variant="error")
-                yield Button("Close", id="close")
+            yield ModalHeader("Campaigns", close=True)
+            with ModalBody(classes="modal-body"):
+                yield IdentifierDataTable(id="campaigns-table")
+                yield Input(placeholder="Campaign name", id="campaign-name")
+                yield Static("", id="campaign-management-status")
+                with Horizontal(classes="modal-actions"):
+                    yield Button("Create", id="create", variant="primary")
+                    yield Button("Rename", id="rename")
+                    yield Button("Delete", id="delete", variant="error")
 
     def on_mount(self) -> None:
         self._refresh_campaigns()

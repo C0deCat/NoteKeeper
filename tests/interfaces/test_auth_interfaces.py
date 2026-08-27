@@ -1,7 +1,8 @@
 import asyncio
 from pathlib import Path
 
-from textual.widgets import Button, Input, Static
+from textual.geometry import Region
+from textual.widgets import Button, Input, Select, Static
 from typer.testing import CliRunner
 
 from notekeeper.composition import NoteKeeperSettings, build_local_host
@@ -23,6 +24,15 @@ def _settings(tmp_path: Path, *, auth_enabled: bool = True) -> NoteKeeperSetting
         sqlite_path=tmp_path / "notekeeper.sqlite3",
         processing_work_root=tmp_path / "work",
     )
+
+
+def _assert_icon_button_centered(button: Button, icon: str) -> None:
+    assert button.content_region == button.region
+    lines = button.render_lines(Region(0, 0, button.size.width, button.size.height))
+    center_row = button.size.height // 2
+    center_column = button.size.width // 2
+    assert lines[center_row].text[center_column] == icon
+    assert "".join(line.text for line in lines).strip() == icon
 
 
 def test_cli_auth_session_controls_existing_working_commands(tmp_path: Path) -> None:
@@ -102,6 +112,29 @@ def test_tui_requires_login_and_registration_logs_user_in(tmp_path: Path) -> Non
             assert not isinstance(app.screen, (LoginScreen, RegistrationScreen))
             assert runtime.auth.current_user is not None
             assert runtime.auth.current_user.login == "alice"
+            logout = app.query_one("#logout", Button)
+            settings_button = app.query_one("#settings", Button)
+            user = app.query_one("#auth-user", Static)
+            job_count = app.query_one("#job-count", Static)
+            account_status = app.query_one("#account-status")
+            topbar = app.query_one("#topbar")
+            workspace_select = app.query_one("#workspace-select", Select)
+            campaign_select = app.query_one("#campaign-select", Select)
+            assert str(logout.label) == "⇥"
+            assert logout.variant == "error"
+            assert logout.tooltip == "Logout"
+            assert logout.region.x < user.region.x
+            assert job_count.region.x == user.region.x
+            assert job_count.region.y < user.region.y
+            assert account_status.region.right == topbar.content_region.right
+            assert workspace_select.region.width >= 24
+            assert campaign_select.region.width >= 24
+            assert str(settings_button.label) == "⚙"
+            assert settings_button.tooltip == "Settings"
+            _assert_icon_button_centered(settings_button, "⚙")
+            _assert_icon_button_centered(logout, "⇥")
+            assert str(app.query_one("#manage-campaign", Button).label) == "Campaigns"
+            assert len(app.query("#status")) == 0
 
             await pilot.click("#logout")
             await pilot.pause()

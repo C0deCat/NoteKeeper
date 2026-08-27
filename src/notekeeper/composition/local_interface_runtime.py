@@ -2,7 +2,11 @@
 
 from notekeeper.application import AccessContext, GetJobStatusCommand
 from notekeeper.application.errors import AuthenticationRequiredError, AuthorizationError
-from notekeeper.application.ports import DashboardEventStream, ProgressEventStream
+from notekeeper.application.ports import (
+    ConsoleLogEventStream,
+    DashboardEventStream,
+    ProgressEventStream,
+)
 from notekeeper.application.use_case_facade import ApplicationUseCases
 from notekeeper.domain import (
     ArtifactRef,
@@ -61,6 +65,10 @@ class LocalInterfaceRuntime:
     @property
     def dashboard_events(self) -> DashboardEventStream:
         return self._host.dashboard_events
+
+    @property
+    def console_logs(self) -> ConsoleLogEventStream:
+        return self._host.console_logs
 
     @property
     def cli_auth_session_path(self) -> str:

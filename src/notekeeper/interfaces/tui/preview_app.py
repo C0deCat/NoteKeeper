@@ -4,7 +4,9 @@ from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Vertical, VerticalScroll
 from textual.screen import ModalScreen
-from textual.widgets import Button, Label, Markdown
+from textual.widgets import Button, Markdown
+
+from .modal_header import ModalHeader
 
 
 class MarkdownPreviewScreen(ModalScreen[None]):
@@ -18,11 +20,10 @@ class MarkdownPreviewScreen(ModalScreen[None]):
         self._markdown = markdown
 
     def compose(self) -> ComposeResult:
-        with Vertical(classes="modal"):
-            yield Label(self._preview_title)
-            with VerticalScroll(id="preview-scroll"):
+        with Vertical(classes="modal large-modal preview-modal"):
+            yield ModalHeader(self._preview_title, close=True)
+            with VerticalScroll(classes="modal-body", id="preview-scroll"):
                 yield Markdown(self._markdown, id="preview-markdown")
-            yield Button("Close", id="close", variant="primary")
 
     def on_mount(self) -> None:
         self.query_one("#preview-scroll", VerticalScroll).focus()
