@@ -23,6 +23,12 @@ class NoteKeeperSettings(BaseSettings):
     auth_provider: str = "local"
     local_auth_users_path: Path = Field(default=Path("data") / "users.json")
     cli_auth_session_path: Path = Field(default=Path("data") / "auth-session.json")
+    api_host: str = "127.0.0.1"
+    api_port: int = Field(default=8000, ge=1, le=65535)
+    api_upload_max_bytes: int = Field(default=2 * 1024**3, ge=1)
+    api_access_token_ttl_seconds: int = Field(default=15 * 60, ge=1)
+    api_refresh_token_ttl_seconds: int = Field(default=14 * 24 * 60 * 60, ge=2)
+    api_sse_heartbeat_seconds: float = Field(default=15.0, gt=0.0)
     audio_extensions: tuple[str, ...] = DEFAULT_AUDIO_EXTENSIONS
     ffmpeg_bin: Path | None = None
     ffmpeg_path: str = "ffmpeg"
@@ -190,6 +196,13 @@ class NoteKeeperSettings(BaseSettings):
             raise ValueError(
                 "max_concurrent_gpu_jobs must not exceed max_concurrent_jobs"
             )
+        if self.api_refresh_token_ttl_seconds <= self.api_access_token_ttl_seconds:
+            raise ValueError(
+                "api_refresh_token_ttl_seconds must exceed "
+                "api_access_token_ttl_seconds"
+            )
+        if not self.api_host.strip():
+            raise ValueError("api_host must not be empty")
         self._validate_catalog(
             self.whisperx_available_model_names,
             self.whisperx_model_name,

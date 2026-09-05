@@ -5,8 +5,8 @@ transcripts and session recaps. It prepares audio with FFmpeg, transcribes and
 diarizes speech with WhisperX, maps speakers to campaign participants, and uses
 DeepSeek to generate a readable Markdown summary.
 
-The project provides an interactive terminal interface (TUI) for regular use
-and a scriptable CLI for automation. For the project's background, processing
+The project provides an interactive terminal interface (TUI), a scriptable CLI,
+and a local versioned HTTP API. For the project's background, processing
 workflow, technology stack, and architecture, see the
 [project overview](docs/overview.md). A more detailed architectural description
 is available in [docs/architecture.md](docs/architecture.md).
@@ -163,6 +163,40 @@ This local provider is intended for a trusted local machine. Passwords and CLI
 sessions are not encrypted or hashed, and application-level campaign isolation
 does not prevent someone with operating-system access from opening the SQLite,
 JSON, or artifact files directly.
+
+## Local HTTP API
+
+The API is a development-only adapter over the same workspace-scoped use cases
+as the CLI and TUI. It uses local authentication, SQLite, filesystem artifacts,
+an in-memory Bearer session store, and the local process job queue. It is not a
+public Internet deployment profile.
+
+Unlike the TUI and CLI, API mode requires authentication to be enabled:
+
+```dotenv
+NOTEKEEPER_AUTH_ENABLED=true
+NOTEKEEPER_API_HOST=127.0.0.1
+NOTEKEEPER_API_PORT=8000
+NOTEKEEPER_API_UPLOAD_MAX_BYTES=2147483648
+```
+
+Start one local API process:
+
+```console
+uv run notekeeper api
+```
+
+The command also accepts `--host` and `--port`. Interactive OpenAPI docs are at
+`http://127.0.0.1:8000/docs`, while `GET /health` is unauthenticated. Register or
+log in through `/api/v1/auth/register` or `/api/v1/auth/login`, then send the
+returned opaque access token as `Authorization: Bearer <token>`. Access tokens
+last 15 minutes and refresh tokens last 14 days by default. All sessions are
+lost when the API process restarts.
+
+Multipart recording and voice-sample uploads are copied to server-owned
+temporary files and limited to 2 GiB by default. API responses never expose
+managed filesystem paths. See the complete [local API contract](docs/api.md)
+for routes, response formats, and curl examples.
 
 ## Mutable settings
 

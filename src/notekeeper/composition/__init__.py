@@ -9,6 +9,7 @@ from .runtime import (
     build_application_session,
     build_local_host,
 )
+from .web import LocalApiRuntime, build_local_api_runtime, run_local_api
 from .settings import NoteKeeperSettings
 from .worker import WorkerRuntime, build_worker_runtime
 
@@ -23,6 +24,9 @@ __all__ = [
     "WorkerRuntime",
     "build_application_session",
     "build_local_host",
+    "LocalApiRuntime",
+    "build_local_api_runtime",
+    "run_local_api",
     "build_local_services",
     "build_worker_runtime",
 ]

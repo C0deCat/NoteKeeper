@@ -29,11 +29,13 @@ from . import (
 from .common import RuntimeFactory
 
 TuiRunner = Callable[[InterfaceRuntime], None]
+ApiRunner = Callable[[str | None, int | None], None]
 
 
 def build_app(
     runtime_factory: RuntimeFactory,
     tui_runner: TuiRunner,
+    api_runner: ApiRunner | None = None,
 ) -> typer.Typer:
     app = typer.Typer(
         invoke_without_command=True,
@@ -84,6 +86,20 @@ def build_app(
         if workspace is not None:
             runtime.request_workspace(workspace)
         tui_runner(runtime)
+
+    @app.command("api")
+    def run_api(
+        host: str | None = typer.Option(None, "--host"),
+        port: int | None = typer.Option(None, "--port", min=1, max=65535),
+    ) -> None:
+        def action() -> None:
+            if api_runner is None:
+                raise ApplicationError("API runner is unavailable")
+            api_runner(host, port)
+
+        from .common import run
+
+        run(action)
 
     cli.add_typer(
         campaign_app.create_app(authenticated_runtime_factory), name="campaign"

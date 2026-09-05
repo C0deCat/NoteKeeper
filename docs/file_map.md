@@ -201,6 +201,7 @@ Concrete adapters for ports: SQLite, filesystem, FFmpeg, WhisperX, DeepSeek, tok
 Local JSON authentication and CLI credential-session persistence.
 
 - `src/notekeeper/infrastructure/auth/__init__.py` — Explicit public facade for `infrastructure/auth`.
+- `src/notekeeper/infrastructure/auth/in_memory_api_session_manager.py` — Thread-safe opaque access/refresh sessions for the local API profile.
 - `src/notekeeper/infrastructure/auth/local_auth_provider.py` — Locked, atomic local-user authentication and credential mutation adapter.
 - `src/notekeeper/infrastructure/auth/local_cli_session_store.py` — Locked, atomic persisted CLI credential session.
 
@@ -374,6 +375,38 @@ User-facing CLI and Textual TUI adapters plus the interface-facing runtime contr
 - `src/notekeeper/interfaces/__init__.py` — Explicit public facade for `interfaces`.
 - `src/notekeeper/interfaces/contracts.py` — Contracts shared by UI adapters.
 
+### `interfaces/api`
+
+Versioned FastAPI adapter with provider-neutral Bearer identity, workspace-scoped
+routes, multipart uploads, SSE progress, stable schemas, and error envelopes.
+
+- `src/notekeeper/interfaces/api/__init__.py` — Explicit public facade for `interfaces/api`.
+- `src/notekeeper/interfaces/api/app.py` — FastAPI application factory and lifespan wiring.
+- `src/notekeeper/interfaces/api/body_limit_middleware.py` — Streaming request-size enforcement for audio uploads.
+- `src/notekeeper/interfaces/api/contracts.py` — Transport-facing API runtime and session protocols.
+- `src/notekeeper/interfaces/api/dependencies.py` — Bearer identity and workspace-session dependencies.
+- `src/notekeeper/interfaces/api/error_handlers.py` — Unified application/domain-to-HTTP exception mapping.
+- `src/notekeeper/interfaces/api/errors.py` — API transport error values.
+- `src/notekeeper/interfaces/api/openapi.py` — Shared OpenAPI error declarations.
+- `src/notekeeper/interfaces/api/request_id_middleware.py` — Request correlation IDs.
+- `src/notekeeper/interfaces/api/mappers/__init__.py` — Explicit mapper facade.
+- `src/notekeeper/interfaces/api/mappers/resources.py` — Domain-to-HTTP resource mapping.
+- `src/notekeeper/interfaces/api/routers/__init__.py` — Explicit router facade.
+- `src/notekeeper/interfaces/api/routers/auth.py` — Session, identity, and workspace discovery routes.
+- `src/notekeeper/interfaces/api/routers/campaigns.py` — Campaign routes.
+- `src/notekeeper/interfaces/api/routers/health.py` — Local service health route.
+- `src/notekeeper/interfaces/api/routers/jobs.py` — Job actions, status, and SSE routes.
+- `src/notekeeper/interfaces/api/routers/participants.py` — Participant routes.
+- `src/notekeeper/interfaces/api/routers/recordings.py` — Multipart recording routes.
+- `src/notekeeper/interfaces/api/routers/results.py` — Transcript and recap Markdown routes.
+- `src/notekeeper/interfaces/api/routers/samples.py` — Multipart voice-sample routes.
+- `src/notekeeper/interfaces/api/schemas/__init__.py` — Explicit HTTP schema facade.
+- `src/notekeeper/interfaces/api/schemas/auth.py` — Auth and identity DTOs.
+- `src/notekeeper/interfaces/api/schemas/common.py` — Error and collection DTOs.
+- `src/notekeeper/interfaces/api/schemas/resources.py` — Workspace resource DTOs.
+- `src/notekeeper/interfaces/api/utils/__init__.py` — Explicit API utility facade.
+- `src/notekeeper/interfaces/api/utils/uploads.py` — Temporary upload validation, copying, and cleanup.
+
 ### `interfaces/cli`
 
 Scriptable Typer commands and terminal progress output.
@@ -448,6 +481,7 @@ The composition root: settings, concrete dependency construction, host/session/w
 - `src/notekeeper/composition/main.py` — Application entrypoint.
 - `src/notekeeper/composition/repositories.py` — Typed system and workspace repository sets.
 - `src/notekeeper/composition/runtime.py` — Local host and immutable application-session roots.
+- `src/notekeeper/composition/web.py` — Local API runtime adapter and single-worker Uvicorn runner.
 - `src/notekeeper/composition/settings.py` — Environment-loaded platform configuration, defaults, and settings allowlists.
 - `src/notekeeper/composition/use_cases.py` — Aggregation of grouped use-case builders.
 - `src/notekeeper/composition/worker.py` — Isolated worker composition root rebuilt from each processing job's settings snapshot.

@@ -1,5 +1,12 @@
 # Готовность NoteKeeper к веб-интеграции и API
 
+> Обновление от 2026-08-27: локальный API foundation и рабочий vertical slice
+> реализованы. Доступен режим `notekeeper api`, provider-neutral Bearer sessions,
+> workspace-scoped REST routes, multipart audio upload и SSE progress. Разделы
+> ниже, описывающие отсутствие HTTP boundary, сохраняют исходную оценку и
+> обоснование следующих production-этапов. Текущий контракт описан в
+> [api.md](api.md).
+
 ## Назначение и границы оценки
 
 Документ повторно оценивает текущее состояние NoteKeeper и описывает путь от

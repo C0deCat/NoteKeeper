@@ -221,6 +221,24 @@ def test_root_without_args_runs_tui() -> None:
     assert launched == [runtime]
 
 
+def test_api_command_forwards_host_and_port_to_runner() -> None:
+    runtime = FakeRuntime()
+    launched = []
+    app = build_app(
+        lambda: runtime,
+        lambda value: None,
+        lambda host, port: launched.append((host, port)),
+    )
+
+    result = CliRunner().invoke(
+        app,
+        ["api", "--host", "0.0.0.0", "--port", "8123"],
+    )
+
+    assert result.exit_code == 0
+    assert launched == [("0.0.0.0", 8123)]
+
+
 def test_cli_campaign_list_uses_runtime_use_case() -> None:
     runtime = FakeRuntime()
     app = build_app(lambda: runtime, lambda value: None)
